@@ -732,10 +732,18 @@ export default function StaffingApp() {
           }, {} as Record<string, number>)
           const maxCustomer = Math.max(...Object.values(customerCounts), 1)
 
-          const headcounts = projects.map(p => ({
-            name: p.name,
-            count: assignments.filter(a => a.project_id === p.id).length,
-          })).sort((a, b) => b.count - a.count)
+          const headcounts = projects.map(p => {
+            const pa = assignments.filter(a => a.project_id === p.id)
+            return {
+              name: p.name,
+              count: pa.length,
+              roles: {
+                Supervisor: pa.filter(a => a.assignment_role === 'Supervisor').length,
+                STO: pa.filter(a => a.assignment_role === 'STO').length,
+                'Ops Support': pa.filter(a => a.assignment_role === 'Ops Support').length,
+              },
+            }
+          }).sort((a, b) => b.count - a.count)
           const maxHeadcount = Math.max(...headcounts.map(h => h.count), 1)
 
           const statCard = (label: string, value: string | number, sub?: string) => (
@@ -788,11 +796,16 @@ export default function StaffingApp() {
                   <p className="text-gray-600 text-sm">No assignments yet.</p>
                 ) : (
                   <div className="space-y-3">
-                    {headcounts.map(({ name, count }) => (
+                    {headcounts.map(({ name, count, roles }) => (
                       <div key={name}>
                         <div className="flex justify-between text-xs mb-1">
                           <span className="text-gray-300">{name}</span>
-                          <span className="text-gray-500">{count} {count === 1 ? 'person' : 'people'}</span>
+                          <div className="flex items-center gap-3">
+                            {roles.Supervisor > 0 && <span className="text-violet-400">{roles.Supervisor} Supervisor{roles.Supervisor > 1 ? 's' : ''}</span>}
+                            {roles.STO > 0 && <span className="text-blue-400">{roles.STO} STO{roles.STO > 1 ? 's' : ''}</span>}
+                            {roles['Ops Support'] > 0 && <span className="text-emerald-400">{roles['Ops Support']} Ops Support</span>}
+                            <span className="text-gray-500">{count} {count === 1 ? 'person' : 'people'}</span>
+                          </div>
                         </div>
                         <div className="w-full bg-gray-800 rounded-full h-2">
                           <div className="h-2 rounded-full bg-emerald-600" style={{ width: `${(count / maxHeadcount) * 100}%` }} />
