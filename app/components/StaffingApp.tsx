@@ -234,6 +234,39 @@ export default function StaffingApp() {
     e.target.value = ''
   }
 
+  function exportAssignmentsHTML() {
+    const rows = [...projects].sort((a, b) => a.name.localeCompare(b.name)).map(p => {
+      const pa = assignments.filter(a => a.project_id === p.id)
+      if (pa.length === 0) return `<h2>${p.name}</h2><p><em>No staff assigned.</em></p>`
+      const rows = pa.map(a => {
+        const member = staff.find(s => s.id === a.staff_id)
+        return `<tr><td>${member?.name ?? 'Unknown'}</td><td>${member?.position ?? '—'}</td><td>${a.assignment_role ?? '—'}</td></tr>`
+      }).join('')
+      return `<h2>${p.name}${p.customer_codename ? ` <small>(${p.customer_codename})</small>` : ''}</h2>
+<p>Status: ${p.status}${p.end_date ? ` &nbsp;|&nbsp; Ends: ${p.end_date}` : ''}</p>
+<table border="1" cellpadding="6" cellspacing="0" style="border-collapse:collapse;width:100%">
+  <thead><tr><th>Name</th><th>Position</th><th>Role</th></tr></thead>
+  <tbody>${rows}</tbody>
+</table>`
+    }).join('<br/>')
+
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Staffing Assignments</title>
+<style>body{font-family:Arial,sans-serif;max-width:900px;margin:40px auto;color:#111}h1{margin-bottom:8px}h2{margin-top:32px;margin-bottom:4px}table{width:100%;margin-top:8px}th{background:#f0f0f0;text-align:left}td,th{padding:6px 10px}</style>
+</head><body>
+<h1>Code Pod Staffing — Assignments</h1>
+<p style="color:#666">Exported ${new Date().toLocaleDateString()}</p>
+${rows}
+</body></html>`
+
+    const blob = new Blob([html], { type: 'text/html' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `staffing-assignments-${new Date().toISOString().split('T')[0]}.html`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
   async function removeAssignment(id: string) {
     await supabase.from('assignments').delete().eq('id', id)
     setAssignments(assignments.filter(a => a.id !== id))
@@ -592,6 +625,13 @@ export default function StaffingApp() {
             <div className="bg-gray-900 rounded-xl p-5 mb-6 border border-gray-800">
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Assign Staff to Project</h2>
+                <div className="flex items-center gap-2">
+                <button
+                  onClick={exportAssignmentsHTML}
+                  className="text-xs px-3 py-1.5 rounded-lg border border-gray-700 text-gray-400 hover:text-gray-200 transition-colors"
+                >
+                  Export to Google Doc
+                </button>
                 <button
                   onClick={() => setHideAssignedInDropdown(!hideAssignedInDropdown)}
                   className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${
@@ -601,6 +641,7 @@ export default function StaffingApp() {
                 >
                   {hideAssignedInDropdown ? 'Unassigned only' : 'Show unassigned only'}
                 </button>
+                </div>
               </div>
               <div className="flex flex-wrap gap-2">
                 <select
