@@ -269,9 +269,22 @@ ${rows}
   }
 
   async function exportAssignmentsDOCX() {
-    const noBorder = { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' }
     const cellBorder = { style: BorderStyle.SINGLE, size: 4, color: 'DDDDDD' }
     const border = { top: cellBorder, bottom: cellBorder, left: cellBorder, right: cellBorder }
+    const colWidths = [4000, 3000, 2500] // twips: Name, Position, Role
+
+    const makeRow = (vals: string[], isHeader = false) =>
+      new TableRow({
+        children: vals.map((val, i) =>
+          new TableCell({
+            children: [new Paragraph({ children: [new TextRun({ text: val, bold: isHeader, size: 20 })] })],
+            borders: border,
+            shading: { fill: isHeader ? 'EEEEEE' : 'FFFFFF' },
+            width: { size: colWidths[i] ?? 2500, type: WidthType.DXA },
+          })
+        ),
+        tableHeader: isHeader,
+      })
 
     const children: (Paragraph | Table)[] = [
       new Paragraph({ text: 'Code Pod Staffing — Assignments', heading: HeadingLevel.TITLE }),
@@ -288,23 +301,16 @@ ${rows}
         continue
       }
 
-      const headerRow = new TableRow({
-        children: ['Name', 'Position', 'Role'].map(h =>
-          new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: h, bold: true })] })], borders: border, shading: { fill: 'F0F0F0' } })
-        ),
-        tableHeader: true,
-      })
-
       const dataRows = pa.map(a => {
         const member = staff.find(s => s.id === a.staff_id)
-        return new TableRow({
-          children: [member?.name ?? 'Unknown', member?.position ?? '—', a.assignment_role ?? '—'].map(val =>
-            new TableCell({ children: [new Paragraph(val)], borders: border })
-          ),
-        })
+        return makeRow([member?.name ?? 'Unknown', member?.position ?? '—', a.assignment_role ?? '—'])
       })
 
-      children.push(new Table({ rows: [headerRow, ...dataRows], width: { size: 100, type: WidthType.PERCENTAGE } }))
+      children.push(new Table({
+        rows: [makeRow(['Name', 'Position', 'Role'], true), ...dataRows],
+        width: { size: 9500, type: WidthType.DXA },
+      }))
+      children.push(new Paragraph({ text: '' }))
     }
 
     const doc = new Document({ sections: [{ children }] })
