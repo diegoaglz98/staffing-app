@@ -42,7 +42,7 @@ function parseCSVLine(line: string): string[] {
 }
 
 export default function StaffingApp() {
-  const [tab, setTab] = useState<'projects' | 'staff' | 'assignments' | 'dashboard'>('projects')
+  const [tab, setTab] = useState<'projects' | 'staff' | 'assignments' | 'dashboard'>('dashboard')
   const [projects, setProjects] = useState<Project[]>([])
   const [staff, setStaff] = useState<Staff[]>([])
   const [assignments, setAssignments] = useState<Assignment[]>([])
@@ -310,7 +310,7 @@ export default function StaffingApp() {
       <div className="max-w-4xl mx-auto px-8 py-8">
         {/* Tabs */}
         <div className="flex gap-1 mb-8 bg-gray-900 rounded-xl p-1 w-fit">
-          {(['projects', 'staff', 'assignments', 'dashboard'] as const).map(t => (
+          {(['dashboard', 'projects', 'staff', 'assignments'] as const).map(t => (
             <button
               key={t}
               onClick={() => setTab(t)}
