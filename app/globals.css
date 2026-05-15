@@ -32,4 +32,5 @@ html.light {
   --color-gray-100: oklch(15% 0.02 264);
   --color-gray-50:  oklch(8%  0.02 264);
   color-scheme: light;
+  --color-amber-400: oklch(55% 0.16 68); /* darken amber for readability on light bg */
 }
