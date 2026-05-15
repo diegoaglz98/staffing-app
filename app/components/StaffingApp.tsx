@@ -271,7 +271,8 @@ ${rows}
   async function exportAssignmentsDOCX() {
     const cellBorder = { style: BorderStyle.SINGLE, size: 4, color: 'DDDDDD' }
     const border = { top: cellBorder, bottom: cellBorder, left: cellBorder, right: cellBorder }
-    const colWidths = [4000, 3000, 2500] // twips: Name, Position, Role
+    // Page usable width ~9360 twips (letter, 1" margins each side)
+    const colWidths = [4500, 2860, 2000] // Name, Position, Role
 
     const makeRow = (vals: string[], isHeader = false) =>
       new TableRow({
@@ -280,7 +281,7 @@ ${rows}
             children: [new Paragraph({ children: [new TextRun({ text: val, bold: isHeader, size: 20 })] })],
             borders: border,
             shading: { fill: isHeader ? 'EEEEEE' : 'FFFFFF' },
-            width: { size: colWidths[i] ?? 2500, type: WidthType.DXA },
+            width: { size: colWidths[i], type: WidthType.DXA },
           })
         ),
         tableHeader: isHeader,
@@ -308,7 +309,8 @@ ${rows}
 
       children.push(new Table({
         rows: [makeRow(['Name', 'Position', 'Role'], true), ...dataRows],
-        width: { size: 9500, type: WidthType.DXA },
+        width: { size: 9360, type: WidthType.DXA },
+        columnWidths: colWidths,
       }))
       children.push(new Paragraph({ text: '' }))
     }
