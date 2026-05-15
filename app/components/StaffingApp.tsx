@@ -64,6 +64,7 @@ export default function StaffingApp() {
   const [hideAssigned, setHideAssigned] = useState(false)
   const [hideAssignedInDropdown, setHideAssignedInDropdown] = useState(false)
   const [projectSort, setProjectSort] = useState<'default' | 'az' | 'za'>('az')
+  const [showSupervisorsInChart, setShowSupervisorsInChart] = useState(true)
 
   useEffect(() => {
     const saved = localStorage.getItem('theme') as 'dark' | 'light' | 'system' | null
@@ -899,7 +900,18 @@ ${rows}
 
               {/* Headcount per project */}
               <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
-                <p className="text-xs text-gray-500 uppercase tracking-wider mb-4">Total Headcount per Project</p>
+                <div className="flex items-center justify-between mb-4">
+                  <p className="text-xs text-gray-500 uppercase tracking-wider">Total Headcount per Project</p>
+                  <button
+                    onClick={() => setShowSupervisorsInChart(v => !v)}
+                    className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${
+                      showSupervisorsInChart ? 'text-emerald-400' : 'border-gray-700 text-gray-400 hover:text-gray-200'
+                    }`}
+                    style={showSupervisorsInChart ? { borderColor: '#193a29' } : {}}
+                  >
+                    {showSupervisorsInChart ? 'Supervisors: on' : 'Supervisors: off'}
+                  </button>
+                </div>
                 {headcounts.length === 0 ? (
                   <p className="text-gray-600 text-sm">No assignments yet.</p>
                 ) : (
@@ -909,7 +921,7 @@ ${rows}
                         <div className="flex justify-between text-xs mb-1">
                           <span className="text-gray-300">{name}</span>
                           <div className="flex items-center gap-3">
-                            {roles.Supervisor > 0 && <span className="text-violet-400">{roles.Supervisor} Supervisor{roles.Supervisor > 1 ? 's' : ''}</span>}
+                            {showSupervisorsInChart && roles.Supervisor > 0 && <span className="text-violet-400">{roles.Supervisor} Supervisor{roles.Supervisor > 1 ? 's' : ''}</span>}
                             {roles.STO > 0 && <span className="text-blue-400">{roles.STO} STO{roles.STO > 1 ? 's' : ''}</span>}
                             {roles['Ops Support'] > 0 && <span className="text-emerald-400">{roles['Ops Support']} Ops Support</span>}
                             <span className="text-gray-500">{count} {count === 1 ? 'person' : 'people'}</span>
