@@ -501,6 +501,7 @@ export default function StaffingApp() {
             {staff.length === 0 ? (
               <p className="text-gray-600 text-sm">No staff yet.</p>
             ) : (
+              <>
               <table className="w-full text-sm">
                 <thead>
                   <tr className="text-left text-gray-500 border-b border-gray-800">
@@ -579,6 +580,8 @@ export default function StaffingApp() {
                   })}
                 </tbody>
               </table>
+              <p className="text-xs text-gray-500 mt-4 text-right">Total headcount: <span className="text-gray-300 font-medium">{staff.length}</span></p>
+              </>
             )}
           </div>
         )}
