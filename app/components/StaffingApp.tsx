@@ -555,7 +555,12 @@ export default function StaffingApp() {
                                   {staffAssignments.map(a => {
                                     const project = projects.find(p => p.id === a.project_id)
                                     return project ? (
-                                      <span key={a.id} className="text-xs px-2 py-0.5 rounded-full bg-gray-800 text-gray-300">{project.name}</span>
+                                      <span key={a.id} className="text-xs px-2 py-0.5 rounded-full bg-gray-800 text-gray-300 flex items-center gap-1">
+                                        {project.name}
+                                        {a.assignment_role && (
+                                          <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-medium ${roleColor(a.assignment_role)}`}>{a.assignment_role}</span>
+                                        )}
+                                      </span>
                                     ) : null
                                   })}
                                 </div>
