@@ -64,7 +64,7 @@ export default function StaffingApp() {
   const [hideAssigned, setHideAssigned] = useState(false)
   const [hideAssignedInDropdown, setHideAssignedInDropdown] = useState(false)
   const [projectSort, setProjectSort] = useState<'default' | 'az' | 'za'>('az')
-  const [showSupervisorsInChart, setShowSupervisorsInChart] = useState(true)
+  const [showSupervisorsInChart, setShowSupervisorsInChart] = useState(false)
 
   useEffect(() => {
     const saved = localStorage.getItem('theme') as 'dark' | 'light' | 'system' | null
