@@ -916,7 +916,10 @@ ${rows}
                   <p className="text-gray-600 text-sm">No assignments yet.</p>
                 ) : (
                   <div className="space-y-3">
-                    {headcounts.map(({ name, count, roles }) => (
+                    {headcounts.map(({ name, count, roles }) => {
+                      const displayCount = showSupervisorsInChart ? count : count - roles.Supervisor
+                      const displayMax = showSupervisorsInChart ? maxHeadcount : Math.max(...headcounts.map(h => h.count - h.roles.Supervisor), 1)
+                      return (
                       <div key={name}>
                         <div className="flex justify-between text-xs mb-1">
                           <span className="text-gray-300">{name}</span>
@@ -924,14 +927,15 @@ ${rows}
                             {showSupervisorsInChart && roles.Supervisor > 0 && <span className="text-violet-400">{roles.Supervisor} Supervisor{roles.Supervisor > 1 ? 's' : ''}</span>}
                             {roles.STO > 0 && <span className="text-blue-400">{roles.STO} STO{roles.STO > 1 ? 's' : ''}</span>}
                             {roles['Ops Support'] > 0 && <span className="text-emerald-400">{roles['Ops Support']} Ops Support</span>}
-                            <span className="text-gray-500">{count} {count === 1 ? 'person' : 'people'}</span>
+                            <span className="text-gray-500">{displayCount} {displayCount === 1 ? 'person' : 'people'}</span>
                           </div>
                         </div>
                         <div className="w-full bg-gray-800 rounded-full h-2">
-                          <div className="h-2 rounded-full bg-emerald-600" style={{ width: `${(count / maxHeadcount) * 100}%` }} />
+                          <div className="h-2 rounded-full bg-emerald-600" style={{ width: `${(displayCount / displayMax) * 100}%` }} />
                         </div>
                       </div>
-                    ))}
+                    )})}
+
                   </div>
                 )}
               </div>
