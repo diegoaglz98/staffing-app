@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
+import { Document, Packer, Paragraph, Table, TableRow, TableCell, TextRun, HeadingLevel, WidthType, BorderStyle } from 'docx'
 
 type Project = {
   id: string
@@ -263,6 +264,55 @@ ${rows}
     const a = document.createElement('a')
     a.href = url
     a.download = `staffing-assignments-${new Date().toISOString().split('T')[0]}.html`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  async function exportAssignmentsDOCX() {
+    const noBorder = { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' }
+    const cellBorder = { style: BorderStyle.SINGLE, size: 4, color: 'DDDDDD' }
+    const border = { top: cellBorder, bottom: cellBorder, left: cellBorder, right: cellBorder }
+
+    const children: (Paragraph | Table)[] = [
+      new Paragraph({ text: 'Code Pod Staffing — Assignments', heading: HeadingLevel.TITLE }),
+      new Paragraph({ text: `Exported ${new Date().toLocaleDateString()}`, spacing: { after: 400 } }),
+    ]
+
+    for (const p of [...projects].sort((a, b) => a.name.localeCompare(b.name))) {
+      const pa = assignments.filter(a => a.project_id === p.id)
+      children.push(new Paragraph({ text: p.name + (p.customer_codename ? ` (${p.customer_codename})` : ''), heading: HeadingLevel.HEADING_2, spacing: { before: 400 } }))
+      children.push(new Paragraph({ children: [new TextRun({ text: `Status: ${p.status}${p.end_date ? `   |   Ends: ${p.end_date}` : ''}`, color: '666666', size: 18 })], spacing: { after: 160 } }))
+
+      if (pa.length === 0) {
+        children.push(new Paragraph({ text: 'No staff assigned.', spacing: { after: 200 } }))
+        continue
+      }
+
+      const headerRow = new TableRow({
+        children: ['Name', 'Position', 'Role'].map(h =>
+          new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: h, bold: true })] })], borders: border, shading: { fill: 'F0F0F0' } })
+        ),
+        tableHeader: true,
+      })
+
+      const dataRows = pa.map(a => {
+        const member = staff.find(s => s.id === a.staff_id)
+        return new TableRow({
+          children: [member?.name ?? 'Unknown', member?.position ?? '—', a.assignment_role ?? '—'].map(val =>
+            new TableCell({ children: [new Paragraph(val)], borders: border })
+          ),
+        })
+      })
+
+      children.push(new Table({ rows: [headerRow, ...dataRows], width: { size: 100, type: WidthType.PERCENTAGE } }))
+    }
+
+    const doc = new Document({ sections: [{ children }] })
+    const blob = await Packer.toBlob(doc)
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `staffing-assignments-${new Date().toISOString().split('T')[0]}.docx`
     a.click()
     URL.revokeObjectURL(url)
   }
@@ -630,7 +680,13 @@ ${rows}
                   onClick={exportAssignmentsHTML}
                   className="text-xs px-3 py-1.5 rounded-lg border border-gray-700 text-gray-400 hover:text-gray-200 transition-colors"
                 >
-                  Export to Google Doc
+                  Download as HTML
+                </button>
+                <button
+                  onClick={exportAssignmentsDOCX}
+                  className="text-xs px-3 py-1.5 rounded-lg border border-gray-700 text-gray-400 hover:text-gray-200 transition-colors"
+                >
+                  Download as DOCX
                 </button>
                 <button
                   onClick={() => setHideAssignedInDropdown(!hideAssignedInDropdown)}
