@@ -17,6 +17,8 @@ type Staff = {
   id: string
   name: string
   position: string | null
+  ooo: boolean
+  ooo_return_date: string | null
 }
 
 type Assignment = {
@@ -51,14 +53,14 @@ export default function StaffingApp() {
   const [theme, setTheme] = useState<'dark' | 'light' | 'system'>('dark')
 
   const [newProject, setNewProject] = useState({ name: '', customer_codename: '', status: 'active', duration_weeks: '' })
-  const [newStaff, setNewStaff] = useState({ name: '', position: '' })
+  const [newStaff, setNewStaff] = useState({ name: '', position: '', ooo: false, ooo_return_date: '' })
   const [newAssignment, setNewAssignment] = useState({ project_id: '', staff_id: '', assignment_role: '' })
 
   const [editingProjectId, setEditingProjectId] = useState<string | null>(null)
   const [editProject, setEditProject] = useState({ name: '', customer_codename: '', status: 'active', duration_weeks: '' })
 
   const [editingStaffId, setEditingStaffId] = useState<string | null>(null)
-  const [editStaff, setEditStaff] = useState({ name: '', position: '' })
+  const [editStaff, setEditStaff] = useState({ name: '', position: '', ooo: false, ooo_return_date: '' })
   const [inlineAssignment, setInlineAssignment] = useState({ project_id: '', assignment_role: '' })
   const [csvErrors, setCsvErrors] = useState<string[]>([])
   const [staffSort, setStaffSort] = useState<'default' | 'az' | 'za'>('az')
@@ -160,21 +162,23 @@ export default function StaffingApp() {
     const { data } = await supabase.from('staff').insert([{
       name: newStaff.name.trim(),
       position: newStaff.position || null,
+      ooo: newStaff.ooo,
+      ooo_return_date: newStaff.ooo_return_date || null,
     }]).select().single()
     if (data) {
       setStaff([data, ...staff])
-      setNewStaff({ name: '', position: '' })
+      setNewStaff({ name: '', position: '', ooo: false, ooo_return_date: '' })
     }
   }
 
   function startEditStaff(s: Staff) {
-    setEditStaff({ name: s.name, position: s.position ?? '' })
+    setEditStaff({ name: s.name, position: s.position ?? '', ooo: s.ooo, ooo_return_date: s.ooo_return_date ?? '' })
     setEditingStaffId(s.id)
   }
 
   async function saveStaff(id: string) {
     if (!editStaff.name.trim()) return
-    const updates = { name: editStaff.name.trim(), position: editStaff.position || null }
+    const updates = { name: editStaff.name.trim(), position: editStaff.position || null, ooo: editStaff.ooo, ooo_return_date: editStaff.ooo_return_date || null }
     const { data } = await supabase.from('staff').update(updates).eq('id', id).select().single()
     if (data) {
       setStaff(staff.map(s => s.id === id ? data : s))
@@ -581,6 +585,19 @@ ${rows}
                   <option value="">Position</option>
                   {VALID_POSITIONS.map(p => <option key={p}>{p}</option>)}
                 </select>
+                <label className="flex items-center gap-2 text-sm text-gray-400 cursor-pointer select-none">
+                  <input type="checkbox" checked={newStaff.ooo} onChange={e => setNewStaff({ ...newStaff, ooo: e.target.checked, ooo_return_date: e.target.checked ? newStaff.ooo_return_date : '' })} className="accent-[#193a29] w-4 h-4" />
+                  OOO
+                </label>
+                {newStaff.ooo && (
+                  <input
+                    type="date"
+                    className={inputClass}
+                    placeholder="Return date"
+                    value={newStaff.ooo_return_date}
+                    onChange={e => setNewStaff({ ...newStaff, ooo_return_date: e.target.value })}
+                  />
+                )}
                 <button className={btnPrimary} style={{ backgroundColor: '#193a29' }} onClick={addStaff}>Add</button>
               </div>
               {csvErrors.length > 0 && (
@@ -604,6 +621,7 @@ ${rows}
                       </button>
                     </th>
                     <th className="pb-3 font-medium text-xs uppercase tracking-wider">Position</th>
+                    <th className="pb-3 font-medium text-xs uppercase tracking-wider">OOO</th>
                     <th className="pb-3 font-medium text-xs uppercase tracking-wider">Assigned To</th>
                     <th></th>
                   </tr>
@@ -629,7 +647,16 @@ ${rows}
                                 <option>GenAI Consultant</option>
                               </select>
                             </td>
-                            <td className="py-2 pr-2">
+                            <td className="py-2 pr-2 align-top">
+                              <label className="flex items-center gap-2 text-sm text-gray-400 cursor-pointer mb-1">
+                                <input type="checkbox" checked={editStaff.ooo} onChange={e => setEditStaff({ ...editStaff, ooo: e.target.checked, ooo_return_date: e.target.checked ? editStaff.ooo_return_date : '' })} className="accent-[#193a29] w-4 h-4" />
+                                OOO
+                              </label>
+                              {editStaff.ooo && (
+                                <input type="date" className={inputSmClass} value={editStaff.ooo_return_date} onChange={e => setEditStaff({ ...editStaff, ooo_return_date: e.target.value })} />
+                              )}
+                            </td>
+                            <td className="py-2 pr-2 align-top">
                               <div className="flex flex-wrap gap-1 mb-1.5">
                                 {staffAssignments.map(a => {
                                   const project = projects.find(p => p.id === a.project_id)
@@ -685,6 +712,16 @@ ${rows}
                           <>
                             <td className="py-3.5 font-medium text-gray-100">{s.name}</td>
                             <td className="py-3.5 text-gray-500">{s.position ?? '—'}</td>
+                            <td className="py-3.5">
+                              {s.ooo ? (
+                                <div className="flex flex-col gap-0.5">
+                                  <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 w-fit">OOO</span>
+                                  {s.ooo_return_date && <span className="text-xs text-gray-500">Back {s.ooo_return_date}</span>}
+                                </div>
+                              ) : (
+                                <span className="text-xs text-gray-600">—</span>
+                              )}
+                            </td>
                             <td className="py-3.5">
                               {staffAssignments.length === 0 ? (
                                 <span className="text-gray-600 text-xs">Unassigned</span>
