@@ -59,6 +59,7 @@ export default function StaffingApp() {
 
   const [editingStaffId, setEditingStaffId] = useState<string | null>(null)
   const [editStaff, setEditStaff] = useState({ name: '', position: '' })
+  const [inlineAssignment, setInlineAssignment] = useState({ project_id: '', assignment_role: '' })
   const [csvErrors, setCsvErrors] = useState<string[]>([])
   const [staffSort, setStaffSort] = useState<'default' | 'az' | 'za'>('az')
   const [hideAssigned, setHideAssigned] = useState(false)
@@ -628,11 +629,55 @@ ${rows}
                                 <option>GenAI Consultant</option>
                               </select>
                             </td>
-                            <td className="py-2"></td>
-                            <td className="py-2 text-right">
+                            <td className="py-2 pr-2">
+                              <div className="flex flex-wrap gap-1 mb-1.5">
+                                {staffAssignments.map(a => {
+                                  const project = projects.find(p => p.id === a.project_id)
+                                  return project ? (
+                                    <span key={a.id} className="text-xs px-2 py-0.5 rounded-full bg-gray-800 text-gray-300 flex items-center gap-1">
+                                      {project.name}
+                                      {a.assignment_role && <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-medium ${roleColor(a.assignment_role)}`}>{a.assignment_role}</span>}
+                                      <button onClick={() => removeAssignment(a.id)} className="text-gray-500 hover:text-red-400 ml-0.5 leading-none">×</button>
+                                    </span>
+                                  ) : null
+                                })}
+                              </div>
+                              <div className="flex gap-1">
+                                <select
+                                  className={selectSmClass}
+                                  value={inlineAssignment.project_id}
+                                  onChange={e => setInlineAssignment({ ...inlineAssignment, project_id: e.target.value })}
+                                >
+                                  <option value="">Add project…</option>
+                                  {[...projects]
+                                    .sort((a, b) => a.name.localeCompare(b.name))
+                                    .filter(p => !staffAssignments.some(a => a.project_id === p.id))
+                                    .map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                                </select>
+                                <select
+                                  className={selectSmClass}
+                                  value={inlineAssignment.assignment_role}
+                                  onChange={e => setInlineAssignment({ ...inlineAssignment, assignment_role: e.target.value })}
+                                >
+                                  <option value="">Role</option>
+                                  <option>Supervisor</option>
+                                  <option>STO</option>
+                                  <option>Ops Support</option>
+                                </select>
+                                <button
+                                  className="text-xs px-2 py-1 rounded bg-gray-700 text-gray-300 hover:text-white transition-colors whitespace-nowrap"
+                                  onClick={async () => {
+                                    if (!inlineAssignment.project_id) return
+                                    const { data } = await supabase.from('assignments').insert([{ project_id: inlineAssignment.project_id, staff_id: s.id, assignment_role: inlineAssignment.assignment_role || null }]).select().single()
+                                    if (data) { setAssignments(prev => [...prev, data]); setInlineAssignment({ project_id: '', assignment_role: '' }) }
+                                  }}
+                                >+ Add</button>
+                              </div>
+                            </td>
+                            <td className="py-2 text-right align-top">
                               <div className="flex justify-end gap-3">
                                 <button className={btnSave} onClick={() => saveStaff(s.id)}>Save</button>
-                                <button className={btnCancel} onClick={() => setEditingStaffId(null)}>Cancel</button>
+                                <button className={btnCancel} onClick={() => { setEditingStaffId(null); setInlineAssignment({ project_id: '', assignment_role: '' }) }}>Cancel</button>
                               </div>
                             </td>
                           </>
