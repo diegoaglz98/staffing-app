@@ -615,14 +615,14 @@ ${rows}
               <table className="w-full text-sm">
                 <thead>
                   <tr className="text-left text-gray-500 border-b border-gray-800">
-                    <th className="pb-3 font-medium text-xs uppercase tracking-wider">
+                    <th className="pb-3 pr-6 font-medium text-xs uppercase tracking-wider w-40">
                       <button onClick={() => setStaffSort(nextSort(staffSort))} className="flex items-center gap-1.5 hover:text-gray-300 transition-colors">
                         Name <span className="text-[10px] border border-gray-700 rounded px-1 py-0.5">{sortLabel(staffSort)}</span>
                       </button>
                     </th>
-                    <th className="pb-3 font-medium text-xs uppercase tracking-wider">Position</th>
-                    <th className="pb-3 font-medium text-xs uppercase tracking-wider">OOO</th>
-                    <th className="pb-3 font-medium text-xs uppercase tracking-wider">Assigned To</th>
+                    <th className="pb-3 pr-6 font-medium text-xs uppercase tracking-wider w-36">Position</th>
+                    <th className="pb-3 pr-6 font-medium text-xs uppercase tracking-wider w-28">OOO</th>
+                    <th className="pb-3 pr-6 font-medium text-xs uppercase tracking-wider">Assigned To</th>
                     <th></th>
                   </tr>
                 </thead>
@@ -710,9 +710,9 @@ ${rows}
                           </>
                         ) : (
                           <>
-                            <td className="py-3.5 font-medium text-gray-100">{s.name}</td>
-                            <td className="py-3.5 text-gray-500">{s.position ?? '—'}</td>
-                            <td className="py-3.5">
+                            <td className="py-3.5 pr-6 font-medium text-gray-100">{s.name}</td>
+                            <td className="py-3.5 pr-6 text-gray-500">{s.position ?? '—'}</td>
+                            <td className="py-3.5 pr-6">
                               {s.ooo ? (
                                 <div className="flex flex-col gap-0.5">
                                   <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 w-fit">OOO</span>
