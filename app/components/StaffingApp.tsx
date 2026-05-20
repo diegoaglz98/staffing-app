@@ -243,7 +243,7 @@ export default function StaffingApp() {
   }
 
   function exportAssignmentsHTML() {
-    const rows = [...projects].sort((a, b) => a.name.localeCompare(b.name)).map(p => {
+    const rows = [...projects].filter(p => p.status === 'active').sort((a, b) => a.name.localeCompare(b.name)).map(p => {
       const pa = assignments.filter(a => a.project_id === p.id)
       if (pa.length === 0) return `<h2>${p.name}</h2><p><em>No staff assigned.</em></p>`
       const rows = pa.map(a => {
@@ -299,7 +299,7 @@ ${rows}
       new Paragraph({ text: `Exported ${new Date().toLocaleDateString()}`, spacing: { after: 400 } }),
     ]
 
-    for (const p of [...projects].sort((a, b) => a.name.localeCompare(b.name))) {
+    for (const p of [...projects].filter(p => p.status === 'active').sort((a, b) => a.name.localeCompare(b.name))) {
       const pa = assignments.filter(a => a.project_id === p.id)
       children.push(new Paragraph({ text: p.name + (p.customer_codename ? ` (${p.customer_codename})` : ''), heading: HeadingLevel.HEADING_2, spacing: { before: 400 } }))
       children.push(new Paragraph({ children: [new TextRun({ text: `Status: ${p.status}${p.end_date ? `   |   Ends: ${p.end_date}` : ''}`, color: '666666', size: 18 })], spacing: { after: 160 } }))
