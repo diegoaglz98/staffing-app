@@ -68,6 +68,7 @@ export default function StaffingApp() {
   const [hideAssignedInDropdown, setHideAssignedInDropdown] = useState(false)
   const [projectSort, setProjectSort] = useState<'default' | 'az' | 'za'>('az')
   const [showSupervisorsInChart, setShowSupervisorsInChart] = useState(false)
+  const [showInactiveProjects, setShowInactiveProjects] = useState(false)
 
   useEffect(() => {
     const saved = localStorage.getItem('theme') as 'dark' | 'light' | 'system' | null
@@ -768,6 +769,15 @@ ${rows}
                 <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Assign Staff to Project</h2>
                 <div className="flex items-center gap-2">
                 <button
+                  onClick={() => setShowInactiveProjects(v => !v)}
+                  className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${
+                    showInactiveProjects ? 'text-emerald-400' : 'border-gray-700 text-gray-400 hover:text-gray-200'
+                  }`}
+                  style={showInactiveProjects ? { borderColor: '#193a29' } : {}}
+                >
+                  {showInactiveProjects ? 'Showing all statuses' : 'Active only'}
+                </button>
+                <button
                   onClick={exportAssignmentsHTML}
                   className="text-xs px-3 py-1.5 rounded-lg border border-gray-700 text-gray-400 hover:text-gray-200 transition-colors"
                 >
@@ -797,7 +807,7 @@ ${rows}
                   onChange={e => setNewAssignment({ ...newAssignment, project_id: e.target.value })}
                 >
                   <option value="">Select project *</option>
-                  {[...projects].sort((a, b) => a.name.localeCompare(b.name)).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                  {[...projects].filter(p => showInactiveProjects || p.status === 'active').sort((a, b) => a.name.localeCompare(b.name)).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
                 </select>
                 <select
                   className={selectClass}
@@ -828,7 +838,7 @@ ${rows}
               <p className="text-gray-600 text-sm">Add projects first.</p>
             ) : (
               <div className="space-y-3">
-                {[...projects].sort((a, b) => a.name.localeCompare(b.name)).map(p => {
+                {[...projects].filter(p => showInactiveProjects || p.status === 'active').sort((a, b) => a.name.localeCompare(b.name)).map(p => {
                   const projectAssignments = assignments.filter(a => a.project_id === p.id)
                   return (
                     <div key={p.id} className="border border-gray-800 rounded-xl p-5 bg-gray-900/40">
