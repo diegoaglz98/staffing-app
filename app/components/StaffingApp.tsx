@@ -69,6 +69,7 @@ export default function StaffingApp() {
   const [projectSort, setProjectSort] = useState<'default' | 'az' | 'za'>('az')
   const [showSupervisorsInChart, setShowSupervisorsInChart] = useState(false)
   const [showInactiveProjects, setShowInactiveProjects] = useState(false)
+  const [showInactiveInProjectsTab, setShowInactiveInProjectsTab] = useState(false)
 
   useEffect(() => {
     const saved = localStorage.getItem('theme') as 'dark' | 'light' | 'system' | null
@@ -426,7 +427,18 @@ ${rows}
         {tab === 'projects' && (
           <div>
             <div className="bg-gray-900 rounded-xl p-5 mb-6 border border-gray-800">
-              <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-4">Add Project</h2>
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Add Project</h2>
+                <button
+                  onClick={() => setShowInactiveInProjectsTab(v => !v)}
+                  className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${
+                    showInactiveInProjectsTab ? 'text-emerald-400' : 'border-gray-700 text-gray-400 hover:text-gray-200'
+                  }`}
+                  style={showInactiveInProjectsTab ? { borderColor: '#193a29' } : {}}
+                >
+                  {showInactiveInProjectsTab ? 'Showing all statuses' : 'Active only'}
+                </button>
+              </div>
               <div className="flex flex-wrap gap-2">
                 <input
                   className={inputClass}
@@ -483,7 +495,7 @@ ${rows}
                   </tr>
                 </thead>
                 <tbody>
-                  {sortedList(projects, projectSort).map(p => {
+                  {sortedList(projects.filter(p => showInactiveInProjectsTab || p.status === 'active'), projectSort).map(p => {
                     const count = assignments.filter(a => a.project_id === p.id).length
                     const isEditing = editingProjectId === p.id
                     return (
