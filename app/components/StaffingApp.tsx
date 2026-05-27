@@ -962,7 +962,7 @@ ${rows}
 
           const KEY_ROLES = ['Supervisor', 'STO', 'Ops Support']
           const understaffed = projects
-            .filter(p => p.status !== 'completed')
+            .filter(p => p.status === 'active')
             .map(p => {
               const projectAssignments = assignments.filter(a => a.project_id === p.id)
               const coveredRoles = new Set(projectAssignments.map(a => a.assignment_role).filter(Boolean))
