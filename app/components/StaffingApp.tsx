@@ -66,7 +66,7 @@ export default function StaffingApp() {
   const [staffSort, setStaffSort] = useState<'default' | 'az' | 'za'>('az')
   const [hideAssigned, setHideAssigned] = useState(false)
   const [hideAssignedInDropdown, setHideAssignedInDropdown] = useState(false)
-  const [projectSort, setProjectSort] = useState<'default' | 'az' | 'za'>('az')
+  const [projectSort, setProjectSort] = useState<{ col: string; dir: 'az' | 'za' }>({ col: 'name', dir: 'az' })
   const [showSupervisorsInChart, setShowSupervisorsInChart] = useState(false)
   const [showInactiveProjects, setShowInactiveProjects] = useState(false)
   const [showInactiveInProjectsTab, setShowInactiveInProjectsTab] = useState(false)
@@ -352,6 +352,40 @@ ${rows}
     return sort === 'az' ? 'A→Z' : sort === 'za' ? 'Z→A' : 'Sort'
   }
 
+  function toggleProjectSort(col: string) {
+    setProjectSort(prev => prev.col === col ? { col, dir: prev.dir === 'az' ? 'za' : 'az' } : { col, dir: 'az' })
+  }
+
+  function sortedProjects(list: Project[]) {
+    const { col, dir } = projectSort
+    const mult = dir === 'az' ? 1 : -1
+    return [...list].sort((a, b) => {
+      let valA: string | number = ''
+      let valB: string | number = ''
+      if (col === 'name')     { valA = a.name; valB = b.name }
+      else if (col === 'customer') { valA = a.customer_codename ?? ''; valB = b.customer_codename ?? '' }
+      else if (col === 'status')   { valA = a.status; valB = b.status }
+      else if (col === 'start')    { valA = a.start_date ?? ''; valB = b.start_date ?? '' }
+      else if (col === 'end')      { valA = a.end_date ?? ''; valB = b.end_date ?? '' }
+      else if (col === 'duration') {
+        valA = a.start_date && a.end_date ? (new Date(a.end_date).getTime() - new Date(a.start_date).getTime()) : -1
+        valB = b.start_date && b.end_date ? (new Date(b.end_date).getTime() - new Date(b.start_date).getTime()) : -1
+      }
+      else if (col === 'staff') {
+        valA = assignments.filter(x => x.project_id === a.id).length
+        valB = assignments.filter(x => x.project_id === b.id).length
+      }
+      if (valA < valB) return -1 * mult
+      if (valA > valB) return 1 * mult
+      return 0
+    })
+  }
+
+  function colSortLabel(col: string) {
+    if (projectSort.col !== col) return '↕'
+    return projectSort.dir === 'az' ? '↑' : '↓'
+  }
+
   const roleColors = [
     'bg-violet-500/10 text-violet-400',
     'bg-blue-500/10 text-blue-400',
@@ -480,22 +514,26 @@ ${rows}
               <table className="w-full text-sm">
                 <thead>
                   <tr className="text-left text-gray-500 border-b border-gray-800">
-                    <th className="pb-3 font-medium text-xs uppercase tracking-wider">
-                      <button onClick={() => setProjectSort(nextSort(projectSort))} className="flex items-center gap-1.5 hover:text-gray-300 transition-colors">
-                        Name <span className="text-[10px] border border-gray-700 rounded px-1 py-0.5">{sortLabel(projectSort)}</span>
-                      </button>
-                    </th>
-                    <th className="pb-3 font-medium text-xs uppercase tracking-wider">Customer</th>
-                    <th className="pb-3 font-medium text-xs uppercase tracking-wider">Status</th>
-                    <th className="pb-3 font-medium text-xs uppercase tracking-wider">Start</th>
-                    <th className="pb-3 font-medium text-xs uppercase tracking-wider">End</th>
-                    <th className="pb-3 font-medium text-xs uppercase tracking-wider">Duration (Wks)</th>
-                    <th className="pb-3 font-medium text-xs uppercase tracking-wider">Staff</th>
+                    {[
+                      { key: 'name', label: 'Name' },
+                      { key: 'customer', label: 'Customer' },
+                      { key: 'status', label: 'Status' },
+                      { key: 'start', label: 'Start' },
+                      { key: 'end', label: 'End' },
+                      { key: 'duration', label: 'Duration (Wks)' },
+                      { key: 'staff', label: 'Staff' },
+                    ].map(({ key, label }) => (
+                      <th key={key} className="pb-3 pr-4 font-medium text-xs uppercase tracking-wider">
+                        <button onClick={() => toggleProjectSort(key)} className={`flex items-center gap-1.5 hover:text-gray-300 transition-colors ${projectSort.col === key ? 'text-gray-300' : ''}`}>
+                          {label} <span className="text-[10px] border border-gray-700 rounded px-1 py-0.5">{colSortLabel(key)}</span>
+                        </button>
+                      </th>
+                    ))}
                     <th></th>
                   </tr>
                 </thead>
                 <tbody>
-                  {sortedList(projects.filter(p => showInactiveInProjectsTab || p.status === 'active'), projectSort).map(p => {
+                  {sortedProjects(projects.filter(p => showInactiveInProjectsTab || p.status === 'active')).map(p => {
                     const count = assignments.filter(a => a.project_id === p.id).length
                     const isEditing = editingProjectId === p.id
                     return (
