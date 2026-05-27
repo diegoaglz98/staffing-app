@@ -1114,6 +1114,36 @@ ${rows}
                 )}
               </div>
 
+              {/* Unassigned staff */}
+              <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
+                <div className="flex items-center justify-between mb-4">
+                  <p className="text-xs text-gray-500 uppercase tracking-wider">People Without Assignment</p>
+                  <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${availableStaff.length > 0 ? 'bg-amber-500/10 text-amber-400' : 'bg-emerald-500/10 text-emerald-400'}`}>
+                    {availableStaff.length} {availableStaff.length === 1 ? 'person' : 'people'}
+                  </span>
+                </div>
+                {availableStaff.length === 0 ? (
+                  <p className="text-gray-600 text-sm">Everyone is currently assigned to a project.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {[...availableStaff].sort((a, b) => a.name.localeCompare(b.name)).map(s => (
+                      <div key={s.id} className="flex items-center justify-between bg-gray-800/60 rounded-lg px-4 py-2.5 text-sm">
+                        <div className="flex items-center gap-3">
+                          <span className="font-medium text-gray-200">{s.name}</span>
+                          {s.position && <span className="text-xs text-gray-500">{s.position}</span>}
+                        </div>
+                        {s.ooo && (
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 font-medium">OOO</span>
+                            {s.ooo_return_date && <span className="text-xs text-gray-500">Back {s.ooo_return_date}</span>}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
               {/* Understaffed projects */}
               <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
                 <div className="flex items-center justify-between mb-4">
