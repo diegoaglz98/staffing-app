@@ -983,7 +983,11 @@ ${rows}
                         </p>
                       ) : (
                         <div className="space-y-2">
-                          {projectAssignments.map(a => {
+                          {[...projectAssignments].sort((a, b) => {
+                            const order = ['Supervisor', 'STO', 'Ops Support']
+                            return (order.indexOf(a.assignment_role ?? '') === -1 ? 99 : order.indexOf(a.assignment_role ?? '')) -
+                                   (order.indexOf(b.assignment_role ?? '') === -1 ? 99 : order.indexOf(b.assignment_role ?? ''))
+                          }).map(a => {
                             const member = staff.find(s => s.id === a.staff_id)
                             return (
                               <div key={a.id} className="flex items-center justify-between bg-gray-800/60 rounded-lg px-4 py-2.5 text-sm">
