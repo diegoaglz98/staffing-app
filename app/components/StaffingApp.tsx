@@ -948,10 +948,12 @@ ${rows}
                   const projectAssignments = assignments.filter(a => a.project_id === p.id)
                   const isOver = dragOverProjectId === p.id
                   const roles = projectAssignments.map(a => a.assignment_role)
-                  const hasAll = ['Supervisor', 'STO', 'Ops Support'].every(r => roles.includes(r))
-                  const multiSupervisor = roles.filter(r => r === 'Supervisor').length > 1
-                  const multiSTO = roles.filter(r => r === 'STO').length > 1
-                  const staffingStatus = !hasAll ? 'understaffed' : (multiSupervisor || multiSTO) ? 'overstaffed' : 'good'
+                  const stoCount = roles.filter(r => r === 'STO').length
+                  const opsCount = roles.filter(r => r === 'Ops Support').length
+                  const staffingStatus =
+                    stoCount === 0 || (stoCount >= 1 && opsCount === 0) ? 'understaffed' :
+                    stoCount >= 2 || opsCount > 2 ? 'overstaffed' :
+                    'good'
                   return (
                     <div
                       key={p.id}
