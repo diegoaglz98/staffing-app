@@ -71,6 +71,7 @@ export default function StaffingApp() {
   const [showInactiveProjects, setShowInactiveProjects] = useState(false)
   const [showInactiveInProjectsTab, setShowInactiveInProjectsTab] = useState(false)
   const [draggedStaffId, setDraggedStaffId] = useState<string | null>(null)
+  const [draggedAssignmentId, setDraggedAssignmentId] = useState<string | null>(null)
   const [dragOverProjectId, setDragOverProjectId] = useState<string | null>(null)
   const [pendingDrop, setPendingDrop] = useState<{ staffId: string; projectId: string } | null>(null)
   const [dropRole, setDropRole] = useState('')
@@ -964,13 +965,23 @@ ${rows}
                       }`}
                       onDragOver={e => { e.preventDefault(); setDragOverProjectId(p.id) }}
                       onDragLeave={() => setDragOverProjectId(null)}
-                      onDrop={e => {
+                      onDrop={async e => {
                         e.preventDefault()
                         setDragOverProjectId(null)
                         if (draggedStaffId) {
                           const already = assignments.some(a => a.project_id === p.id && a.staff_id === draggedStaffId)
                           if (!already) { setPendingDrop({ staffId: draggedStaffId, projectId: p.id }) }
                           setDraggedStaffId(null)
+                        } else if (draggedAssignmentId) {
+                          const assignment = assignments.find(a => a.id === draggedAssignmentId)
+                          if (assignment && assignment.project_id !== p.id) {
+                            const already = assignments.some(a => a.project_id === p.id && a.staff_id === assignment.staff_id)
+                            if (!already) {
+                              const { data } = await supabase.from('assignments').update({ project_id: p.id }).eq('id', draggedAssignmentId).select().single()
+                              if (data) setAssignments(prev => prev.map(a => a.id === draggedAssignmentId ? data : a))
+                            }
+                          }
+                          setDraggedAssignmentId(null)
                         }
                       }}
                     >
@@ -1008,7 +1019,13 @@ ${rows}
                           }).map(a => {
                             const member = staff.find(s => s.id === a.staff_id)
                             return (
-                              <div key={a.id} className="flex items-center justify-between bg-gray-800/60 rounded-lg px-4 py-2.5 text-sm">
+                              <div
+                                key={a.id}
+                                draggable
+                                onDragStart={() => { setDraggedAssignmentId(a.id); setDraggedStaffId(null) }}
+                                onDragEnd={() => setDraggedAssignmentId(null)}
+                                className={`flex items-center justify-between bg-gray-800/60 rounded-lg px-4 py-2.5 text-sm cursor-grab active:cursor-grabbing transition-opacity ${draggedAssignmentId === a.id ? 'opacity-40' : ''}`}
+                              >
                                 <div className="flex items-center gap-3">
                                   <span className="font-medium text-gray-200">{member?.name ?? 'Unknown'}</span>
                                   {a.assignment_role && <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${roleColor(a.assignment_role)}`}>{a.assignment_role}</span>}
