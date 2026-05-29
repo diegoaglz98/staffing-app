@@ -888,38 +888,8 @@ ${rows}
               </div>
             </div>
 
-            {/* Unassigned staff tiles */}
-            {(() => {
-              const assignedIds = new Set(assignments.map(a => a.staff_id))
-              const unassigned = [...staff].filter(s => !assignedIds.has(s.id)).sort((a, b) => a.name.localeCompare(b.name))
-              if (unassigned.length === 0) return null
-              return (
-                <div className="mb-6">
-                  <p className="text-xs text-gray-500 uppercase tracking-wider mb-3">
-                    Unassigned Staff <span className="normal-case text-gray-600 ml-1">— drag onto a project to assign</span>
-                  </p>
-                  <div className="flex flex-wrap gap-2">
-                    {unassigned.map(s => (
-                      <div
-                        key={s.id}
-                        draggable
-                        onDragStart={() => setDraggedStaffId(s.id)}
-                        onDragEnd={() => setDraggedStaffId(null)}
-                        className={`cursor-grab active:cursor-grabbing select-none border rounded-lg px-3 py-2 text-sm transition-all ${
-                          draggedStaffId === s.id
-                            ? 'opacity-40 border-gray-600'
-                            : 'border-gray-700 bg-gray-900 hover:border-gray-500'
-                        }`}
-                      >
-                        <p className="font-medium text-gray-200 leading-tight">{s.name}</p>
-                        {s.position && <p className="text-xs text-gray-500 mt-0.5">{s.position}</p>}
-                        {s.ooo && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-500/10 text-amber-400 mt-1 inline-block">OOO</span>}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )
-            })()}
+            {/* Two-column layout */}
+            <div className="flex gap-6 items-start">
 
             {/* Drop role modal */}
             {pendingDrop && (
@@ -968,6 +938,8 @@ ${rows}
               </div>
             )}
 
+            {/* Left: project list */}
+            <div className="flex-1 min-w-0">
             {projects.length === 0 ? (
               <p className="text-gray-600 text-sm">Add projects first.</p>
             ) : (
@@ -1031,6 +1003,43 @@ ${rows}
                 })}
               </div>
             )}
+            </div>{/* end left column */}
+
+            {/* Right: unassigned staff panel */}
+            {(() => {
+              const assignedIds = new Set(assignments.map(a => a.staff_id))
+              const unassigned = [...staff].filter(s => !assignedIds.has(s.id)).sort((a, b) => a.name.localeCompare(b.name))
+              return (
+                <div className="w-52 shrink-0 sticky top-6">
+                  <p className="text-xs text-gray-500 uppercase tracking-wider mb-3">Unassigned</p>
+                  {unassigned.length === 0 ? (
+                    <p className="text-xs text-gray-600">Everyone is assigned.</p>
+                  ) : (
+                    <div className="flex flex-col gap-2">
+                      {unassigned.map(s => (
+                        <div
+                          key={s.id}
+                          draggable
+                          onDragStart={() => setDraggedStaffId(s.id)}
+                          onDragEnd={() => setDraggedStaffId(null)}
+                          className={`cursor-grab active:cursor-grabbing select-none border rounded-lg px-3 py-2 text-sm transition-all ${
+                            draggedStaffId === s.id
+                              ? 'opacity-40 border-gray-600'
+                              : 'border-gray-700 bg-gray-900 hover:border-gray-500'
+                          }`}
+                        >
+                          <p className="font-medium text-gray-200 leading-tight">{s.name}</p>
+                          {s.position && <p className="text-xs text-gray-500 mt-0.5">{s.position}</p>}
+                          {s.ooo && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-500/10 text-amber-400 mt-1 inline-block">OOO</span>}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )
+            })()}
+
+            </div>{/* end two-column layout */}
           </div>
         )}
 
