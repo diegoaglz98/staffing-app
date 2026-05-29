@@ -947,6 +947,11 @@ ${rows}
                 {[...projects].filter(p => showInactiveProjects || p.status === 'active').sort((a, b) => a.name.localeCompare(b.name)).map(p => {
                   const projectAssignments = assignments.filter(a => a.project_id === p.id)
                   const isOver = dragOverProjectId === p.id
+                  const roles = projectAssignments.map(a => a.assignment_role)
+                  const hasAll = ['Supervisor', 'STO', 'Ops Support'].every(r => roles.includes(r))
+                  const multiSupervisor = roles.filter(r => r === 'Supervisor').length > 1
+                  const multiSTO = roles.filter(r => r === 'STO').length > 1
+                  const staffingStatus = !hasAll ? 'understaffed' : (multiSupervisor || multiSTO) ? 'overstaffed' : 'good'
                   return (
                     <div
                       key={p.id}
@@ -968,7 +973,18 @@ ${rows}
                       }}
                     >
                       <div className="flex items-center justify-between mb-4">
-                        <h3 className="font-semibold text-gray-100">{p.name}</h3>
+                        <div className="flex items-center gap-2">
+                          <h3 className="font-semibold text-gray-100">{p.name}</h3>
+                          <span className={`px-2 py-0.5 rounded-full text-[11px] font-medium ${
+                            staffingStatus === 'understaffed' ? 'bg-amber-500/10 text-amber-400' :
+                            staffingStatus === 'overstaffed' ? 'bg-blue-500/10 text-blue-400' :
+                            'bg-emerald-500/10 text-emerald-400'
+                          }`}>
+                            {staffingStatus === 'understaffed' ? 'Potentially understaffed' :
+                             staffingStatus === 'overstaffed' ? 'Potentially overstaffed' :
+                             'Well staffed'}
+                          </span>
+                        </div>
                         <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${
                           p.status === 'active' ? 'bg-emerald-500/10 text-emerald-400' :
                           p.status === 'on-hold' ? 'bg-amber-500/10 text-amber-400' :
