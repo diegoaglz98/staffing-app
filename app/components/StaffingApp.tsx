@@ -70,6 +70,10 @@ export default function StaffingApp() {
   const [showSupervisorsInChart, setShowSupervisorsInChart] = useState(false)
   const [showInactiveProjects, setShowInactiveProjects] = useState(false)
   const [showInactiveInProjectsTab, setShowInactiveInProjectsTab] = useState(false)
+  const [draggedStaffId, setDraggedStaffId] = useState<string | null>(null)
+  const [dragOverProjectId, setDragOverProjectId] = useState<string | null>(null)
+  const [pendingDrop, setPendingDrop] = useState<{ staffId: string; projectId: string } | null>(null)
+  const [dropRole, setDropRole] = useState('')
 
   useEffect(() => {
     const saved = localStorage.getItem('theme') as 'dark' | 'light' | 'system' | null
@@ -884,14 +888,113 @@ ${rows}
               </div>
             </div>
 
+            {/* Unassigned staff tiles */}
+            {(() => {
+              const assignedIds = new Set(assignments.map(a => a.staff_id))
+              const unassigned = [...staff].filter(s => !assignedIds.has(s.id)).sort((a, b) => a.name.localeCompare(b.name))
+              if (unassigned.length === 0) return null
+              return (
+                <div className="mb-6">
+                  <p className="text-xs text-gray-500 uppercase tracking-wider mb-3">
+                    Unassigned Staff <span className="normal-case text-gray-600 ml-1">— drag onto a project to assign</span>
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    {unassigned.map(s => (
+                      <div
+                        key={s.id}
+                        draggable
+                        onDragStart={() => setDraggedStaffId(s.id)}
+                        onDragEnd={() => setDraggedStaffId(null)}
+                        className={`cursor-grab active:cursor-grabbing select-none border rounded-lg px-3 py-2 text-sm transition-all ${
+                          draggedStaffId === s.id
+                            ? 'opacity-40 border-gray-600'
+                            : 'border-gray-700 bg-gray-900 hover:border-gray-500'
+                        }`}
+                      >
+                        <p className="font-medium text-gray-200 leading-tight">{s.name}</p>
+                        {s.position && <p className="text-xs text-gray-500 mt-0.5">{s.position}</p>}
+                        {s.ooo && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-500/10 text-amber-400 mt-1 inline-block">OOO</span>}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )
+            })()}
+
+            {/* Drop role modal */}
+            {pendingDrop && (
+              <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => { setPendingDrop(null); setDropRole('') }}>
+                <div className="bg-gray-900 border border-gray-700 rounded-xl p-6 w-80 shadow-xl" onClick={e => e.stopPropagation()}>
+                  <p className="text-sm font-semibold text-gray-100 mb-1">Assign to project</p>
+                  <p className="text-xs text-gray-500 mb-4">
+                    <span className="text-gray-300">{staff.find(s => s.id === pendingDrop.staffId)?.name}</span>
+                    {' → '}
+                    <span className="text-gray-300">{projects.find(p => p.id === pendingDrop.projectId)?.name}</span>
+                  </p>
+                  <select
+                    className={selectClass + ' w-full mb-4'}
+                    value={dropRole}
+                    onChange={e => setDropRole(e.target.value)}
+                    autoFocus
+                  >
+                    <option value="">No role</option>
+                    <option>Supervisor</option>
+                    <option>STO</option>
+                    <option>Ops Support</option>
+                  </select>
+                  <div className="flex gap-2 justify-end">
+                    <button className={btnCancel} onClick={() => { setPendingDrop(null); setDropRole('') }}>Cancel</button>
+                    <button
+                      className={btnPrimary}
+                      style={{ backgroundColor: '#193a29' }}
+                      onClick={async () => {
+                        const already = assignments.some(a => a.project_id === pendingDrop.projectId && a.staff_id === pendingDrop.staffId)
+                        if (!already) {
+                          const { data } = await supabase.from('assignments').insert([{
+                            project_id: pendingDrop.projectId,
+                            staff_id: pendingDrop.staffId,
+                            assignment_role: dropRole || null,
+                          }]).select().single()
+                          if (data) setAssignments(prev => [...prev, data])
+                        }
+                        setPendingDrop(null)
+                        setDropRole('')
+                      }}
+                    >
+                      Assign
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {projects.length === 0 ? (
               <p className="text-gray-600 text-sm">Add projects first.</p>
             ) : (
               <div className="space-y-3">
                 {[...projects].filter(p => showInactiveProjects || p.status === 'active').sort((a, b) => a.name.localeCompare(b.name)).map(p => {
                   const projectAssignments = assignments.filter(a => a.project_id === p.id)
+                  const isOver = dragOverProjectId === p.id
                   return (
-                    <div key={p.id} className="border border-gray-800 rounded-xl p-5 bg-gray-900/40">
+                    <div
+                      key={p.id}
+                      className={`border rounded-xl p-5 transition-all ${
+                        isOver
+                          ? 'border-[#193a29] bg-[#193a29]/10 scale-[1.01]'
+                          : 'border-gray-800 bg-gray-900/40'
+                      }`}
+                      onDragOver={e => { e.preventDefault(); setDragOverProjectId(p.id) }}
+                      onDragLeave={() => setDragOverProjectId(null)}
+                      onDrop={e => {
+                        e.preventDefault()
+                        setDragOverProjectId(null)
+                        if (draggedStaffId) {
+                          const already = assignments.some(a => a.project_id === p.id && a.staff_id === draggedStaffId)
+                          if (!already) { setPendingDrop({ staffId: draggedStaffId, projectId: p.id }) }
+                          setDraggedStaffId(null)
+                        }
+                      }}
+                    >
                       <div className="flex items-center justify-between mb-4">
                         <h3 className="font-semibold text-gray-100">{p.name}</h3>
                         <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${
@@ -903,7 +1006,9 @@ ${rows}
                         </span>
                       </div>
                       {projectAssignments.length === 0 ? (
-                        <p className="text-gray-600 text-sm">No staff assigned.</p>
+                        <p className={`text-sm ${isOver ? 'text-gray-400' : 'text-gray-600'}`}>
+                          {isOver ? 'Drop to assign' : 'No staff assigned.'}
+                        </p>
                       ) : (
                         <div className="space-y-2">
                           {projectAssignments.map(a => {
