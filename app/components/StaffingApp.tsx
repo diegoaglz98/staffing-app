@@ -1203,6 +1203,20 @@ ${rows}
           const statusCounts = projects.reduce((acc, p) => { acc[p.status] = (acc[p.status] || 0) + 1; return acc }, {} as Record<string, number>)
           const maxStatus = Math.max(...Object.values(statusCounts), 1)
 
+          // Staffing-status distribution for active projects (same logic as Assignments tab)
+          const staffingStatusCounts = { understaffed: 0, good: 0, overstaffed: 0 }
+          projects.filter(p => p.status === 'active').forEach(p => {
+            const roles = assignments.filter(a => a.project_id === p.id).map(a => a.assignment_role)
+            const stoCount = roles.filter(r => r === 'STO').length
+            const opsCount = roles.filter(r => r === 'Ops Support').length
+            const status =
+              stoCount === 0 || (stoCount >= 1 && opsCount === 0) ? 'understaffed' :
+              stoCount >= 2 || opsCount > 2 ? 'overstaffed' :
+              'good'
+            staffingStatusCounts[status]++
+          })
+          const totalActiveForStaffing = staffingStatusCounts.understaffed + staffingStatusCounts.good + staffingStatusCounts.overstaffed
+
           const customerCounts = projects.reduce((acc, p) => {
             const key = p.customer_codename || 'No Codename'
             acc[key] = (acc[key] || 0) + 1
@@ -1265,6 +1279,38 @@ ${rows}
               <div className="grid grid-cols-2 gap-4">
                 {barChart('Projects by Status', statusCounts, maxStatus, 'bg-[#193a29]')}
                 {barChart('Projects by Customer', customerCounts, maxCustomer, 'bg-violet-500')}
+              </div>
+
+              {/* Staffing status distribution (active projects) */}
+              <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
+                <p className="text-xs text-gray-500 uppercase tracking-wider mb-4">Staffing Status <span className="normal-case text-gray-600 ml-1">— active projects</span></p>
+                {totalActiveForStaffing === 0 ? (
+                  <p className="text-gray-600 text-sm">No active projects.</p>
+                ) : (
+                  <>
+                    <div className="flex h-3 rounded-full overflow-hidden mb-4">
+                      {staffingStatusCounts.understaffed > 0 && <div className="bg-amber-400" style={{ width: `${(staffingStatusCounts.understaffed / totalActiveForStaffing) * 100}%` }} />}
+                      {staffingStatusCounts.good > 0 && <div className="bg-emerald-500" style={{ width: `${(staffingStatusCounts.good / totalActiveForStaffing) * 100}%` }} />}
+                      {staffingStatusCounts.overstaffed > 0 && <div className="bg-blue-500" style={{ width: `${(staffingStatusCounts.overstaffed / totalActiveForStaffing) * 100}%` }} />}
+                    </div>
+                    <div className="grid grid-cols-3 gap-4">
+                      {[
+                        { key: 'understaffed', label: 'Potentially understaffed', dot: 'bg-amber-400', text: 'text-amber-400', count: staffingStatusCounts.understaffed },
+                        { key: 'good', label: 'Well staffed', dot: 'bg-emerald-500', text: 'text-emerald-400', count: staffingStatusCounts.good },
+                        { key: 'overstaffed', label: 'Potentially overstaffed', dot: 'bg-blue-500', text: 'text-blue-400', count: staffingStatusCounts.overstaffed },
+                      ].map(({ key, label, dot, text, count }) => (
+                        <div key={key}>
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className={`w-2 h-2 rounded-full ${dot}`} />
+                            <span className="text-xs text-gray-400">{label}</span>
+                          </div>
+                          <p className={`text-2xl font-bold ${text}`}>{count}</p>
+                          <p className="text-xs text-gray-600">{Math.round((count / totalActiveForStaffing) * 100)}% of active</p>
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                )}
               </div>
 
               {/* Headcount per project */}
