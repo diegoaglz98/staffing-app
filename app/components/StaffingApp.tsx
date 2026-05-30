@@ -1088,9 +1088,12 @@ ${rows}
                       const type = e.dataTransfer.getData('type')
                       const id = e.dataTransfer.getData('id')
                       if (type === 'staff' && id) {
-                        const s = staff.find(x => x.id === id)
-                        if (s?.flexed) await setStaffFlexed(id, false)
+                        await setStaffFlexed(id, false)
                         setDraggedStaffId(null)
+                      } else if (type === 'assignment' && id) {
+                        const assignment = assignments.find(a => a.id === id)
+                        if (assignment) await setStaffFlexed(assignment.staff_id, false)
+                        setDraggedAssignmentId(null)
                       }
                     }}
                     className={`rounded-lg p-2 transition-all min-h-[60px] ${dragOverUnassigned ? 'ring-1 ring-gray-500 bg-gray-800/40' : ''}`}
@@ -1111,9 +1114,12 @@ ${rows}
                       const type = e.dataTransfer.getData('type')
                       const id = e.dataTransfer.getData('id')
                       if (type === 'staff' && id) {
-                        const s = staff.find(x => x.id === id)
-                        if (!s?.flexed) await setStaffFlexed(id, true)
+                        await setStaffFlexed(id, true)
                         setDraggedStaffId(null)
+                      } else if (type === 'assignment' && id) {
+                        const assignment = assignments.find(a => a.id === id)
+                        if (assignment) await setStaffFlexed(assignment.staff_id, true)
+                        setDraggedAssignmentId(null)
                       }
                     }}
                     className={`rounded-lg p-2 transition-all min-h-[60px] border border-dashed ${
