@@ -1154,7 +1154,11 @@ ${rows}
           const assignedStaffIds = new Set(assignments.map(a => a.staff_id))
           const availableStaff = staff.filter(s => !assignedStaffIds.has(s.id))
 
-          const activeProjectIds = new Set(projects.filter(p => p.status === 'active').map(p => p.id))
+          const activeProjectIds = new Set(
+            projects
+              .filter(p => p.status === 'active' && assignments.some(a => a.project_id === p.id))
+              .map(p => p.id)
+          )
           const activeProjectCount = activeProjectIds.size
 
           const stoCount = assignments.filter(a => a.assignment_role === 'STO' && activeProjectIds.has(a.project_id)).length
@@ -1251,8 +1255,8 @@ ${rows}
             <div className="space-y-6">
               {/* Stat cards */}
               <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-                {statCard('Avg STOs / Project', avgSTOs, 'active projects')}
-                {statCard('Avg Ops Support / Project', avgOps, 'active projects')}
+                {statCard('Avg STOs / Project', avgSTOs, 'active, staffed projects')}
+                {statCard('Avg Ops Support / Project', avgOps, 'active, staffed projects')}
                 {statCard('Avg Projects / Supervisor', avgProjectsPerSupervisor)}
                 {statCard('Available Staff', availableStaff.length, `${staff.length} total`)}
               </div>
