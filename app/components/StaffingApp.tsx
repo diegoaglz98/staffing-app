@@ -31,6 +31,19 @@ type Assignment = {
 
 const VALID_POSITIONS = ['SPA', 'SPL I', 'SPL II', 'Manager, Delivery', 'Senior SPL', 'Head of Delivery', 'GenAI Consultant']
 
+const STATUS_OPTIONS: { value: string; label: string }[] = [
+  { value: 'active', label: 'Active' },
+  { value: 'starting-soon', label: 'Starting Soon' },
+  { value: 'paused', label: 'Paused' },
+  { value: 'on-hold', label: 'On Hold' },
+  { value: 'completed', label: 'Completed' },
+]
+const STATUS_ORDER = STATUS_OPTIONS.map(s => s.value)
+const statusRank = (status: string) => {
+  const i = STATUS_ORDER.indexOf(status)
+  return i === -1 ? 99 : i
+}
+
 function parseCSVLine(line: string): string[] {
   const cols: string[] = []
   let cur = ''
@@ -67,10 +80,12 @@ export default function StaffingApp() {
   const [staffSort, setStaffSort] = useState<'default' | 'az' | 'za'>('az')
   const [hideAssigned, setHideAssigned] = useState(false)
   const [hideAssignedInDropdown, setHideAssignedInDropdown] = useState(false)
-  const [projectSort, setProjectSort] = useState<{ col: string; dir: 'az' | 'za' }>({ col: 'name', dir: 'az' })
+  const [projectSort, setProjectSort] = useState<{ col: string; dir: 'az' | 'za' }>({ col: 'status', dir: 'az' })
   const [showSupervisorsInChart, setShowSupervisorsInChart] = useState(false)
-  const [showInactiveProjects, setShowInactiveProjects] = useState(false)
-  const [showInactiveInProjectsTab, setShowInactiveInProjectsTab] = useState(false)
+  const [visibleStatuses, setVisibleStatuses] = useState<Record<string, boolean>>({
+    'active': true, 'starting-soon': true, 'paused': true, 'on-hold': false, 'completed': false,
+  })
+  const [statusFilterOpen, setStatusFilterOpen] = useState(false)
   const [draggedStaffId, setDraggedStaffId] = useState<string | null>(null)
   const [draggedAssignmentId, setDraggedAssignmentId] = useState<string | null>(null)
   const [dragOverProjectId, setDragOverProjectId] = useState<string | null>(null)
@@ -378,7 +393,7 @@ ${rows}
       let valB: string | number = ''
       if (col === 'name')     { valA = a.name; valB = b.name }
       else if (col === 'customer') { valA = a.customer_codename ?? ''; valB = b.customer_codename ?? '' }
-      else if (col === 'status')   { valA = a.status; valB = b.status }
+      else if (col === 'status')   { valA = statusRank(a.status); valB = statusRank(b.status) }
       else if (col === 'start')    { valA = a.start_date ?? ''; valB = b.start_date ?? '' }
       else if (col === 'end')      { valA = a.end_date ?? ''; valB = b.end_date ?? '' }
       else if (col === 'duration') {
@@ -391,13 +406,45 @@ ${rows}
       }
       if (valA < valB) return -1 * mult
       if (valA > valB) return 1 * mult
-      return 0
+      return a.name.localeCompare(b.name)
     })
   }
 
   function colSortLabel(col: string) {
     if (projectSort.col !== col) return '↕'
     return projectSort.dir === 'az' ? '↑' : '↓'
+  }
+
+  function statusFilterDropdown() {
+    const shownCount = STATUS_OPTIONS.filter(o => visibleStatuses[o.value]).length
+    return (
+      <div className="relative">
+        <button
+          onClick={() => setStatusFilterOpen(o => !o)}
+          className="text-xs px-3 py-1.5 rounded-lg border border-gray-700 text-gray-400 hover:text-gray-200 transition-colors flex items-center gap-1.5"
+        >
+          Statuses <span className="text-[10px] bg-gray-800 rounded px-1.5 py-0.5">{shownCount}/{STATUS_OPTIONS.length}</span>
+        </button>
+        {statusFilterOpen && (
+          <>
+            <div className="fixed inset-0 z-10" onClick={() => setStatusFilterOpen(false)} />
+            <div className="absolute right-0 mt-1 z-20 bg-gray-900 border border-gray-700 rounded-lg p-2 shadow-xl w-44">
+              {STATUS_OPTIONS.map(o => (
+                <label key={o.value} className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-gray-800 cursor-pointer text-sm text-gray-300">
+                  <input
+                    type="checkbox"
+                    checked={!!visibleStatuses[o.value]}
+                    onChange={e => setVisibleStatuses(prev => ({ ...prev, [o.value]: e.target.checked }))}
+                    className="accent-[#193a29] w-4 h-4"
+                  />
+                  {o.label}
+                </label>
+              ))}
+            </div>
+          </>
+        )}
+      </div>
+    )
   }
 
   const roleColors = [
@@ -477,15 +524,7 @@ ${rows}
             <div className="bg-gray-900 rounded-xl p-5 mb-6 border border-gray-800">
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Add Project</h2>
-                <button
-                  onClick={() => setShowInactiveInProjectsTab(v => !v)}
-                  className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${
-                    showInactiveInProjectsTab ? 'text-emerald-400' : 'border-gray-700 text-gray-400 hover:text-gray-200'
-                  }`}
-                  style={showInactiveInProjectsTab ? { borderColor: '#193a29' } : {}}
-                >
-                  {showInactiveInProjectsTab ? 'Showing all statuses' : 'Active & Starting Soon'}
-                </button>
+                {statusFilterDropdown()}
               </div>
               <div className="flex flex-wrap gap-2">
                 <input
@@ -549,7 +588,7 @@ ${rows}
                   </tr>
                 </thead>
                 <tbody>
-                  {sortedProjects(projects.filter(p => showInactiveInProjectsTab || p.status === 'active' || p.status === 'starting-soon')).map(p => {
+                  {sortedProjects(projects.filter(p => visibleStatuses[p.status])).map(p => {
                     const count = assignments.filter(a => a.project_id === p.id).length
                     const isEditing = editingProjectId === p.id
                     return (
@@ -838,15 +877,7 @@ ${rows}
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Assign Staff to Project</h2>
                 <div className="flex items-center gap-2">
-                <button
-                  onClick={() => setShowInactiveProjects(v => !v)}
-                  className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${
-                    showInactiveProjects ? 'text-emerald-400' : 'border-gray-700 text-gray-400 hover:text-gray-200'
-                  }`}
-                  style={showInactiveProjects ? { borderColor: '#193a29' } : {}}
-                >
-                  {showInactiveProjects ? 'Showing all statuses' : 'Active & Starting Soon'}
-                </button>
+                {statusFilterDropdown()}
                 <button
                   onClick={exportAssignmentsHTML}
                   className="text-xs px-3 py-1.5 rounded-lg border border-gray-700 text-gray-400 hover:text-gray-200 transition-colors"
@@ -877,7 +908,7 @@ ${rows}
                   onChange={e => setNewAssignment({ ...newAssignment, project_id: e.target.value })}
                 >
                   <option value="">Select project *</option>
-                  {[...projects].filter(p => showInactiveProjects || p.status === 'active' || p.status === 'starting-soon').sort((a, b) => a.name.localeCompare(b.name)).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                  {[...projects].filter(p => visibleStatuses[p.status]).sort((a, b) => statusRank(a.status) - statusRank(b.status) || a.name.localeCompare(b.name)).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
                 </select>
                 <select
                   className={selectClass}
@@ -962,7 +993,7 @@ ${rows}
               <p className="text-gray-600 text-sm">Add projects first.</p>
             ) : (
               <div className="space-y-3">
-                {[...projects].filter(p => showInactiveProjects || p.status === 'active' || p.status === 'starting-soon').sort((a, b) => a.name.localeCompare(b.name)).map(p => {
+                {[...projects].filter(p => visibleStatuses[p.status]).sort((a, b) => statusRank(a.status) - statusRank(b.status) || a.name.localeCompare(b.name)).map(p => {
                   const projectAssignments = assignments.filter(a => a.project_id === p.id)
                   const isOver = dragOverProjectId === p.id
                   const roles = projectAssignments.map(a => a.assignment_role)
