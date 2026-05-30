@@ -507,6 +507,7 @@ ${rows}
                   onChange={e => setNewProject({ ...newProject, status: e.target.value })}
                 >
                   <option value="active">Active</option>
+                  <option value="starting-soon">Starting Soon</option>
                   <option value="on-hold">On Hold</option>
                   <option value="completed">Completed</option>
                 </select>
@@ -559,6 +560,7 @@ ${rows}
                             <td className="py-2 pr-2">
                               <select className={selectSmClass} value={editProject.status} onChange={e => setEditProject({ ...editProject, status: e.target.value })}>
                                 <option value="active">Active</option>
+                                <option value="starting-soon">Starting Soon</option>
                                 <option value="on-hold">On Hold</option>
                                 <option value="completed">Completed</option>
                               </select>
@@ -581,6 +583,7 @@ ${rows}
                             <td className="py-3.5">
                               <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${
                                 p.status === 'active' ? 'bg-emerald-500/10 text-emerald-400' :
+                                p.status === 'starting-soon' ? 'bg-sky-500/10 text-sky-400' :
                                 p.status === 'on-hold' ? 'bg-amber-500/10 text-amber-400' :
                                 'bg-gray-700 text-gray-400'
                               }`}>
@@ -1013,6 +1016,7 @@ ${rows}
                         </div>
                         <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${
                           p.status === 'active' ? 'bg-emerald-500/10 text-emerald-400' :
+                          p.status === 'starting-soon' ? 'bg-sky-500/10 text-sky-400' :
                           p.status === 'on-hold' ? 'bg-amber-500/10 text-amber-400' :
                           'bg-gray-700 text-gray-400'
                         }`}>
