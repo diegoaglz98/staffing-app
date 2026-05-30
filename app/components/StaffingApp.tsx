@@ -976,17 +976,19 @@ ${rows}
                       onDrop={async e => {
                         e.preventDefault()
                         setDragOverProjectId(null)
-                        if (draggedStaffId) {
-                          const already = assignments.some(a => a.project_id === p.id && a.staff_id === draggedStaffId)
-                          if (!already) { setPendingDrop({ staffId: draggedStaffId, projectId: p.id }) }
+                        const type = e.dataTransfer.getData('type')
+                        const id = e.dataTransfer.getData('id')
+                        if (type === 'staff' && id) {
+                          const already = assignments.some(a => a.project_id === p.id && a.staff_id === id)
+                          if (!already) { setPendingDrop({ staffId: id, projectId: p.id }) }
                           setDraggedStaffId(null)
-                        } else if (draggedAssignmentId) {
-                          const assignment = assignments.find(a => a.id === draggedAssignmentId)
+                        } else if (type === 'assignment' && id) {
+                          const assignment = assignments.find(a => a.id === id)
                           if (assignment && assignment.project_id !== p.id) {
                             const already = assignments.some(a => a.project_id === p.id && a.staff_id === assignment.staff_id)
                             if (!already) {
-                              const { data } = await supabase.from('assignments').update({ project_id: p.id }).eq('id', draggedAssignmentId).select().single()
-                              if (data) setAssignments(prev => prev.map(a => a.id === draggedAssignmentId ? data : a))
+                              const { data } = await supabase.from('assignments').update({ project_id: p.id }).eq('id', id).select().single()
+                              if (data) setAssignments(prev => prev.map(a => a.id === id ? data : a))
                             }
                           }
                           setDraggedAssignmentId(null)
@@ -1030,7 +1032,7 @@ ${rows}
                               <div
                                 key={a.id}
                                 draggable
-                                onDragStart={() => { setDraggedAssignmentId(a.id); setDraggedStaffId(null) }}
+                                onDragStart={e => { e.dataTransfer.setData('type', 'assignment'); e.dataTransfer.setData('id', a.id); setDraggedAssignmentId(a.id); setDraggedStaffId(null) }}
                                 onDragEnd={() => setDraggedAssignmentId(null)}
                                 className={`flex items-center justify-between bg-gray-800/60 rounded-lg px-4 py-2.5 text-sm cursor-grab active:cursor-grabbing transition-opacity ${draggedAssignmentId === a.id ? 'opacity-40' : ''}`}
                               >
@@ -1062,7 +1064,7 @@ ${rows}
                 <div
                   key={s.id}
                   draggable
-                  onDragStart={() => { setDraggedStaffId(s.id); setDraggedAssignmentId(null) }}
+                  onDragStart={e => { e.dataTransfer.setData('type', 'staff'); e.dataTransfer.setData('id', s.id); setDraggedStaffId(s.id); setDraggedAssignmentId(null) }}
                   onDragEnd={() => setDraggedStaffId(null)}
                   className={`cursor-grab active:cursor-grabbing select-none border rounded-lg px-3 py-2 text-sm transition-all ${
                     draggedStaffId === s.id ? 'opacity-40 border-gray-600' : `border-gray-700 bg-gray-900 hover:border-gray-500 ${extraClass}`
@@ -1079,13 +1081,15 @@ ${rows}
 
                   {/* Unassigned drop zone */}
                   <div
-                    onDragOver={e => { e.preventDefault(); if (draggedStaffId && staff.find(s => s.id === draggedStaffId)?.flexed) setDragOverUnassigned(true) }}
+                    onDragOver={e => { e.preventDefault(); setDragOverUnassigned(true) }}
                     onDragLeave={() => setDragOverUnassigned(false)}
                     onDrop={async e => {
                       e.preventDefault(); setDragOverUnassigned(false)
-                      if (draggedStaffId) {
-                        const s = staff.find(x => x.id === draggedStaffId)
-                        if (s?.flexed) await setStaffFlexed(draggedStaffId, false)
+                      const type = e.dataTransfer.getData('type')
+                      const id = e.dataTransfer.getData('id')
+                      if (type === 'staff' && id) {
+                        const s = staff.find(x => x.id === id)
+                        if (s?.flexed) await setStaffFlexed(id, false)
                         setDraggedStaffId(null)
                       }
                     }}
@@ -1104,9 +1108,11 @@ ${rows}
                     onDragLeave={() => setDragOverFlexed(false)}
                     onDrop={async e => {
                       e.preventDefault(); setDragOverFlexed(false)
-                      if (draggedStaffId) {
-                        const s = staff.find(x => x.id === draggedStaffId)
-                        if (!s?.flexed) await setStaffFlexed(draggedStaffId, true)
+                      const type = e.dataTransfer.getData('type')
+                      const id = e.dataTransfer.getData('id')
+                      if (type === 'staff' && id) {
+                        const s = staff.find(x => x.id === id)
+                        if (!s?.flexed) await setStaffFlexed(id, true)
                         setDraggedStaffId(null)
                       }
                     }}
