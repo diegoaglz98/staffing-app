@@ -936,6 +936,8 @@ ${rows}
                           }]).select().single()
                           if (data) setAssignments(prev => [...prev, data])
                         }
+                        const member = staff.find(s => s.id === pendingDrop.staffId)
+                        if (member?.flexed) await setStaffFlexed(pendingDrop.staffId, false)
                         setPendingDrop(null)
                         setDropRole('')
                       }}
