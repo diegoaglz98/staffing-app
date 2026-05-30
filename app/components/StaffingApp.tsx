@@ -1092,7 +1092,10 @@ ${rows}
                         setDraggedStaffId(null)
                       } else if (type === 'assignment' && id) {
                         const assignment = assignments.find(a => a.id === id)
-                        if (assignment) await setStaffFlexed(assignment.staff_id, false)
+                        if (assignment) {
+                          await setStaffFlexed(assignment.staff_id, false)
+                          await removeAssignment(id)
+                        }
                         setDraggedAssignmentId(null)
                       }
                     }}
@@ -1118,7 +1121,10 @@ ${rows}
                         setDraggedStaffId(null)
                       } else if (type === 'assignment' && id) {
                         const assignment = assignments.find(a => a.id === id)
-                        if (assignment) await setStaffFlexed(assignment.staff_id, true)
+                        if (assignment) {
+                          await setStaffFlexed(assignment.staff_id, true)
+                          await removeAssignment(id)
+                        }
                         setDraggedAssignmentId(null)
                       }
                     }}
