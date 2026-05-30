@@ -1038,15 +1038,17 @@ ${rows}
                       <div className="flex items-center justify-between mb-4">
                         <div className="flex items-center gap-2">
                           <h3 className="font-semibold text-gray-100">{p.name}</h3>
-                          <span className={`px-2 py-0.5 rounded-full text-[11px] font-medium ${
-                            staffingStatus === 'understaffed' ? 'bg-amber-500/10 text-amber-400' :
-                            staffingStatus === 'overstaffed' ? 'bg-blue-500/10 text-blue-400' :
-                            'bg-emerald-500/10 text-emerald-400'
-                          }`}>
-                            {staffingStatus === 'understaffed' ? 'Potentially understaffed' :
-                             staffingStatus === 'overstaffed' ? 'Potentially overstaffed' :
-                             'Well staffed'}
-                          </span>
+                          {p.status === 'active' && (
+                            <span className={`px-2 py-0.5 rounded-full text-[11px] font-medium ${
+                              staffingStatus === 'understaffed' ? 'bg-amber-500/10 text-amber-400' :
+                              staffingStatus === 'overstaffed' ? 'bg-blue-500/10 text-blue-400' :
+                              'bg-emerald-500/10 text-emerald-400'
+                            }`}>
+                              {staffingStatus === 'understaffed' ? 'Potentially understaffed' :
+                               staffingStatus === 'overstaffed' ? 'Potentially overstaffed' :
+                               'Well staffed'}
+                            </span>
+                          )}
                         </div>
                         <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${
                           p.status === 'active' ? 'bg-emerald-500/10 text-emerald-400' :
