@@ -484,7 +484,7 @@ ${rows}
                   }`}
                   style={showInactiveInProjectsTab ? { borderColor: '#193a29' } : {}}
                 >
-                  {showInactiveInProjectsTab ? 'Showing all statuses' : 'Active only'}
+                  {showInactiveInProjectsTab ? 'Showing all statuses' : 'Active & Starting Soon'}
                 </button>
               </div>
               <div className="flex flex-wrap gap-2">
@@ -548,7 +548,7 @@ ${rows}
                   </tr>
                 </thead>
                 <tbody>
-                  {sortedProjects(projects.filter(p => showInactiveInProjectsTab || p.status === 'active')).map(p => {
+                  {sortedProjects(projects.filter(p => showInactiveInProjectsTab || p.status === 'active' || p.status === 'starting-soon')).map(p => {
                     const count = assignments.filter(a => a.project_id === p.id).length
                     const isEditing = editingProjectId === p.id
                     return (
@@ -842,7 +842,7 @@ ${rows}
                   }`}
                   style={showInactiveProjects ? { borderColor: '#193a29' } : {}}
                 >
-                  {showInactiveProjects ? 'Showing all statuses' : 'Active only'}
+                  {showInactiveProjects ? 'Showing all statuses' : 'Active & Starting Soon'}
                 </button>
                 <button
                   onClick={exportAssignmentsHTML}
@@ -874,7 +874,7 @@ ${rows}
                   onChange={e => setNewAssignment({ ...newAssignment, project_id: e.target.value })}
                 >
                   <option value="">Select project *</option>
-                  {[...projects].filter(p => showInactiveProjects || p.status === 'active').sort((a, b) => a.name.localeCompare(b.name)).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                  {[...projects].filter(p => showInactiveProjects || p.status === 'active' || p.status === 'starting-soon').sort((a, b) => a.name.localeCompare(b.name)).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
                 </select>
                 <select
                   className={selectClass}
@@ -959,7 +959,7 @@ ${rows}
               <p className="text-gray-600 text-sm">Add projects first.</p>
             ) : (
               <div className="space-y-3">
-                {[...projects].filter(p => showInactiveProjects || p.status === 'active').sort((a, b) => a.name.localeCompare(b.name)).map(p => {
+                {[...projects].filter(p => showInactiveProjects || p.status === 'active' || p.status === 'starting-soon').sort((a, b) => a.name.localeCompare(b.name)).map(p => {
                   const projectAssignments = assignments.filter(a => a.project_id === p.id)
                   const isOver = dragOverProjectId === p.id
                   const roles = projectAssignments.map(a => a.assignment_role)
