@@ -19,6 +19,7 @@ type Staff = {
   position: string | null
   ooo: boolean
   ooo_return_date: string | null
+  flexed: boolean
 }
 
 type Assignment = {
@@ -73,6 +74,8 @@ export default function StaffingApp() {
   const [draggedStaffId, setDraggedStaffId] = useState<string | null>(null)
   const [draggedAssignmentId, setDraggedAssignmentId] = useState<string | null>(null)
   const [dragOverProjectId, setDragOverProjectId] = useState<string | null>(null)
+  const [dragOverFlexed, setDragOverFlexed] = useState(false)
+  const [dragOverUnassigned, setDragOverUnassigned] = useState(false)
   const [pendingDrop, setPendingDrop] = useState<{ staffId: string; projectId: string } | null>(null)
   const [dropRole, setDropRole] = useState('')
 
@@ -336,6 +339,11 @@ ${rows}
     a.download = `staffing-assignments-${new Date().toISOString().split('T')[0]}.docx`
     a.click()
     URL.revokeObjectURL(url)
+  }
+
+  async function setStaffFlexed(id: string, flexed: boolean) {
+    const { data } = await supabase.from('staff').update({ flexed }).eq('id', id).select().single()
+    if (data) setStaff(prev => prev.map(s => s.id === id ? data : s))
   }
 
   async function removeAssignment(id: string) {
@@ -1044,36 +1052,75 @@ ${rows}
             )}
             </div>{/* end left column */}
 
-            {/* Right: unassigned staff panel */}
+            {/* Right: unassigned + flexed panels */}
             {(() => {
               const assignedIds = new Set(assignments.map(a => a.staff_id))
-              const unassigned = [...staff].filter(s => !assignedIds.has(s.id)).sort((a, b) => a.name.localeCompare(b.name))
+              const unassigned = [...staff].filter(s => !assignedIds.has(s.id) && !s.flexed).sort((a, b) => a.name.localeCompare(b.name))
+              const flexed = [...staff].filter(s => s.flexed).sort((a, b) => a.name.localeCompare(b.name))
+
+              const staffTile = (s: Staff, extraClass = '') => (
+                <div
+                  key={s.id}
+                  draggable
+                  onDragStart={() => { setDraggedStaffId(s.id); setDraggedAssignmentId(null) }}
+                  onDragEnd={() => setDraggedStaffId(null)}
+                  className={`cursor-grab active:cursor-grabbing select-none border rounded-lg px-3 py-2 text-sm transition-all ${
+                    draggedStaffId === s.id ? 'opacity-40 border-gray-600' : `border-gray-700 bg-gray-900 hover:border-gray-500 ${extraClass}`
+                  }`}
+                >
+                  <p className="font-medium text-gray-200 leading-tight">{s.name}</p>
+                  {s.position && <p className="text-xs text-gray-500 mt-0.5">{s.position}</p>}
+                  {s.ooo && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-500/10 text-amber-400 mt-1 inline-block">OOO</span>}
+                </div>
+              )
+
               return (
-                <div className="w-52 shrink-0 sticky top-6">
-                  <p className="text-xs text-gray-500 uppercase tracking-wider mb-3">Unassigned</p>
-                  {unassigned.length === 0 ? (
-                    <p className="text-xs text-gray-600">Everyone is assigned.</p>
-                  ) : (
-                    <div className="flex flex-col gap-2">
-                      {unassigned.map(s => (
-                        <div
-                          key={s.id}
-                          draggable
-                          onDragStart={() => setDraggedStaffId(s.id)}
-                          onDragEnd={() => setDraggedStaffId(null)}
-                          className={`cursor-grab active:cursor-grabbing select-none border rounded-lg px-3 py-2 text-sm transition-all ${
-                            draggedStaffId === s.id
-                              ? 'opacity-40 border-gray-600'
-                              : 'border-gray-700 bg-gray-900 hover:border-gray-500'
-                          }`}
-                        >
-                          <p className="font-medium text-gray-200 leading-tight">{s.name}</p>
-                          {s.position && <p className="text-xs text-gray-500 mt-0.5">{s.position}</p>}
-                          {s.ooo && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-500/10 text-amber-400 mt-1 inline-block">OOO</span>}
-                        </div>
-                      ))}
-                    </div>
-                  )}
+                <div className="w-52 shrink-0 sticky top-6 flex flex-col gap-5">
+
+                  {/* Unassigned drop zone */}
+                  <div
+                    onDragOver={e => { e.preventDefault(); if (draggedStaffId && staff.find(s => s.id === draggedStaffId)?.flexed) setDragOverUnassigned(true) }}
+                    onDragLeave={() => setDragOverUnassigned(false)}
+                    onDrop={async e => {
+                      e.preventDefault(); setDragOverUnassigned(false)
+                      if (draggedStaffId) {
+                        const s = staff.find(x => x.id === draggedStaffId)
+                        if (s?.flexed) await setStaffFlexed(draggedStaffId, false)
+                        setDraggedStaffId(null)
+                      }
+                    }}
+                    className={`rounded-lg p-2 transition-all min-h-[60px] ${dragOverUnassigned ? 'ring-1 ring-gray-500 bg-gray-800/40' : ''}`}
+                  >
+                    <p className="text-xs text-gray-500 uppercase tracking-wider mb-3">Unassigned</p>
+                    {unassigned.length === 0
+                      ? <p className="text-xs text-gray-600">None</p>
+                      : <div className="flex flex-col gap-2">{unassigned.map(s => staffTile(s))}</div>
+                    }
+                  </div>
+
+                  {/* Flexed drop zone */}
+                  <div
+                    onDragOver={e => { e.preventDefault(); setDragOverFlexed(true) }}
+                    onDragLeave={() => setDragOverFlexed(false)}
+                    onDrop={async e => {
+                      e.preventDefault(); setDragOverFlexed(false)
+                      if (draggedStaffId) {
+                        const s = staff.find(x => x.id === draggedStaffId)
+                        if (!s?.flexed) await setStaffFlexed(draggedStaffId, true)
+                        setDraggedStaffId(null)
+                      }
+                    }}
+                    className={`rounded-lg p-2 transition-all min-h-[60px] border border-dashed ${
+                      dragOverFlexed ? 'border-violet-500 bg-violet-500/10' : 'border-gray-700'
+                    }`}
+                  >
+                    <p className="text-xs text-gray-500 uppercase tracking-wider mb-3">Flexed</p>
+                    {flexed.length === 0
+                      ? <p className="text-xs text-gray-600">Drop here to flex</p>
+                      : <div className="flex flex-col gap-2">{flexed.map(s => staffTile(s))}</div>
+                    }
+                  </div>
+
                 </div>
               )
             })()}
