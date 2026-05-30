@@ -509,6 +509,7 @@ ${rows}
                   <option value="active">Active</option>
                   <option value="starting-soon">Starting Soon</option>
                   <option value="on-hold">On Hold</option>
+                  <option value="paused">Paused</option>
                   <option value="completed">Completed</option>
                 </select>
                 <input
@@ -562,6 +563,7 @@ ${rows}
                                 <option value="active">Active</option>
                                 <option value="starting-soon">Starting Soon</option>
                                 <option value="on-hold">On Hold</option>
+                                <option value="paused">Paused</option>
                                 <option value="completed">Completed</option>
                               </select>
                             </td>
@@ -585,6 +587,7 @@ ${rows}
                                 p.status === 'active' ? 'bg-emerald-500/10 text-emerald-400' :
                                 p.status === 'starting-soon' ? 'bg-sky-500/10 text-sky-400' :
                                 p.status === 'on-hold' ? 'bg-amber-500/10 text-amber-400' :
+                                p.status === 'paused' ? 'bg-rose-500/10 text-rose-400' :
                                 'bg-gray-700 text-gray-400'
                               }`}>
                                 {p.status}
@@ -1018,6 +1021,7 @@ ${rows}
                           p.status === 'active' ? 'bg-emerald-500/10 text-emerald-400' :
                           p.status === 'starting-soon' ? 'bg-sky-500/10 text-sky-400' :
                           p.status === 'on-hold' ? 'bg-amber-500/10 text-amber-400' :
+                          p.status === 'paused' ? 'bg-rose-500/10 text-rose-400' :
                           'bg-gray-700 text-gray-400'
                         }`}>
                           {p.status}
