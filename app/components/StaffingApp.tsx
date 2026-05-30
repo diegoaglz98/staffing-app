@@ -975,7 +975,10 @@ ${rows}
                           if (data) setAssignments(prev => [...prev, data])
                         }
                         const member = staff.find(s => s.id === pendingDrop.staffId)
-                        if (member?.flexed || member?.ooo) await setStaffZone(pendingDrop.staffId, 'unassigned')
+                        if (member?.flexed) {
+                          const { data } = await supabase.from('staff').update({ flexed: false }).eq('id', pendingDrop.staffId).select().single()
+                          if (data) setStaff(prev => prev.map(s => s.id === pendingDrop.staffId ? data : s))
+                        }
                         setPendingDrop(null)
                         setDropRole('')
                       }}
