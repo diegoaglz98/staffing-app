@@ -1194,7 +1194,9 @@ ${rows}
         {/* Dashboard Tab */}
         {tab === 'dashboard' && (() => {
           const assignedStaffIds = new Set(assignments.map(a => a.staff_id))
-          const availableStaff = staff.filter(s => !assignedStaffIds.has(s.id))
+          const availableStaff = staff.filter(s => !assignedStaffIds.has(s.id) && !s.flexed && !s.ooo)
+          const oooCount = staff.filter(s => s.ooo).length
+          const flexedCount = staff.filter(s => s.flexed).length
 
           const activeProjectIds = new Set(
             projects
@@ -1309,12 +1311,18 @@ ${rows}
 
           return (
             <div className="space-y-6">
-              {/* Stat cards */}
-              <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+              {/* Stat cards — averages */}
+              <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
                 {statCard('Avg STOs / Project', avgSTOs, 'active, staffed projects')}
                 {statCard('Avg Ops Support / Project', avgOps, 'active, staffed projects')}
                 {statCard('Avg Projects / Supervisor', avgProjectsPerSupervisor)}
+              </div>
+
+              {/* Stat cards — staff availability */}
+              <div className="grid grid-cols-3 gap-4">
                 {statCard('Available Staff', availableStaff.length, `${staff.length} total`)}
+                {statCard('Currently OOO', oooCount)}
+                {statCard('Flexed', flexedCount)}
               </div>
 
               {/* Charts row */}
