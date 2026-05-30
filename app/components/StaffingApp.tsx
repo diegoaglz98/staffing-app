@@ -76,6 +76,7 @@ export default function StaffingApp() {
   const [dragOverProjectId, setDragOverProjectId] = useState<string | null>(null)
   const [dragOverFlexed, setDragOverFlexed] = useState(false)
   const [dragOverUnassigned, setDragOverUnassigned] = useState(false)
+  const [dragOverOOO, setDragOverOOO] = useState(false)
   const [pendingDrop, setPendingDrop] = useState<{ staffId: string; projectId: string } | null>(null)
   const [dropRole, setDropRole] = useState('')
 
@@ -341,8 +342,8 @@ ${rows}
     URL.revokeObjectURL(url)
   }
 
-  async function setStaffFlexed(id: string, flexed: boolean) {
-    const { data } = await supabase.from('staff').update({ flexed }).eq('id', id).select().single()
+  async function setStaffZone(id: string, zone: 'unassigned' | 'flexed' | 'ooo') {
+    const { data } = await supabase.from('staff').update({ flexed: zone === 'flexed', ooo: zone === 'ooo' }).eq('id', id).select().single()
     if (data) setStaff(prev => prev.map(s => s.id === id ? data : s))
   }
 
@@ -937,7 +938,7 @@ ${rows}
                           if (data) setAssignments(prev => [...prev, data])
                         }
                         const member = staff.find(s => s.id === pendingDrop.staffId)
-                        if (member?.flexed) await setStaffFlexed(pendingDrop.staffId, false)
+                        if (member?.flexed || member?.ooo) await setStaffZone(pendingDrop.staffId, 'unassigned')
                         setPendingDrop(null)
                         setDropRole('')
                       }}
@@ -1040,6 +1041,11 @@ ${rows}
                               >
                                 <div className="flex items-center gap-3">
                                   <span className="font-medium text-gray-200">{member?.name ?? 'Unknown'}</span>
+                                  {member?.ooo && (
+                                    <span className="flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400" title={member.ooo_return_date ? `OOO — back ${member.ooo_return_date}` : 'Out of office'}>
+                                      ⚠️ OOO{member.ooo_return_date ? ` · back ${member.ooo_return_date}` : ''}
+                                    </span>
+                                  )}
                                   {a.assignment_role && <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${roleColor(a.assignment_role)}`}>{a.assignment_role}</span>}
                                   {member?.position && <span className="text-xs text-gray-500">{member.position}</span>}
                                 </div>
@@ -1056,11 +1062,12 @@ ${rows}
             )}
             </div>{/* end left column */}
 
-            {/* Right: unassigned + flexed panels */}
+            {/* Right: unassigned + flexed + OOO panels */}
             {(() => {
               const assignedIds = new Set(assignments.map(a => a.staff_id))
-              const unassigned = [...staff].filter(s => !assignedIds.has(s.id) && !s.flexed).sort((a, b) => a.name.localeCompare(b.name))
-              const flexed = [...staff].filter(s => s.flexed).sort((a, b) => a.name.localeCompare(b.name))
+              const unassigned = [...staff].filter(s => !assignedIds.has(s.id) && !s.flexed && !s.ooo).sort((a, b) => a.name.localeCompare(b.name))
+              const flexed = [...staff].filter(s => s.flexed && !assignedIds.has(s.id)).sort((a, b) => a.name.localeCompare(b.name))
+              const oooStaff = [...staff].filter(s => s.ooo && !assignedIds.has(s.id)).sort((a, b) => a.name.localeCompare(b.name))
 
               const staffTile = (s: Staff, extraClass = '') => (
                 <div
@@ -1090,12 +1097,12 @@ ${rows}
                       const type = e.dataTransfer.getData('type')
                       const id = e.dataTransfer.getData('id')
                       if (type === 'staff' && id) {
-                        await setStaffFlexed(id, false)
+                        await setStaffZone(id, 'unassigned')
                         setDraggedStaffId(null)
                       } else if (type === 'assignment' && id) {
                         const assignment = assignments.find(a => a.id === id)
                         if (assignment) {
-                          await setStaffFlexed(assignment.staff_id, false)
+                          await setStaffZone(assignment.staff_id, 'unassigned')
                           await removeAssignment(id)
                         }
                         setDraggedAssignmentId(null)
@@ -1119,12 +1126,12 @@ ${rows}
                       const type = e.dataTransfer.getData('type')
                       const id = e.dataTransfer.getData('id')
                       if (type === 'staff' && id) {
-                        await setStaffFlexed(id, true)
+                        await setStaffZone(id, 'flexed')
                         setDraggedStaffId(null)
                       } else if (type === 'assignment' && id) {
                         const assignment = assignments.find(a => a.id === id)
                         if (assignment) {
-                          await setStaffFlexed(assignment.staff_id, true)
+                          await setStaffZone(assignment.staff_id, 'flexed')
                           await removeAssignment(id)
                         }
                         setDraggedAssignmentId(null)
@@ -1138,6 +1145,37 @@ ${rows}
                     {flexed.length === 0
                       ? <p className="text-xs text-gray-600">Drop here to flex</p>
                       : <div className="flex flex-col gap-2">{flexed.map(s => staffTile(s))}</div>
+                    }
+                  </div>
+
+                  {/* Currently OOO drop zone */}
+                  <div
+                    onDragOver={e => { e.preventDefault(); setDragOverOOO(true) }}
+                    onDragLeave={() => setDragOverOOO(false)}
+                    onDrop={async e => {
+                      e.preventDefault(); setDragOverOOO(false)
+                      const type = e.dataTransfer.getData('type')
+                      const id = e.dataTransfer.getData('id')
+                      if (type === 'staff' && id) {
+                        await setStaffZone(id, 'ooo')
+                        setDraggedStaffId(null)
+                      } else if (type === 'assignment' && id) {
+                        const assignment = assignments.find(a => a.id === id)
+                        if (assignment) {
+                          await setStaffZone(assignment.staff_id, 'ooo')
+                          await removeAssignment(id)
+                        }
+                        setDraggedAssignmentId(null)
+                      }
+                    }}
+                    className={`rounded-lg p-2 transition-all min-h-[60px] border border-dashed ${
+                      dragOverOOO ? 'border-amber-500 bg-amber-500/10' : 'border-gray-700'
+                    }`}
+                  >
+                    <p className="text-xs text-gray-500 uppercase tracking-wider mb-3">Currently OOO</p>
+                    {oooStaff.length === 0
+                      ? <p className="text-xs text-gray-600">Drop here to mark OOO</p>
+                      : <div className="flex flex-col gap-2">{oooStaff.map(s => staffTile(s))}</div>
                     }
                   </div>
 
