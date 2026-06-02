@@ -95,6 +95,7 @@ export default function StaffingApp() {
   const [dragOverUnassigned, setDragOverUnassigned] = useState(false)
   const [dragOverOOO, setDragOverOOO] = useState(false)
   const [pendingDrop, setPendingDrop] = useState<{ staffId: string; projectId: string } | null>(null)
+  const [pendingMove, setPendingMove] = useState<{ assignmentId: string; projectId: string } | null>(null)
   const [dropRole, setDropRole] = useState('')
 
   useEffect(() => {
@@ -992,6 +993,50 @@ ${rows}
               </div>
             )}
 
+            {pendingMove && (() => {
+              const assignment = assignments.find(a => a.id === pendingMove.assignmentId)
+              const member = staff.find(s => s.id === assignment?.staff_id)
+              return (
+                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => { setPendingMove(null); setDropRole('') }}>
+                  <div className="bg-gray-900 border border-gray-700 rounded-xl p-6 w-80 shadow-xl" onClick={e => e.stopPropagation()}>
+                    <p className="text-sm font-semibold text-gray-100 mb-1">Move to project</p>
+                    <p className="text-xs text-gray-500 mb-4">
+                      <span className="text-gray-300">{member?.name}</span>
+                      {' → '}
+                      <span className="text-gray-300">{projects.find(p => p.id === pendingMove.projectId)?.name}</span>
+                    </p>
+                    <p className="text-xs text-gray-500 mb-2">Confirm role for this assignment:</p>
+                    <select
+                      className={selectClass + ' w-full mb-4'}
+                      value={dropRole}
+                      onChange={e => setDropRole(e.target.value)}
+                      autoFocus
+                    >
+                      <option value="">No role</option>
+                      <option>Supervisor</option>
+                      <option>STO</option>
+                      <option>Ops Support</option>
+                    </select>
+                    <div className="flex gap-2 justify-end">
+                      <button className={btnCancel} onClick={() => { setPendingMove(null); setDropRole('') }}>Cancel</button>
+                      <button
+                        className={btnPrimary}
+                        style={{ backgroundColor: '#193a29' }}
+                        onClick={async () => {
+                          const { data } = await supabase.from('assignments').update({ project_id: pendingMove.projectId, assignment_role: dropRole || null }).eq('id', pendingMove.assignmentId).select().single()
+                          if (data) setAssignments(prev => prev.map(a => a.id === pendingMove.assignmentId ? data : a))
+                          setPendingMove(null)
+                          setDropRole('')
+                        }}
+                      >
+                        Move
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )
+            })()}
+
             {/* Left: project list */}
             <div className="flex-1 min-w-0">
             {projects.length === 0 ? (
@@ -1032,8 +1077,8 @@ ${rows}
                           if (assignment && assignment.project_id !== p.id) {
                             const already = assignments.some(a => a.project_id === p.id && a.staff_id === assignment.staff_id)
                             if (!already) {
-                              const { data } = await supabase.from('assignments').update({ project_id: p.id }).eq('id', id).select().single()
-                              if (data) setAssignments(prev => prev.map(a => a.id === id ? data : a))
+                              setPendingMove({ assignmentId: id, projectId: p.id })
+                              setDropRole(assignment.assignment_role ?? '')
                             }
                           }
                           setDraggedAssignmentId(null)
