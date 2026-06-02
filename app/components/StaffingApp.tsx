@@ -177,6 +177,11 @@ export default function StaffingApp() {
     if (data) {
       setProjects(projects.map(p => p.id === id ? data : p))
       setEditingProjectId(null)
+      // Completing a project frees up its staff — remove its assignments
+      if (data.status === 'completed' && assignments.some(a => a.project_id === id)) {
+        await supabase.from('assignments').delete().eq('project_id', id)
+        setAssignments(prev => prev.filter(a => a.project_id !== id))
+      }
     }
   }
 
