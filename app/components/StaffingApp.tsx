@@ -1075,6 +1075,10 @@ ${rows}
                                    (order.indexOf(b.assignment_role ?? '') === -1 ? 99 : order.indexOf(b.assignment_role ?? ''))
                           }).map(a => {
                             const member = staff.find(s => s.id === a.staff_id)
+                            const nonSupProjectCount = new Set(
+                              assignments.filter(x => x.staff_id === a.staff_id && x.assignment_role !== 'Supervisor').map(x => x.project_id)
+                            ).size
+                            const overAllocated = a.assignment_role !== 'Supervisor' && nonSupProjectCount >= 2
                             return (
                               <div
                                 key={a.id}
@@ -1088,6 +1092,11 @@ ${rows}
                                   {member?.ooo && (
                                     <span className="flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400" title={member.ooo_return_date ? `OOO — back ${member.ooo_return_date}` : 'Out of office'}>
                                       ⚠️ OOO{member.ooo_return_date ? ` · back ${member.ooo_return_date}` : ''}
+                                    </span>
+                                  )}
+                                  {overAllocated && (
+                                    <span className="flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full bg-red-500/10 text-red-400" title={`Assigned to ${nonSupProjectCount} projects in a non-Supervisor role`}>
+                                      ⚠️ In {nonSupProjectCount} projects
                                     </span>
                                   )}
                                   {a.assignment_role && <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${roleColor(a.assignment_role)}`}>{a.assignment_role}</span>}
