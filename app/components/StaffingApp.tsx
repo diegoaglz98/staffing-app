@@ -86,6 +86,8 @@ export default function StaffingApp() {
     'active': true, 'starting-soon': true, 'paused': true, 'on-hold': false, 'completed': false,
   })
   const [statusFilterOpen, setStatusFilterOpen] = useState(false)
+  const [addingToProjectId, setAddingToProjectId] = useState<string | null>(null)
+  const [quickAdd, setQuickAdd] = useState({ staff_id: '', assignment_role: '' })
   const [draggedStaffId, setDraggedStaffId] = useState<string | null>(null)
   const [draggedAssignmentId, setDraggedAssignmentId] = useState<string | null>(null)
   const [dragOverProjectId, setDragOverProjectId] = useState<string | null>(null)
@@ -1041,6 +1043,13 @@ ${rows}
                       <div className="flex items-center justify-between mb-4">
                         <div className="flex items-center gap-2">
                           <h3 className="font-semibold text-gray-100">{p.name}</h3>
+                          <button
+                            onClick={() => { setAddingToProjectId(addingToProjectId === p.id ? null : p.id); setQuickAdd({ staff_id: '', assignment_role: '' }) }}
+                            title="Add a person to this project"
+                            className="w-5 h-5 flex items-center justify-center rounded-full border border-gray-600 text-gray-400 hover:text-white hover:border-gray-400 transition-colors text-sm leading-none"
+                          >
+                            +
+                          </button>
                           {p.status === 'active' && (
                             <span className={`px-2 py-0.5 rounded-full text-[11px] font-medium ${
                               staffingStatus === 'understaffed' ? 'bg-amber-500/10 text-amber-400' :
@@ -1063,6 +1072,49 @@ ${rows}
                           {p.status}
                         </span>
                       </div>
+                      {addingToProjectId === p.id && (
+                        <div className="flex flex-wrap gap-2 mb-3 p-3 rounded-lg bg-gray-800/40 border border-gray-700">
+                          <select
+                            className={selectSmClass + ' flex-1 min-w-[160px]'}
+                            value={quickAdd.staff_id}
+                            onChange={e => setQuickAdd({ ...quickAdd, staff_id: e.target.value })}
+                          >
+                            <option value="">Select staff…</option>
+                            {[...staff]
+                              .filter(s => !projectAssignments.some(a => a.staff_id === s.id))
+                              .sort((a, b) => a.name.localeCompare(b.name))
+                              .map(s => <option key={s.id} value={s.id}>{s.name}{s.position ? ` — ${s.position}` : ''}</option>)}
+                          </select>
+                          <select
+                            className={selectSmClass + ' w-32'}
+                            value={quickAdd.assignment_role}
+                            onChange={e => setQuickAdd({ ...quickAdd, assignment_role: e.target.value })}
+                          >
+                            <option value="">Role</option>
+                            <option>Supervisor</option>
+                            <option>STO</option>
+                            <option>Ops Support</option>
+                          </select>
+                          <button
+                            className={btnPrimary}
+                            style={{ backgroundColor: '#193a29' }}
+                            onClick={async () => {
+                              if (!quickAdd.staff_id) return
+                              const { data } = await supabase.from('assignments').insert([{
+                                project_id: p.id,
+                                staff_id: quickAdd.staff_id,
+                                assignment_role: quickAdd.assignment_role || null,
+                              }]).select().single()
+                              if (data) setAssignments(prev => [...prev, data])
+                              setQuickAdd({ staff_id: '', assignment_role: '' })
+                              setAddingToProjectId(null)
+                            }}
+                          >
+                            Add
+                          </button>
+                          <button className={btnCancel} onClick={() => { setAddingToProjectId(null); setQuickAdd({ staff_id: '', assignment_role: '' }) }}>Cancel</button>
+                        </div>
+                      )}
                       {projectAssignments.length === 0 ? (
                         <p className={`text-sm ${isOver ? 'text-gray-400' : 'text-gray-600'}`}>
                           {isOver ? 'Drop to assign' : 'No staff assigned.'}
