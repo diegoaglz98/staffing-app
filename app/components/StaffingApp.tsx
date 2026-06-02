@@ -96,6 +96,7 @@ export default function StaffingApp() {
   const [dragOverOOO, setDragOverOOO] = useState(false)
   const [pendingDrop, setPendingDrop] = useState<{ staffId: string; projectId: string } | null>(null)
   const [pendingMove, setPendingMove] = useState<{ assignmentId: string; projectId: string } | null>(null)
+  const [confirmFreeStaff, setConfirmFreeStaff] = useState<{ projectId: string; count: number } | null>(null)
   const [dropRole, setDropRole] = useState('')
 
   useEffect(() => {
@@ -173,14 +174,15 @@ export default function StaffingApp() {
       status: editProject.status,
       end_date: editProject.duration_weeks ? fmt(end) : null,
     }
+    const wasCompleted = projects.find(p => p.id === id)?.status === 'completed'
     const { data } = await supabase.from('projects').update(updates).eq('id', id).select().single()
     if (data) {
       setProjects(projects.map(p => p.id === id ? data : p))
       setEditingProjectId(null)
-      // Completing a project frees up its staff — remove its assignments
-      if (data.status === 'completed' && assignments.some(a => a.project_id === id)) {
-        await supabase.from('assignments').delete().eq('project_id', id)
-        setAssignments(prev => prev.filter(a => a.project_id !== id))
+      // Newly completed project with staff → ask whether to free them up
+      const assignedCount = assignments.filter(a => a.project_id === id).length
+      if (data.status === 'completed' && !wasCompleted && assignedCount > 0) {
+        setConfirmFreeStaff({ projectId: id, count: assignedCount })
       }
     }
   }
@@ -1664,6 +1666,33 @@ ${rows}
           )
         })()}
       </div>
+
+      {confirmFreeStaff && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setConfirmFreeStaff(null)}>
+          <div className="bg-gray-900 border border-gray-700 rounded-xl p-6 w-96 shadow-xl" onClick={e => e.stopPropagation()}>
+            <p className="text-sm font-semibold text-gray-100 mb-2">Project completed</p>
+            <p className="text-xs text-gray-400 mb-5">
+              <span className="text-gray-200">{projects.find(p => p.id === confirmFreeStaff.projectId)?.name}</span> has{' '}
+              <span className="text-gray-200">{confirmFreeStaff.count}</span> {confirmFreeStaff.count === 1 ? 'person' : 'people'} assigned.
+              Free them up by clearing their assignments?
+            </p>
+            <div className="flex gap-2 justify-end">
+              <button className={btnCancel} onClick={() => setConfirmFreeStaff(null)}>Keep assignments</button>
+              <button
+                className={btnPrimary}
+                style={{ backgroundColor: '#193a29' }}
+                onClick={async () => {
+                  await supabase.from('assignments').delete().eq('project_id', confirmFreeStaff.projectId)
+                  setAssignments(prev => prev.filter(a => a.project_id !== confirmFreeStaff.projectId))
+                  setConfirmFreeStaff(null)
+                }}
+              >
+                Free up staff
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
