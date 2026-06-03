@@ -187,6 +187,18 @@ export default function StaffingApp() {
     }
   }
 
+  async function updateProjectStatus(id: string, status: string) {
+    const prevStatus = projects.find(p => p.id === id)?.status
+    const { data } = await supabase.from('projects').update({ status }).eq('id', id).select().single()
+    if (data) {
+      setProjects(projects.map(p => p.id === id ? data : p))
+      const assignedCount = assignments.filter(a => a.project_id === id).length
+      if (status === 'completed' && prevStatus !== 'completed' && assignedCount > 0) {
+        setConfirmFreeStaff({ projectId: id, count: assignedCount })
+      }
+    }
+  }
+
   async function deleteProject(id: string) {
     await supabase.from('projects').delete().eq('id', id)
     setProjects(projects.filter(p => p.id !== id))
@@ -1114,15 +1126,21 @@ ${rows}
                             </span>
                           )}
                         </div>
-                        <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${
-                          p.status === 'active' ? 'bg-emerald-500/10 text-emerald-400' :
-                          p.status === 'starting-soon' ? 'bg-sky-500/10 text-sky-400' :
-                          p.status === 'on-hold' ? 'bg-amber-500/10 text-amber-400' :
-                          p.status === 'paused' ? 'bg-rose-500/10 text-rose-400' :
-                          'bg-gray-700 text-gray-400'
-                        }`}>
-                          {p.status}
-                        </span>
+                        <select
+                          value={p.status}
+                          onChange={e => updateProjectStatus(p.id, e.target.value)}
+                          title="Change project status"
+                          className={`px-2.5 py-1 pr-6 rounded-full text-xs font-medium cursor-pointer appearance-none focus:outline-none focus:ring-1 focus:ring-gray-500 ${
+                            p.status === 'active' ? 'bg-emerald-500/10 text-emerald-400' :
+                            p.status === 'starting-soon' ? 'bg-sky-500/10 text-sky-400' :
+                            p.status === 'on-hold' ? 'bg-amber-500/10 text-amber-400' :
+                            p.status === 'paused' ? 'bg-rose-500/10 text-rose-400' :
+                            'bg-gray-700 text-gray-400'
+                          }`}
+                          style={{ backgroundImage: 'none' }}
+                        >
+                          {STATUS_OPTIONS.map(o => <option key={o.value} value={o.value} className="bg-gray-900 text-gray-100">{o.label}</option>)}
+                        </select>
                       </div>
                       {addingToProjectId === p.id && (
                         <div className="flex flex-wrap gap-2 mb-3 p-3 rounded-lg bg-gray-800/40 border border-gray-700">
