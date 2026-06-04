@@ -87,6 +87,7 @@ export default function StaffingApp() {
   })
   const [statusFilterOpen, setStatusFilterOpen] = useState(false)
   const [addingToProjectId, setAddingToProjectId] = useState<string | null>(null)
+  const [showAddProjectInline, setShowAddProjectInline] = useState(false)
   const [quickAdd, setQuickAdd] = useState({ staff_id: '', assignment_role: '' })
   const [draggedStaffId, setDraggedStaffId] = useState<string | null>(null)
   const [draggedAssignmentId, setDraggedAssignmentId] = useState<string | null>(null)
@@ -899,6 +900,15 @@ ${rows}
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Assign Staff to Project</h2>
                 <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setShowAddProjectInline(v => !v)}
+                  className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${
+                    showAddProjectInline ? 'text-emerald-400' : 'border-gray-700 text-gray-400 hover:text-gray-200'
+                  }`}
+                  style={showAddProjectInline ? { borderColor: '#193a29' } : {}}
+                >
+                  + New Project
+                </button>
                 {statusFilterDropdown()}
                 <button
                   onClick={exportAssignmentsHTML}
@@ -955,6 +965,43 @@ ${rows}
                 </select>
                 <button className={btnPrimary} style={{ backgroundColor: '#193a29' }} onClick={addAssignment}>Assign</button>
               </div>
+
+              {showAddProjectInline && (
+                <div className="mt-4 pt-4 border-t border-gray-800">
+                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Add Project</p>
+                  <div className="flex flex-wrap gap-2">
+                    <input
+                      className={inputClass}
+                      placeholder="Project name *"
+                      value={newProject.name}
+                      onChange={e => setNewProject({ ...newProject, name: e.target.value })}
+                      onKeyDown={e => e.key === 'Enter' && addProject()}
+                    />
+                    <input
+                      className={inputClass}
+                      placeholder="Customer Codename"
+                      value={newProject.customer_codename}
+                      onChange={e => setNewProject({ ...newProject, customer_codename: e.target.value })}
+                    />
+                    <select
+                      className={selectClass}
+                      value={newProject.status}
+                      onChange={e => setNewProject({ ...newProject, status: e.target.value })}
+                    >
+                      {STATUS_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                    </select>
+                    <input
+                      className={inputClass}
+                      type="number"
+                      placeholder="Expected Duration (Weeks)"
+                      value={newProject.duration_weeks}
+                      onChange={e => setNewProject({ ...newProject, duration_weeks: e.target.value })}
+                      style={{ width: 220 }}
+                    />
+                    <button className={btnPrimary} style={{ backgroundColor: '#193a29' }} onClick={addProject}>Add</button>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Two-column layout */}
