@@ -1446,9 +1446,10 @@ ${rows}
         {/* Dashboard Tab */}
         {tab === 'dashboard' && (() => {
           const assignedStaffIds = new Set(assignments.map(a => a.staff_id))
-          const availableStaff = staff.filter(s => !assignedStaffIds.has(s.id) && !s.flexed && !s.ooo)
+          const availableStaff = staff.filter(s => !assignedStaffIds.has(s.id) && !s.flexed && !s.ooo && !s.onboarding)
           const oooCount = staff.filter(s => s.ooo).length
           const flexedCount = staff.filter(s => s.flexed).length
+          const onboardingCount = staff.filter(s => s.onboarding).length
 
           const activeProjectIds = new Set(
             projects
@@ -1571,10 +1572,11 @@ ${rows}
               </div>
 
               {/* Stat cards — staff availability */}
-              <div className="grid grid-cols-3 gap-4">
+              <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
                 {statCard('Available Staff', availableStaff.length, `${staff.length} total`)}
                 {statCard('Currently OOO', oooCount)}
                 {statCard('Flexed', flexedCount)}
+                {statCard('Onboarding', onboardingCount)}
               </div>
 
               {/* Charts row */}
