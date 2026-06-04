@@ -20,6 +20,7 @@ type Staff = {
   ooo: boolean
   ooo_return_date: string | null
   flexed: boolean
+  onboarding: boolean
 }
 
 type Assignment = {
@@ -95,6 +96,7 @@ export default function StaffingApp() {
   const [dragOverFlexed, setDragOverFlexed] = useState(false)
   const [dragOverUnassigned, setDragOverUnassigned] = useState(false)
   const [dragOverOOO, setDragOverOOO] = useState(false)
+  const [dragOverOnboarding, setDragOverOnboarding] = useState(false)
   const [pendingDrop, setPendingDrop] = useState<{ staffId: string; projectId: string } | null>(null)
   const [pendingMove, setPendingMove] = useState<{ assignmentId: string; projectId: string } | null>(null)
   const [confirmFreeStaff, setConfirmFreeStaff] = useState<{ projectId: string; count: number } | null>(null)
@@ -380,8 +382,8 @@ ${rows}
     URL.revokeObjectURL(url)
   }
 
-  async function setStaffZone(id: string, zone: 'unassigned' | 'flexed' | 'ooo') {
-    const { data } = await supabase.from('staff').update({ flexed: zone === 'flexed', ooo: zone === 'ooo' }).eq('id', id).select().single()
+  async function setStaffZone(id: string, zone: 'unassigned' | 'flexed' | 'ooo' | 'onboarding') {
+    const { data } = await supabase.from('staff').update({ flexed: zone === 'flexed', ooo: zone === 'ooo', onboarding: zone === 'onboarding' }).eq('id', id).select().single()
     if (data) setStaff(prev => prev.map(s => s.id === id ? data : s))
   }
 
@@ -1287,9 +1289,10 @@ ${rows}
             {/* Right: unassigned + flexed + OOO panels */}
             {(() => {
               const assignedIds = new Set(assignments.map(a => a.staff_id))
-              const unassigned = [...staff].filter(s => !assignedIds.has(s.id) && !s.flexed && !s.ooo).sort((a, b) => a.name.localeCompare(b.name))
+              const unassigned = [...staff].filter(s => !assignedIds.has(s.id) && !s.flexed && !s.ooo && !s.onboarding).sort((a, b) => a.name.localeCompare(b.name))
               const flexed = [...staff].filter(s => s.flexed && !assignedIds.has(s.id)).sort((a, b) => a.name.localeCompare(b.name))
               const oooStaff = [...staff].filter(s => s.ooo && !assignedIds.has(s.id)).sort((a, b) => a.name.localeCompare(b.name))
+              const onboardingStaff = [...staff].filter(s => s.onboarding && !assignedIds.has(s.id)).sort((a, b) => a.name.localeCompare(b.name))
 
               const staffTile = (s: Staff, extraClass = '') => (
                 <div
@@ -1398,6 +1401,37 @@ ${rows}
                     {oooStaff.length === 0
                       ? <p className="text-xs text-gray-600">Drop here to mark OOO</p>
                       : <div className="flex flex-col gap-2">{oooStaff.map(s => staffTile(s))}</div>
+                    }
+                  </div>
+
+                  {/* Onboarding drop zone */}
+                  <div
+                    onDragOver={e => { e.preventDefault(); setDragOverOnboarding(true) }}
+                    onDragLeave={() => setDragOverOnboarding(false)}
+                    onDrop={async e => {
+                      e.preventDefault(); setDragOverOnboarding(false)
+                      const type = e.dataTransfer.getData('type')
+                      const id = e.dataTransfer.getData('id')
+                      if (type === 'staff' && id) {
+                        await setStaffZone(id, 'onboarding')
+                        setDraggedStaffId(null)
+                      } else if (type === 'assignment' && id) {
+                        const assignment = assignments.find(a => a.id === id)
+                        if (assignment) {
+                          await setStaffZone(assignment.staff_id, 'onboarding')
+                          await removeAssignment(id)
+                        }
+                        setDraggedAssignmentId(null)
+                      }
+                    }}
+                    className={`rounded-lg p-2 transition-all min-h-[60px] border border-dashed ${
+                      dragOverOnboarding ? 'border-cyan-500 bg-cyan-500/10' : 'border-gray-700'
+                    }`}
+                  >
+                    <p className="text-xs text-gray-500 uppercase tracking-wider mb-3">Onboarding</p>
+                    {onboardingStaff.length === 0
+                      ? <p className="text-xs text-gray-600">Drop here to onboard</p>
+                      : <div className="flex flex-col gap-2">{onboardingStaff.map(s => staffTile(s))}</div>
                     }
                   </div>
 
