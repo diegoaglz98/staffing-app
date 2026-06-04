@@ -387,6 +387,11 @@ ${rows}
     if (data) setStaff(prev => prev.map(s => s.id === id ? data : s))
   }
 
+  async function updateAssignmentRole(id: string, role: string) {
+    const { data } = await supabase.from('assignments').update({ assignment_role: role || null }).eq('id', id).select().single()
+    if (data) setAssignments(prev => prev.map(a => a.id === id ? data : a))
+  }
+
   async function removeAssignment(id: string) {
     await supabase.from('assignments').delete().eq('id', id)
     setAssignments(assignments.filter(a => a.id !== id))
@@ -1270,7 +1275,19 @@ ${rows}
                                       ⚠️ In {nonSupProjectCount} projects
                                     </span>
                                   )}
-                                  {a.assignment_role && <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${roleColor(a.assignment_role)}`}>{a.assignment_role}</span>}
+                                  <select
+                                    value={a.assignment_role ?? ''}
+                                    onChange={e => updateAssignmentRole(a.id, e.target.value)}
+                                    onClick={e => e.stopPropagation()}
+                                    title="Change role"
+                                    className={`text-xs font-medium px-2 py-0.5 pr-5 rounded-full cursor-pointer appearance-none focus:outline-none focus:ring-1 focus:ring-gray-500 ${a.assignment_role ? roleColor(a.assignment_role) : 'bg-gray-700/60 text-gray-400'}`}
+                                    style={{ backgroundImage: 'none' }}
+                                  >
+                                    <option value="" className="bg-gray-900 text-gray-100">No role</option>
+                                    <option value="Supervisor" className="bg-gray-900 text-gray-100">Supervisor</option>
+                                    <option value="STO" className="bg-gray-900 text-gray-100">STO</option>
+                                    <option value="Ops Support" className="bg-gray-900 text-gray-100">Ops Support</option>
+                                  </select>
                                   {member?.position && <span className="text-xs text-gray-500">{member.position}</span>}
                                 </div>
                                 <button className={btnDanger} onClick={() => removeAssignment(a.id)}>×</button>
