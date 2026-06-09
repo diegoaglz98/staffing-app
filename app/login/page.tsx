@@ -32,7 +32,7 @@ export default function LoginPage() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-950">
       <div className="bg-gray-900 border border-gray-800 rounded-xl p-8 w-full max-w-sm shadow-lg">
-        <h1 className="text-xl font-bold text-gray-100 mb-6 text-center">Code Pod Staffing Manager</h1>
+        <h1 className="text-xl font-bold text-gray-100 mb-6 text-center">Code Pod Project Manager</h1>
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
           <input
             type="password"

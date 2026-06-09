@@ -514,7 +514,7 @@ ${rows}
   return (
     <div className="min-h-screen bg-gray-950 text-gray-100">
       <div className="border-b px-8 py-5 flex items-center justify-between" style={{ borderColor: '#193a29' }}>
-        <h1 className="text-xl font-semibold text-gray-100 tracking-tight">Code Pod Staffing Manager</h1>
+        <h1 className="text-xl font-semibold text-gray-100 tracking-tight">Code Pod Project Manager</h1>
         <div className="flex items-center gap-1 bg-gray-900 rounded-lg p-1">
           {(['dark', 'system', 'light'] as const).map(t => (
             <button

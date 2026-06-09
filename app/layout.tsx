@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Code Pod Staffing Manager",
+  title: "Code Pod Project Manager",
   description: "Assign staff to projects",
 };
 
