@@ -85,6 +85,8 @@ export default function StaffingApp() {
   const [newScenarioCopyCurrent, setNewScenarioCopyCurrent] = useState(true)
   const [scenarioAssign, setScenarioAssign] = useState({ project_id: '', staff_id: '', assignment_role: '' })
   const [confirmApplyScenario, setConfirmApplyScenario] = useState<string | null>(null)
+  const [dragOverScenarioProjectId, setDragOverScenarioProjectId] = useState<string | null>(null)
+  const [pendingScenarioDrop, setPendingScenarioDrop] = useState<{ staffId: string; projectId: string } | null>(null)
   const [loading, setLoading] = useState(true)
   const [theme, setTheme] = useState<'dark' | 'light' | 'system'>('dark')
 
@@ -466,6 +468,20 @@ ${rows}
   async function removeScenarioAssignment(id: string) {
     await supabase.from('scenario_assignments').delete().eq('id', id)
     setScenarioAssignments(scenarioAssignments.filter(sa => sa.id !== id))
+  }
+
+  async function addScenarioAssignmentDirect(scenarioId: string, projectId: string, staffId: string, role: string) {
+    const exists = scenarioAssignments.some(sa => sa.scenario_id === scenarioId && sa.project_id === projectId && sa.staff_id === staffId)
+    if (exists) return
+    const { data } = await supabase.from('scenario_assignments').insert([{
+      scenario_id: scenarioId, project_id: projectId, staff_id: staffId, assignment_role: role || null,
+    }]).select().single()
+    if (data) setScenarioAssignments(prev => [...prev, data])
+  }
+
+  async function moveScenarioAssignment(id: string, projectId: string) {
+    const { data } = await supabase.from('scenario_assignments').update({ project_id: projectId }).eq('id', id).select().single()
+    if (data) setScenarioAssignments(prev => prev.map(sa => sa.id === id ? data : sa))
   }
 
   async function updateScenarioAssignmentRole(id: string, role: string) {
@@ -1998,11 +2014,34 @@ ${rows}
                     </div>
                   </div>
 
-                  <div className="space-y-3">
+                  <div className="flex gap-6 items-start">
+                    {/* Left: scenario project cards */}
+                    <div className="flex-1 min-w-0 space-y-3">
                     {[...projects].filter(p => visibleStatuses[p.status]).sort((a, b) => statusRank(a.status) - statusRank(b.status) || a.name.localeCompare(b.name)).map(p => {
                       const pa = sas.filter(sa => sa.project_id === p.id)
+                      const isOver = dragOverScenarioProjectId === p.id
                       return (
-                        <div key={p.id} className="border border-gray-800 rounded-xl p-5 bg-gray-900/40">
+                        <div
+                          key={p.id}
+                          className={`border rounded-xl p-5 transition-all ${isOver ? 'border-[#193a29] bg-[#193a29]/10 scale-[1.01]' : 'border-gray-800 bg-gray-900/40'}`}
+                          onDragOver={e => { e.preventDefault(); setDragOverScenarioProjectId(p.id) }}
+                          onDragLeave={() => setDragOverScenarioProjectId(null)}
+                          onDrop={async e => {
+                            e.preventDefault(); setDragOverScenarioProjectId(null)
+                            const type = e.dataTransfer.getData('type')
+                            const id = e.dataTransfer.getData('id')
+                            if (type === 'scenario-staff' && id) {
+                              if (!sas.some(sa => sa.project_id === p.id && sa.staff_id === id)) setPendingScenarioDrop({ staffId: id, projectId: p.id })
+                              setDraggedStaffId(null)
+                            } else if (type === 'scenario-assignment' && id) {
+                              const sa = scenarioAssignments.find(x => x.id === id)
+                              if (sa && sa.project_id !== p.id && !sas.some(x => x.project_id === p.id && x.staff_id === sa.staff_id)) {
+                                await moveScenarioAssignment(id, p.id)
+                              }
+                              setDraggedAssignmentId(null)
+                            }
+                          }}
+                        >
                           <div className="flex items-center justify-between mb-4">
                             <h3 className="font-semibold text-gray-100">{p.name}</h3>
                             <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${
@@ -2014,7 +2053,7 @@ ${rows}
                             }`}>{p.status}</span>
                           </div>
                           {pa.length === 0 ? (
-                            <p className="text-gray-600 text-sm">No staff in this scenario.</p>
+                            <p className={`text-sm ${isOver ? 'text-gray-400' : 'text-gray-600'}`}>{isOver ? 'Drop to add' : 'No staff in this scenario.'}</p>
                           ) : (
                             <div className="space-y-2">
                               {[...pa].sort((a, b) => {
@@ -2024,7 +2063,13 @@ ${rows}
                               }).map(sa => {
                                 const member = staff.find(s => s.id === sa.staff_id)
                                 return (
-                                  <div key={sa.id} className="flex items-center justify-between bg-gray-800/60 rounded-lg px-4 py-2.5 text-sm">
+                                  <div
+                                    key={sa.id}
+                                    draggable
+                                    onDragStart={e => { e.dataTransfer.setData('type', 'scenario-assignment'); e.dataTransfer.setData('id', sa.id); setDraggedAssignmentId(sa.id); setDraggedStaffId(null) }}
+                                    onDragEnd={() => setDraggedAssignmentId(null)}
+                                    className={`flex items-center justify-between bg-gray-800/60 rounded-lg px-4 py-2.5 text-sm cursor-grab active:cursor-grabbing transition-opacity ${draggedAssignmentId === sa.id ? 'opacity-40' : ''}`}
+                                  >
                                     <div className="flex items-center gap-3">
                                       <span className="font-medium text-gray-200">{member?.name ?? 'Unknown'}</span>
                                       <select
@@ -2050,6 +2095,65 @@ ${rows}
                         </div>
                       )
                     })}
+                    </div>{/* end left column */}
+
+                    {/* Right: staff pool sidebar (not in this scenario) */}
+                    {(() => {
+                      const inScenario = new Set(sas.map(sa => sa.staff_id))
+                      const sUnassigned = [...staff].filter(s => !inScenario.has(s.id) && !s.flexed && !s.ooo && !s.onboarding).sort((a, b) => a.name.localeCompare(b.name))
+                      const sFlexed = [...staff].filter(s => s.flexed && !inScenario.has(s.id)).sort((a, b) => a.name.localeCompare(b.name))
+                      const sOOO = [...staff].filter(s => s.ooo && !inScenario.has(s.id)).sort((a, b) => a.name.localeCompare(b.name))
+                      const sOnboarding = [...staff].filter(s => s.onboarding && !inScenario.has(s.id)).sort((a, b) => a.name.localeCompare(b.name))
+                      const tile = (s: Staff) => (
+                        <div
+                          key={s.id}
+                          draggable
+                          onDragStart={e => { e.dataTransfer.setData('type', 'scenario-staff'); e.dataTransfer.setData('id', s.id); setDraggedStaffId(s.id); setDraggedAssignmentId(null) }}
+                          onDragEnd={() => setDraggedStaffId(null)}
+                          className={`cursor-grab active:cursor-grabbing select-none border rounded-lg px-3 py-2 text-sm transition-all ${draggedStaffId === s.id ? 'opacity-40 border-gray-600' : 'border-gray-700 bg-gray-900 hover:border-gray-500'}`}
+                        >
+                          <p className="font-medium text-gray-200 leading-tight">{s.name}</p>
+                          {s.position && <p className="text-xs text-gray-500 mt-0.5">{s.position}</p>}
+                          {s.ooo && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-500/10 text-amber-400 mt-1 inline-block">OOO</span>}
+                        </div>
+                      )
+                      return (
+                        <div className="w-52 shrink-0 sticky top-6 flex flex-col gap-5">
+                          {/* Not in scenario — drop a scenario tile here to remove it */}
+                          <div
+                            onDragOver={e => { e.preventDefault() }}
+                            onDrop={async e => {
+                              e.preventDefault()
+                              const type = e.dataTransfer.getData('type')
+                              const id = e.dataTransfer.getData('id')
+                              if (type === 'scenario-assignment' && id) { await removeScenarioAssignment(id); setDraggedAssignmentId(null) }
+                            }}
+                            className="rounded-lg p-2 min-h-[60px]"
+                          >
+                            <p className="text-xs text-gray-500 uppercase tracking-wider mb-3">Not in scenario</p>
+                            {sUnassigned.length === 0 ? <p className="text-xs text-gray-600">None</p> : <div className="flex flex-col gap-2">{sUnassigned.map(tile)}</div>}
+                          </div>
+                          {sFlexed.length > 0 && (
+                            <div className="rounded-lg p-2 border border-dashed border-gray-700">
+                              <p className="text-xs text-gray-500 uppercase tracking-wider mb-3">Flexed</p>
+                              <div className="flex flex-col gap-2">{sFlexed.map(tile)}</div>
+                            </div>
+                          )}
+                          {sOOO.length > 0 && (
+                            <div className="rounded-lg p-2 border border-dashed border-gray-700">
+                              <p className="text-xs text-gray-500 uppercase tracking-wider mb-3">Currently OOO</p>
+                              <div className="flex flex-col gap-2">{sOOO.map(tile)}</div>
+                            </div>
+                          )}
+                          {sOnboarding.length > 0 && (
+                            <div className="rounded-lg p-2 border border-dashed border-gray-700">
+                              <p className="text-xs text-gray-500 uppercase tracking-wider mb-3">Onboarding</p>
+                              <div className="flex flex-col gap-2">{sOnboarding.map(tile)}</div>
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })()}
                   </div>
                 </div>
               )
@@ -2057,6 +2161,39 @@ ${rows}
           </div>
         )}
       </div>
+
+      {pendingScenarioDrop && selectedScenarioId && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => { setPendingScenarioDrop(null); setDropRole('') }}>
+          <div className="bg-gray-900 border border-gray-700 rounded-xl p-6 w-80 shadow-xl" onClick={e => e.stopPropagation()}>
+            <p className="text-sm font-semibold text-gray-100 mb-1">Add to scenario</p>
+            <p className="text-xs text-gray-500 mb-4">
+              <span className="text-gray-300">{staff.find(s => s.id === pendingScenarioDrop.staffId)?.name}</span>
+              {' → '}
+              <span className="text-gray-300">{projects.find(p => p.id === pendingScenarioDrop.projectId)?.name}</span>
+            </p>
+            <select className={selectClass + ' w-full mb-4'} value={dropRole} onChange={e => setDropRole(e.target.value)} autoFocus>
+              <option value="">No role</option>
+              <option>Supervisor</option>
+              <option>STO</option>
+              <option>Ops Support</option>
+            </select>
+            <div className="flex gap-2 justify-end">
+              <button className={btnCancel} onClick={() => { setPendingScenarioDrop(null); setDropRole('') }}>Cancel</button>
+              <button
+                className={btnPrimary}
+                style={{ backgroundColor: '#193a29' }}
+                onClick={async () => {
+                  await addScenarioAssignmentDirect(selectedScenarioId, pendingScenarioDrop.projectId, pendingScenarioDrop.staffId, dropRole)
+                  setPendingScenarioDrop(null)
+                  setDropRole('')
+                }}
+              >
+                Add
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {confirmApplyScenario && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setConfirmApplyScenario(null)}>
