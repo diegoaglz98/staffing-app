@@ -80,6 +80,7 @@ export default function StaffingApp() {
   const [assignments, setAssignments] = useState<Assignment[]>([])
   const [scenarios, setScenarios] = useState<Scenario[]>([])
   const [scenarioAssignments, setScenarioAssignments] = useState<ScenarioAssignment[]>([])
+  const [loadError, setLoadError] = useState(false)
   const [selectedScenarioId, setSelectedScenarioId] = useState<string | null>(null)
   const [newScenarioName, setNewScenarioName] = useState('')
   const [newScenarioCopyCurrent, setNewScenarioCopyCurrent] = useState(true)
@@ -152,19 +153,29 @@ export default function StaffingApp() {
 
   async function loadAll() {
     setLoading(true)
-    const [p, s, a, sc, sa] = await Promise.all([
-      supabase.from('projects').select('*').order('created_at', { ascending: false }),
-      supabase.from('staff').select('*').order('created_at', { ascending: false }),
-      supabase.from('assignments').select('*'),
-      supabase.from('scenarios').select('*').order('created_at', { ascending: true }),
-      supabase.from('scenario_assignments').select('*'),
-    ])
-    if (p.data) setProjects(p.data)
-    if (s.data) setStaff(s.data)
-    if (a.data) setAssignments(a.data)
-    if (sc.data) setScenarios(sc.data)
-    if (sa.data) setScenarioAssignments(sa.data)
-    setLoading(false)
+    setLoadError(false)
+    try {
+      const timeout = new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Request timed out')), 15000))
+      const queries = Promise.all([
+        supabase.from('projects').select('*').order('created_at', { ascending: false }),
+        supabase.from('staff').select('*').order('created_at', { ascending: false }),
+        supabase.from('assignments').select('*'),
+        supabase.from('scenarios').select('*').order('created_at', { ascending: true }),
+        supabase.from('scenario_assignments').select('*'),
+      ])
+      const [p, s, a, sc, sa] = await Promise.race([queries, timeout])
+      // Core tables must load; scenario tables are optional (may not exist yet)
+      if (p.error || s.error || a.error) throw (p.error || s.error || a.error)
+      if (p.data) setProjects(p.data)
+      if (s.data) setStaff(s.data)
+      if (a.data) setAssignments(a.data)
+      if (sc.data) setScenarios(sc.data)
+      if (sa.data) setScenarioAssignments(sa.data)
+    } catch {
+      setLoadError(true)
+    } finally {
+      setLoading(false)
+    }
   }
 
   const fmt = (d: Date) => d.toISOString().split('T')[0]
@@ -613,6 +624,28 @@ ${rows}
     return (
       <div className="min-h-screen bg-gray-950 flex items-center justify-center text-gray-400 text-sm">
         Loading...
+      </div>
+    )
+  }
+
+  if (loadError) {
+    return (
+      <div className="min-h-screen bg-gray-950 flex items-center justify-center px-6">
+        <div className="max-w-md text-center">
+          <p className="text-4xl mb-4">📡</p>
+          <h1 className="text-lg font-semibold text-gray-100 mb-2">Can&apos;t reach the database</h1>
+          <p className="text-sm text-gray-400 mb-6">
+            The app couldn&apos;t connect to Supabase. This is usually a network issue — a VPN, corporate firewall, or DNS block on your device preventing access to <span className="text-gray-300">supabase.co</span>. Your data is safe.
+          </p>
+          <button
+            onClick={loadAll}
+            className="text-white px-5 py-2 rounded-lg text-sm font-medium transition-colors hover:brightness-125"
+            style={{ backgroundColor: '#193a29' }}
+          >
+            Retry
+          </button>
+          <p className="text-xs text-gray-600 mt-4">If it keeps failing, try a different network (e.g. phone hotspot) or disconnect any VPN.</p>
+        </div>
       </div>
     )
   }
