@@ -30,6 +30,20 @@ type Assignment = {
   assignment_role: string | null
 }
 
+type Scenario = {
+  id: string
+  name: string
+  created_at: string
+}
+
+type ScenarioAssignment = {
+  id: string
+  scenario_id: string
+  project_id: string
+  staff_id: string
+  assignment_role: string | null
+}
+
 const VALID_POSITIONS = ['SPA', 'SPL I', 'SPL II', 'Manager, Delivery', 'Senior SPL', 'Head of Delivery', 'GenAI Consultant']
 
 const STATUS_OPTIONS: { value: string; label: string }[] = [
@@ -60,10 +74,17 @@ function parseCSVLine(line: string): string[] {
 }
 
 export default function StaffingApp() {
-  const [tab, setTab] = useState<'projects' | 'staff' | 'assignments' | 'dashboard'>('dashboard')
+  const [tab, setTab] = useState<'projects' | 'staff' | 'assignments' | 'dashboard' | 'scenarios'>('dashboard')
   const [projects, setProjects] = useState<Project[]>([])
   const [staff, setStaff] = useState<Staff[]>([])
   const [assignments, setAssignments] = useState<Assignment[]>([])
+  const [scenarios, setScenarios] = useState<Scenario[]>([])
+  const [scenarioAssignments, setScenarioAssignments] = useState<ScenarioAssignment[]>([])
+  const [selectedScenarioId, setSelectedScenarioId] = useState<string | null>(null)
+  const [newScenarioName, setNewScenarioName] = useState('')
+  const [newScenarioCopyCurrent, setNewScenarioCopyCurrent] = useState(true)
+  const [scenarioAssign, setScenarioAssign] = useState({ project_id: '', staff_id: '', assignment_role: '' })
+  const [confirmApplyScenario, setConfirmApplyScenario] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [theme, setTheme] = useState<'dark' | 'light' | 'system'>('dark')
 
@@ -129,14 +150,18 @@ export default function StaffingApp() {
 
   async function loadAll() {
     setLoading(true)
-    const [p, s, a] = await Promise.all([
+    const [p, s, a, sc, sa] = await Promise.all([
       supabase.from('projects').select('*').order('created_at', { ascending: false }),
       supabase.from('staff').select('*').order('created_at', { ascending: false }),
       supabase.from('assignments').select('*'),
+      supabase.from('scenarios').select('*').order('created_at', { ascending: true }),
+      supabase.from('scenario_assignments').select('*'),
     ])
     if (p.data) setProjects(p.data)
     if (s.data) setStaff(s.data)
     if (a.data) setAssignments(a.data)
+    if (sc.data) setScenarios(sc.data)
+    if (sa.data) setScenarioAssignments(sa.data)
     setLoading(false)
   }
 
@@ -399,6 +424,69 @@ ${rows}
     setAssignments(assignments.filter(a => a.id !== id))
   }
 
+  async function addScenario() {
+    if (!newScenarioName.trim()) return
+    const { data } = await supabase.from('scenarios').insert([{ name: newScenarioName.trim() }]).select().single()
+    if (data) {
+      setScenarios([...scenarios, data])
+      setSelectedScenarioId(data.id)
+      // Optionally seed from current live assignments
+      if (newScenarioCopyCurrent && assignments.length > 0) {
+        const rows = assignments.map(a => ({ scenario_id: data.id, project_id: a.project_id, staff_id: a.staff_id, assignment_role: a.assignment_role }))
+        const { data: seeded } = await supabase.from('scenario_assignments').insert(rows).select()
+        if (seeded) setScenarioAssignments(prev => [...prev, ...seeded])
+      }
+      setNewScenarioName('')
+    }
+  }
+
+  async function deleteScenario(id: string) {
+    await supabase.from('scenarios').delete().eq('id', id)
+    setScenarios(scenarios.filter(s => s.id !== id))
+    setScenarioAssignments(prev => prev.filter(sa => sa.scenario_id !== id))
+    if (selectedScenarioId === id) setSelectedScenarioId(null)
+  }
+
+  async function addScenarioAssignment() {
+    if (!selectedScenarioId || !scenarioAssign.project_id || !scenarioAssign.staff_id) return
+    const exists = scenarioAssignments.some(sa => sa.scenario_id === selectedScenarioId && sa.project_id === scenarioAssign.project_id && sa.staff_id === scenarioAssign.staff_id)
+    if (exists) return
+    const { data } = await supabase.from('scenario_assignments').insert([{
+      scenario_id: selectedScenarioId,
+      project_id: scenarioAssign.project_id,
+      staff_id: scenarioAssign.staff_id,
+      assignment_role: scenarioAssign.assignment_role || null,
+    }]).select().single()
+    if (data) {
+      setScenarioAssignments([...scenarioAssignments, data])
+      setScenarioAssign({ project_id: '', staff_id: '', assignment_role: '' })
+    }
+  }
+
+  async function removeScenarioAssignment(id: string) {
+    await supabase.from('scenario_assignments').delete().eq('id', id)
+    setScenarioAssignments(scenarioAssignments.filter(sa => sa.id !== id))
+  }
+
+  async function updateScenarioAssignmentRole(id: string, role: string) {
+    const { data } = await supabase.from('scenario_assignments').update({ assignment_role: role || null }).eq('id', id).select().single()
+    if (data) setScenarioAssignments(prev => prev.map(sa => sa.id === id ? data : sa))
+  }
+
+  async function applyScenarioToLive(scenarioId: string) {
+    // Replace all live assignments with this scenario's assignments
+    await supabase.from('assignments').delete().neq('id', '00000000-0000-0000-0000-000000000000')
+    const sas = scenarioAssignments.filter(sa => sa.scenario_id === scenarioId)
+    let inserted: Assignment[] = []
+    if (sas.length > 0) {
+      const rows = sas.map(sa => ({ project_id: sa.project_id, staff_id: sa.staff_id, assignment_role: sa.assignment_role }))
+      const { data } = await supabase.from('assignments').insert(rows).select()
+      if (data) inserted = data
+    }
+    setAssignments(inserted)
+    setConfirmApplyScenario(null)
+  }
+
   function sortedList<T extends { name: string }>(list: T[], sort: 'default' | 'az' | 'za') {
     if (sort === 'az') return [...list].sort((a, b) => a.name.localeCompare(b.name))
     if (sort === 'za') return [...list].sort((a, b) => b.name.localeCompare(a.name))
@@ -536,16 +624,22 @@ ${rows}
       <div className="max-w-4xl mx-auto px-8 py-8">
         {/* Tabs */}
         <div className="flex gap-1 mb-8 bg-gray-900 rounded-xl p-1 w-fit">
-          {(['dashboard', 'projects', 'staff', 'assignments'] as const).map(t => (
+          {([
+            { key: 'dashboard', label: 'Dashboard' },
+            { key: 'projects', label: 'Projects' },
+            { key: 'staff', label: 'Staff' },
+            { key: 'assignments', label: 'Assignments' },
+            { key: 'scenarios', label: 'Staffing Scenarios' },
+          ] as const).map(({ key, label }) => (
             <button
-              key={t}
-              onClick={() => setTab(t)}
-              className={`px-5 py-2 text-sm font-medium capitalize rounded-lg transition-all ${
-                tab === t ? 'text-white shadow' : 'text-gray-400 hover:text-gray-200'
+              key={key}
+              onClick={() => setTab(key)}
+              className={`px-5 py-2 text-sm font-medium rounded-lg transition-all ${
+                tab === key ? 'text-white shadow' : 'text-gray-400 hover:text-gray-200'
               }`}
-              style={tab === t ? { backgroundColor: '#193a29' } : {}}
+              style={tab === key ? { backgroundColor: '#193a29' } : {}}
             >
-              {t}
+              {label}
             </button>
           ))}
         </div>
@@ -1824,7 +1918,161 @@ ${rows}
             </div>
           )
         })()}
+
+        {/* Staffing Scenarios Tab */}
+        {tab === 'scenarios' && (
+          <div>
+            <div className="bg-gray-900 rounded-xl p-5 mb-6 border border-gray-800">
+              <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-4">Staffing Scenarios</h2>
+              <div className="flex flex-wrap gap-2 items-center">
+                <input
+                  className={inputClass}
+                  placeholder="New scenario name…"
+                  value={newScenarioName}
+                  onChange={e => setNewScenarioName(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && addScenario()}
+                />
+                <label className="flex items-center gap-2 text-sm text-gray-400 cursor-pointer select-none">
+                  <input type="checkbox" checked={newScenarioCopyCurrent} onChange={e => setNewScenarioCopyCurrent(e.target.checked)} className="accent-[#193a29] w-4 h-4" />
+                  Start from current assignments
+                </label>
+                <button className={btnPrimary} style={{ backgroundColor: '#193a29' }} onClick={addScenario}>Create</button>
+              </div>
+              {scenarios.length > 0 && (
+                <div className="flex flex-wrap gap-2 mt-4">
+                  {scenarios.map(sc => {
+                    const count = scenarioAssignments.filter(sa => sa.scenario_id === sc.id).length
+                    const isSelected = selectedScenarioId === sc.id
+                    return (
+                      <div
+                        key={sc.id}
+                        onClick={() => setSelectedScenarioId(sc.id)}
+                        className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border text-sm cursor-pointer transition-colors ${isSelected ? 'text-white' : 'border-gray-700 text-gray-300 hover:text-white'}`}
+                        style={isSelected ? { backgroundColor: '#193a29', borderColor: '#193a29' } : {}}
+                      >
+                        <span className="font-medium">{sc.name}</span>
+                        <span className="text-[10px] bg-black/20 rounded px-1.5 py-0.5">{count}</span>
+                        <button onClick={e => { e.stopPropagation(); deleteScenario(sc.id) }} className="text-gray-400 hover:text-red-400 leading-none">×</button>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+
+            {!selectedScenarioId ? (
+              <p className="text-gray-600 text-sm">
+                {scenarios.length === 0 ? 'No scenarios yet. Create one above to start planning a staffing version.' : 'Select a scenario above to view and edit its staffing.'}
+              </p>
+            ) : (() => {
+              const sas = scenarioAssignments.filter(sa => sa.scenario_id === selectedScenarioId)
+              const scenarioName = scenarios.find(s => s.id === selectedScenarioId)?.name
+              return (
+                <div>
+                  <div className="bg-gray-900 rounded-xl p-5 mb-6 border border-gray-800">
+                    <div className="flex items-center justify-between mb-4">
+                      <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Plan: <span className="text-gray-200 normal-case">{scenarioName}</span></h2>
+                      <button
+                        onClick={() => setConfirmApplyScenario(selectedScenarioId)}
+                        className="text-xs px-3 py-1.5 rounded-lg border border-gray-700 text-gray-400 hover:text-gray-200 transition-colors"
+                      >
+                        Apply to live assignments
+                      </button>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <select className={selectClass} value={scenarioAssign.project_id} onChange={e => setScenarioAssign({ ...scenarioAssign, project_id: e.target.value })}>
+                        <option value="">Select project *</option>
+                        {[...projects].filter(p => visibleStatuses[p.status]).sort((a, b) => statusRank(a.status) - statusRank(b.status) || a.name.localeCompare(b.name)).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                      </select>
+                      <select className={selectClass} value={scenarioAssign.staff_id} onChange={e => setScenarioAssign({ ...scenarioAssign, staff_id: e.target.value })}>
+                        <option value="">Select staff *</option>
+                        {[...staff].sort((a, b) => a.name.localeCompare(b.name)).map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                      </select>
+                      <select className={selectClass} value={scenarioAssign.assignment_role} onChange={e => setScenarioAssign({ ...scenarioAssign, assignment_role: e.target.value })}>
+                        <option value="">Role</option>
+                        <option>Supervisor</option>
+                        <option>STO</option>
+                        <option>Ops Support</option>
+                      </select>
+                      <button className={btnPrimary} style={{ backgroundColor: '#193a29' }} onClick={addScenarioAssignment}>Assign</button>
+                    </div>
+                  </div>
+
+                  <div className="space-y-3">
+                    {[...projects].filter(p => visibleStatuses[p.status]).sort((a, b) => statusRank(a.status) - statusRank(b.status) || a.name.localeCompare(b.name)).map(p => {
+                      const pa = sas.filter(sa => sa.project_id === p.id)
+                      return (
+                        <div key={p.id} className="border border-gray-800 rounded-xl p-5 bg-gray-900/40">
+                          <div className="flex items-center justify-between mb-4">
+                            <h3 className="font-semibold text-gray-100">{p.name}</h3>
+                            <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${
+                              p.status === 'active' ? 'bg-emerald-500/10 text-emerald-400' :
+                              p.status === 'starting-soon' ? 'bg-sky-500/10 text-sky-400' :
+                              p.status === 'on-hold' ? 'bg-amber-500/10 text-amber-400' :
+                              p.status === 'paused' ? 'bg-rose-500/10 text-rose-400' :
+                              'bg-gray-700 text-gray-400'
+                            }`}>{p.status}</span>
+                          </div>
+                          {pa.length === 0 ? (
+                            <p className="text-gray-600 text-sm">No staff in this scenario.</p>
+                          ) : (
+                            <div className="space-y-2">
+                              {[...pa].sort((a, b) => {
+                                const order = ['Supervisor', 'STO', 'Ops Support']
+                                return (order.indexOf(a.assignment_role ?? '') === -1 ? 99 : order.indexOf(a.assignment_role ?? '')) -
+                                       (order.indexOf(b.assignment_role ?? '') === -1 ? 99 : order.indexOf(b.assignment_role ?? ''))
+                              }).map(sa => {
+                                const member = staff.find(s => s.id === sa.staff_id)
+                                return (
+                                  <div key={sa.id} className="flex items-center justify-between bg-gray-800/60 rounded-lg px-4 py-2.5 text-sm">
+                                    <div className="flex items-center gap-3">
+                                      <span className="font-medium text-gray-200">{member?.name ?? 'Unknown'}</span>
+                                      <select
+                                        value={sa.assignment_role ?? ''}
+                                        onChange={e => updateScenarioAssignmentRole(sa.id, e.target.value)}
+                                        title="Change role"
+                                        className={`text-xs font-medium px-2 py-0.5 pr-5 rounded-full cursor-pointer appearance-none focus:outline-none focus:ring-1 focus:ring-gray-500 ${sa.assignment_role ? roleColor(sa.assignment_role) : 'bg-gray-700/60 text-gray-400'}`}
+                                        style={{ backgroundImage: 'none' }}
+                                      >
+                                        <option value="" className="bg-gray-900 text-gray-100">No role</option>
+                                        <option value="Supervisor" className="bg-gray-900 text-gray-100">Supervisor</option>
+                                        <option value="STO" className="bg-gray-900 text-gray-100">STO</option>
+                                        <option value="Ops Support" className="bg-gray-900 text-gray-100">Ops Support</option>
+                                      </select>
+                                      {member?.position && <span className="text-xs text-gray-500">{member.position}</span>}
+                                    </div>
+                                    <button className={btnDanger} onClick={() => removeScenarioAssignment(sa.id)}>×</button>
+                                  </div>
+                                )
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              )
+            })()}
+          </div>
+        )}
       </div>
+
+      {confirmApplyScenario && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setConfirmApplyScenario(null)}>
+          <div className="bg-gray-900 border border-gray-700 rounded-xl p-6 w-96 shadow-xl" onClick={e => e.stopPropagation()}>
+            <p className="text-sm font-semibold text-gray-100 mb-2">Apply scenario to live?</p>
+            <p className="text-xs text-gray-400 mb-5">
+              This will <span className="text-red-400 font-medium">replace all current live assignments</span> with the staffing from
+              {' '}<span className="text-gray-200">{scenarios.find(s => s.id === confirmApplyScenario)?.name}</span>. This can't be undone.
+            </p>
+            <div className="flex gap-2 justify-end">
+              <button className={btnCancel} onClick={() => setConfirmApplyScenario(null)}>Cancel</button>
+              <button className={btnPrimary} style={{ backgroundColor: '#193a29' }} onClick={() => applyScenarioToLive(confirmApplyScenario)}>Apply to live</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {confirmFreeStaff && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setConfirmFreeStaff(null)}>
