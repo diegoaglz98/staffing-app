@@ -100,6 +100,8 @@ export default function StaffingApp() {
   const [pendingDrop, setPendingDrop] = useState<{ staffId: string; projectId: string } | null>(null)
   const [pendingMove, setPendingMove] = useState<{ assignmentId: string; projectId: string } | null>(null)
   const [confirmFreeStaff, setConfirmFreeStaff] = useState<{ projectId: string; count: number } | null>(null)
+  const [pendingOOO, setPendingOOO] = useState<{ staffId: string; assignmentId: string | null } | null>(null)
+  const [oooDate, setOooDate] = useState('')
   const [dropRole, setDropRole] = useState('')
 
   useEffect(() => {
@@ -1066,6 +1068,42 @@ ${rows}
               </div>
             )}
 
+            {pendingOOO && (() => {
+              const member = staff.find(s => s.id === pendingOOO.staffId)
+              return (
+                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => { setPendingOOO(null); setOooDate('') }}>
+                  <div className="bg-gray-900 border border-gray-700 rounded-xl p-6 w-80 shadow-xl" onClick={e => e.stopPropagation()}>
+                    <p className="text-sm font-semibold text-gray-100 mb-1">Mark as OOO</p>
+                    <p className="text-xs text-gray-500 mb-4"><span className="text-gray-300">{member?.name}</span> will be marked out of office.</p>
+                    <p className="text-xs text-gray-500 mb-2">Expected return date (optional):</p>
+                    <input
+                      type="date"
+                      className={inputClass + ' w-full mb-4'}
+                      value={oooDate}
+                      onChange={e => setOooDate(e.target.value)}
+                      autoFocus
+                    />
+                    <div className="flex gap-2 justify-end">
+                      <button className={btnCancel} onClick={() => { setPendingOOO(null); setOooDate('') }}>Cancel</button>
+                      <button
+                        className={btnPrimary}
+                        style={{ backgroundColor: '#193a29' }}
+                        onClick={async () => {
+                          const { data } = await supabase.from('staff').update({ ooo: true, flexed: false, onboarding: false, ooo_return_date: oooDate || null }).eq('id', pendingOOO.staffId).select().single()
+                          if (data) setStaff(prev => prev.map(s => s.id === pendingOOO.staffId ? data : s))
+                          if (pendingOOO.assignmentId) await removeAssignment(pendingOOO.assignmentId)
+                          setPendingOOO(null)
+                          setOooDate('')
+                        }}
+                      >
+                        Mark OOO
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )
+            })()}
+
             {pendingMove && (() => {
               const assignment = assignments.find(a => a.id === pendingMove.assignmentId)
               const member = staff.find(s => s.id === assignment?.staff_id)
@@ -1394,18 +1432,21 @@ ${rows}
                   <div
                     onDragOver={e => { e.preventDefault(); setDragOverOOO(true) }}
                     onDragLeave={() => setDragOverOOO(false)}
-                    onDrop={async e => {
+                    onDrop={e => {
                       e.preventDefault(); setDragOverOOO(false)
                       const type = e.dataTransfer.getData('type')
                       const id = e.dataTransfer.getData('id')
                       if (type === 'staff' && id) {
-                        await setStaffZone(id, 'ooo')
+                        const member = staff.find(s => s.id === id)
+                        setOooDate(member?.ooo_return_date ?? '')
+                        setPendingOOO({ staffId: id, assignmentId: null })
                         setDraggedStaffId(null)
                       } else if (type === 'assignment' && id) {
                         const assignment = assignments.find(a => a.id === id)
                         if (assignment) {
-                          await setStaffZone(assignment.staff_id, 'ooo')
-                          await removeAssignment(id)
+                          const member = staff.find(s => s.id === assignment.staff_id)
+                          setOooDate(member?.ooo_return_date ?? '')
+                          setPendingOOO({ staffId: assignment.staff_id, assignmentId: id })
                         }
                         setDraggedAssignmentId(null)
                       }
