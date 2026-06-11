@@ -2132,7 +2132,10 @@ ${rows}
 
                     {/* Right: staff pool sidebar (not in this scenario) */}
                     {(() => {
-                      const inScenario = new Set(sas.map(sa => sa.staff_id))
+                      // Only count someone as "in scenario" if their assignment is to a currently-visible project.
+                      // This frees up people whose only scenario assignment is to a hidden/completed project.
+                      const visibleProjectIds = new Set(projects.filter(p => visibleStatuses[p.status]).map(p => p.id))
+                      const inScenario = new Set(sas.filter(sa => visibleProjectIds.has(sa.project_id)).map(sa => sa.staff_id))
                       const sUnassigned = [...staff].filter(s => !inScenario.has(s.id) && !s.flexed && !s.ooo && !s.onboarding).sort((a, b) => a.name.localeCompare(b.name))
                       const sFlexed = [...staff].filter(s => s.flexed && !inScenario.has(s.id)).sort((a, b) => a.name.localeCompare(b.name))
                       const sOOO = [...staff].filter(s => s.ooo && !inScenario.has(s.id)).sort((a, b) => a.name.localeCompare(b.name))
