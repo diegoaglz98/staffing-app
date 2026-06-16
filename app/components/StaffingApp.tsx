@@ -88,6 +88,8 @@ export default function StaffingApp() {
   const [confirmApplyScenario, setConfirmApplyScenario] = useState<string | null>(null)
   const [dragOverScenarioProjectId, setDragOverScenarioProjectId] = useState<string | null>(null)
   const [pendingScenarioDrop, setPendingScenarioDrop] = useState<{ staffId: string; projectId: string } | null>(null)
+  const [addingToScenarioProjectId, setAddingToScenarioProjectId] = useState<string | null>(null)
+  const [scenarioQuickAdd, setScenarioQuickAdd] = useState({ staff_id: '', assignment_role: '' })
   const [loading, setLoading] = useState(true)
   const [theme, setTheme] = useState<'dark' | 'light' | 'system'>('dark')
 
@@ -1220,42 +1222,6 @@ ${rows}
               </div>
             )}
 
-            {pendingOOO && (() => {
-              const member = staff.find(s => s.id === pendingOOO.staffId)
-              return (
-                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => { setPendingOOO(null); setOooDate('') }}>
-                  <div className="bg-gray-900 border border-gray-700 rounded-xl p-6 w-80 shadow-xl" onClick={e => e.stopPropagation()}>
-                    <p className="text-sm font-semibold text-gray-100 mb-1">Mark as OOO</p>
-                    <p className="text-xs text-gray-500 mb-4"><span className="text-gray-300">{member?.name}</span> will be marked out of office.</p>
-                    <p className="text-xs text-gray-500 mb-2">Expected return date (optional):</p>
-                    <input
-                      type="date"
-                      className={inputClass + ' w-full mb-4'}
-                      value={oooDate}
-                      onChange={e => setOooDate(e.target.value)}
-                      autoFocus
-                    />
-                    <div className="flex gap-2 justify-end">
-                      <button className={btnCancel} onClick={() => { setPendingOOO(null); setOooDate('') }}>Cancel</button>
-                      <button
-                        className={btnPrimary}
-                        style={{ backgroundColor: '#193a29' }}
-                        onClick={async () => {
-                          const { data } = await supabase.from('staff').update({ ooo: true, flexed: false, onboarding: false, ooo_return_date: oooDate || null }).eq('id', pendingOOO.staffId).select().single()
-                          if (data) setStaff(prev => prev.map(s => s.id === pendingOOO.staffId ? data : s))
-                          if (pendingOOO.assignmentId) await removeAssignment(pendingOOO.assignmentId)
-                          setPendingOOO(null)
-                          setOooDate('')
-                        }}
-                      >
-                        Mark OOO
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              )
-            })()}
-
             {pendingMove && (() => {
               const assignment = assignments.find(a => a.id === pendingMove.assignmentId)
               const member = staff.find(s => s.id === assignment?.staff_id)
@@ -2085,7 +2051,16 @@ ${rows}
                           }}
                         >
                           <div className="flex items-center justify-between mb-4">
-                            <h3 className="font-semibold text-gray-100">{p.name}</h3>
+                            <div className="flex items-center gap-2">
+                              <h3 className="font-semibold text-gray-100">{p.name}</h3>
+                              <button
+                                onClick={() => { setAddingToScenarioProjectId(addingToScenarioProjectId === p.id ? null : p.id); setScenarioQuickAdd({ staff_id: '', assignment_role: '' }) }}
+                                title="Add a person to this project"
+                                className="w-5 h-5 flex items-center justify-center rounded-full border border-gray-600 text-gray-400 hover:text-white hover:border-gray-400 transition-colors text-sm leading-none"
+                              >
+                                +
+                              </button>
+                            </div>
                             <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${
                               p.status === 'active' ? 'bg-emerald-500/10 text-emerald-400' :
                               p.status === 'starting-soon' ? 'bg-sky-500/10 text-sky-400' :
@@ -2094,6 +2069,40 @@ ${rows}
                               'bg-gray-700 text-gray-400'
                             }`}>{p.status}</span>
                           </div>
+                          {addingToScenarioProjectId === p.id && (
+                            <div className="flex flex-wrap gap-2 mb-3 p-3 rounded-lg bg-gray-800/40 border border-gray-700">
+                              <select
+                                className={selectSmClass + ' flex-1 min-w-[160px]'}
+                                value={scenarioQuickAdd.staff_id}
+                                onChange={e => setScenarioQuickAdd({ ...scenarioQuickAdd, staff_id: e.target.value })}
+                              >
+                                <option value="">Select staff…</option>
+                                {[...staff]
+                                  .filter(s => !pa.some(sa => sa.staff_id === s.id))
+                                  .sort((a, b) => a.name.localeCompare(b.name))
+                                  .map(s => <option key={s.id} value={s.id}>{s.name}{s.position ? ` — ${s.position}` : ''}</option>)}
+                              </select>
+                              <select
+                                className={selectSmClass + ' w-32'}
+                                value={scenarioQuickAdd.assignment_role}
+                                onChange={e => setScenarioQuickAdd({ ...scenarioQuickAdd, assignment_role: e.target.value })}
+                              >
+                                <option value="">Role</option>
+                                <option>Supervisor</option>
+                                <option>STO</option>
+                                <option>Ops Support</option>
+                              </select>
+                              <button
+                                className="text-xs px-2 py-1 rounded bg-gray-700 text-gray-300 hover:text-white transition-colors whitespace-nowrap"
+                                onClick={async () => {
+                                  if (!scenarioQuickAdd.staff_id || !selectedScenarioId) return
+                                  await addScenarioAssignmentDirect(selectedScenarioId, p.id, scenarioQuickAdd.staff_id, scenarioQuickAdd.assignment_role)
+                                  setScenarioQuickAdd({ staff_id: '', assignment_role: '' })
+                                  setAddingToScenarioProjectId(null)
+                                }}
+                              >+ Add</button>
+                            </div>
+                          )}
                           {pa.length === 0 ? (
                             <p className={`text-sm ${isOver ? 'text-gray-400' : 'text-gray-600'}`}>{isOver ? 'Drop to add' : 'No staff in this scenario.'}</p>
                           ) : (
@@ -2232,6 +2241,42 @@ ${rows}
           </div>
         )}
       </div>
+
+      {pendingOOO && (() => {
+        const member = staff.find(s => s.id === pendingOOO.staffId)
+        return (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => { setPendingOOO(null); setOooDate('') }}>
+            <div className="bg-gray-900 border border-gray-700 rounded-xl p-6 w-80 shadow-xl" onClick={e => e.stopPropagation()}>
+              <p className="text-sm font-semibold text-gray-100 mb-1">Mark as OOO</p>
+              <p className="text-xs text-gray-500 mb-4"><span className="text-gray-300">{member?.name}</span> will be marked out of office.</p>
+              <p className="text-xs text-gray-500 mb-2">Expected return date (optional):</p>
+              <input
+                type="date"
+                className={inputClass + ' w-full mb-4'}
+                value={oooDate}
+                onChange={e => setOooDate(e.target.value)}
+                autoFocus
+              />
+              <div className="flex gap-2 justify-end">
+                <button className={btnCancel} onClick={() => { setPendingOOO(null); setOooDate('') }}>Cancel</button>
+                <button
+                  className={btnPrimary}
+                  style={{ backgroundColor: '#193a29' }}
+                  onClick={async () => {
+                    const { data } = await supabase.from('staff').update({ ooo: true, flexed: false, onboarding: false, ooo_return_date: oooDate || null }).eq('id', pendingOOO.staffId).select().single()
+                    if (data) setStaff(prev => prev.map(s => s.id === pendingOOO.staffId ? data : s))
+                    if (pendingOOO.assignmentId) await removeAssignment(pendingOOO.assignmentId)
+                    setPendingOOO(null)
+                    setOooDate('')
+                  }}
+                >
+                  Mark OOO
+                </button>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
 
       {pendingScenarioDrop && selectedScenarioId && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => { setPendingScenarioDrop(null); setDropRole('') }}>
