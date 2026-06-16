@@ -2162,40 +2162,66 @@ ${rows}
                           {s.ooo && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-500/10 text-amber-400 mt-1 inline-block">OOO</span>}
                         </div>
                       )
+                      const zoneDrop = (zone: 'unassigned' | 'flexed' | 'ooo' | 'onboarding') => async (e: React.DragEvent) => {
+                        e.preventDefault()
+                        setDragOverUnassigned(false); setDragOverFlexed(false); setDragOverOOO(false); setDragOverOnboarding(false)
+                        const type = e.dataTransfer.getData('type')
+                        const id = e.dataTransfer.getData('id')
+                        let staffId = ''
+                        if (type === 'scenario-staff' && id) { staffId = id; setDraggedStaffId(null) }
+                        else if (type === 'scenario-assignment' && id) {
+                          const sa = scenarioAssignments.find(x => x.id === id)
+                          await removeScenarioAssignment(id)
+                          if (sa) staffId = sa.staff_id
+                          setDraggedAssignmentId(null)
+                        }
+                        if (!staffId) return
+                        if (zone === 'ooo') {
+                          const m = staff.find(s => s.id === staffId)
+                          setOooDate(m?.ooo_return_date ?? '')
+                          setPendingOOO({ staffId, assignmentId: null })
+                        } else {
+                          await setStaffZone(staffId, zone)
+                        }
+                      }
                       return (
                         <div className="w-52 shrink-0 sticky top-6 flex flex-col gap-5">
-                          {/* Not in scenario — drop a scenario tile here to remove it */}
                           <div
-                            onDragOver={e => { e.preventDefault() }}
-                            onDrop={async e => {
-                              e.preventDefault()
-                              const type = e.dataTransfer.getData('type')
-                              const id = e.dataTransfer.getData('id')
-                              if (type === 'scenario-assignment' && id) { await removeScenarioAssignment(id); setDraggedAssignmentId(null) }
-                            }}
-                            className="rounded-lg p-2 min-h-[60px]"
+                            onDragOver={e => { e.preventDefault(); setDragOverUnassigned(true) }}
+                            onDragLeave={() => setDragOverUnassigned(false)}
+                            onDrop={zoneDrop('unassigned')}
+                            className={`rounded-lg p-2 min-h-[60px] transition-all ${dragOverUnassigned ? 'ring-1 ring-gray-500 bg-gray-800/40' : ''}`}
                           >
                             <p className="text-xs text-gray-500 uppercase tracking-wider mb-3">Not in scenario</p>
                             {sUnassigned.length === 0 ? <p className="text-xs text-gray-600">None</p> : <div className="flex flex-col gap-2">{sUnassigned.map(tile)}</div>}
                           </div>
-                          {sFlexed.length > 0 && (
-                            <div className="rounded-lg p-2 border border-dashed border-gray-700">
-                              <p className="text-xs text-gray-500 uppercase tracking-wider mb-3">Flexed</p>
-                              <div className="flex flex-col gap-2">{sFlexed.map(tile)}</div>
-                            </div>
-                          )}
-                          {sOOO.length > 0 && (
-                            <div className="rounded-lg p-2 border border-dashed border-gray-700">
-                              <p className="text-xs text-gray-500 uppercase tracking-wider mb-3">Currently OOO</p>
-                              <div className="flex flex-col gap-2">{sOOO.map(tile)}</div>
-                            </div>
-                          )}
-                          {sOnboarding.length > 0 && (
-                            <div className="rounded-lg p-2 border border-dashed border-gray-700">
-                              <p className="text-xs text-gray-500 uppercase tracking-wider mb-3">Onboarding</p>
-                              <div className="flex flex-col gap-2">{sOnboarding.map(tile)}</div>
-                            </div>
-                          )}
+                          <div
+                            onDragOver={e => { e.preventDefault(); setDragOverFlexed(true) }}
+                            onDragLeave={() => setDragOverFlexed(false)}
+                            onDrop={zoneDrop('flexed')}
+                            className={`rounded-lg p-2 min-h-[60px] border border-dashed transition-all ${dragOverFlexed ? 'border-violet-500 bg-violet-500/10' : 'border-gray-700'}`}
+                          >
+                            <p className="text-xs text-gray-500 uppercase tracking-wider mb-3">Flexed</p>
+                            {sFlexed.length === 0 ? <p className="text-xs text-gray-600">Drop here to flex</p> : <div className="flex flex-col gap-2">{sFlexed.map(tile)}</div>}
+                          </div>
+                          <div
+                            onDragOver={e => { e.preventDefault(); setDragOverOOO(true) }}
+                            onDragLeave={() => setDragOverOOO(false)}
+                            onDrop={zoneDrop('ooo')}
+                            className={`rounded-lg p-2 min-h-[60px] border border-dashed transition-all ${dragOverOOO ? 'border-amber-500 bg-amber-500/10' : 'border-gray-700'}`}
+                          >
+                            <p className="text-xs text-gray-500 uppercase tracking-wider mb-3">Currently OOO</p>
+                            {sOOO.length === 0 ? <p className="text-xs text-gray-600">Drop here to mark OOO</p> : <div className="flex flex-col gap-2">{sOOO.map(tile)}</div>}
+                          </div>
+                          <div
+                            onDragOver={e => { e.preventDefault(); setDragOverOnboarding(true) }}
+                            onDragLeave={() => setDragOverOnboarding(false)}
+                            onDrop={zoneDrop('onboarding')}
+                            className={`rounded-lg p-2 min-h-[60px] border border-dashed transition-all ${dragOverOnboarding ? 'border-cyan-500 bg-cyan-500/10' : 'border-gray-700'}`}
+                          >
+                            <p className="text-xs text-gray-500 uppercase tracking-wider mb-3">Onboarding</p>
+                            {sOnboarding.length === 0 ? <p className="text-xs text-gray-600">Drop here to onboard</p> : <div className="flex flex-col gap-2">{sOnboarding.map(tile)}</div>}
+                          </div>
                         </div>
                       )
                     })()}
