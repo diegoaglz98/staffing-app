@@ -167,7 +167,16 @@ export default function StaffingApp() {
       // Core tables must load; scenario tables are optional (may not exist yet)
       if (p.error || s.error || a.error) throw (p.error || s.error || a.error)
       if (p.data) setProjects(p.data)
-      if (s.data) setStaff(s.data)
+      if (s.data) {
+        // Auto-clear OOO for anyone whose return date has arrived (date <= today)
+        const today = fmt(new Date())
+        const expired = s.data.filter((m: Staff) => m.ooo && m.ooo_return_date && m.ooo_return_date <= today)
+        if (expired.length > 0) {
+          await supabase.from('staff').update({ ooo: false, ooo_return_date: null }).in('id', expired.map((m: Staff) => m.id))
+          s.data = s.data.map((m: Staff) => expired.some(e => e.id === m.id) ? { ...m, ooo: false, ooo_return_date: null } : m)
+        }
+        setStaff(s.data)
+      }
       if (a.data) setAssignments(a.data)
       if (sc.data) setScenarios(sc.data)
       if (sa.data) setScenarioAssignments(sa.data)
