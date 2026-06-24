@@ -100,6 +100,7 @@ export default function StaffingApp() {
   const [milestones, setMilestones] = useState<Milestone[]>([])
   const [milestoneDrafts, setMilestoneDrafts] = useState<Record<string, { title: string; priority: string; due_date: string }>>({})
   const [hideEmptyMilestoneProjects, setHideEmptyMilestoneProjects] = useState(false)
+  const [addingMilestoneProjectId, setAddingMilestoneProjectId] = useState<string | null>(null)
   const [loadError, setLoadError] = useState(false)
   const [selectedScenarioId, setSelectedScenarioId] = useState<string | null>(null)
   const [newScenarioName, setNewScenarioName] = useState('')
@@ -2379,20 +2380,31 @@ ${rows}
                           })}
                         </div>
                       )}
-                      <div className="flex flex-wrap gap-2">
-                        <input
-                          className={inputSmClass + ' flex-1 min-w-[180px]'}
-                          placeholder="New milestone…"
-                          value={draft.title}
-                          onChange={e => setMilestoneDraft(p.id, { title: e.target.value })}
-                          onKeyDown={e => e.key === 'Enter' && addMilestone(p.id)}
-                        />
-                        <select className={selectSmClass + ' w-20'} value={draft.priority} onChange={e => setMilestoneDraft(p.id, { priority: e.target.value })}>
-                          {PRIORITIES.map(pr => <option key={pr} value={pr}>{pr}</option>)}
-                        </select>
-                        <input type="date" className={inputSmClass + ' w-40'} value={draft.due_date} onChange={e => setMilestoneDraft(p.id, { due_date: e.target.value })} />
-                        <button className="text-xs px-3 py-1 rounded bg-gray-700 text-gray-300 hover:text-white transition-colors" onClick={() => addMilestone(p.id)}>Add</button>
-                      </div>
+                      {addingMilestoneProjectId === p.id ? (
+                        <div className="flex flex-wrap gap-2">
+                          <input
+                            className={inputSmClass + ' flex-1 min-w-[180px]'}
+                            placeholder="New milestone…"
+                            value={draft.title}
+                            autoFocus
+                            onChange={e => setMilestoneDraft(p.id, { title: e.target.value })}
+                            onKeyDown={e => e.key === 'Enter' && addMilestone(p.id)}
+                          />
+                          <select className={selectSmClass + ' w-20'} value={draft.priority} onChange={e => setMilestoneDraft(p.id, { priority: e.target.value })}>
+                            {PRIORITIES.map(pr => <option key={pr} value={pr}>{pr}</option>)}
+                          </select>
+                          <input type="date" className={inputSmClass + ' w-40'} value={draft.due_date} onChange={e => setMilestoneDraft(p.id, { due_date: e.target.value })} />
+                          <button className="text-xs px-3 py-1 rounded bg-gray-700 text-gray-300 hover:text-white transition-colors" onClick={() => addMilestone(p.id)}>Add</button>
+                          <button className={btnCancel} onClick={() => setAddingMilestoneProjectId(null)}>Cancel</button>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => setAddingMilestoneProjectId(p.id)}
+                          className="text-xs text-gray-500 hover:text-gray-300 transition-colors"
+                        >
+                          + Add new milestone
+                        </button>
+                      )}
                     </div>
                   )
                 })
