@@ -399,6 +399,63 @@ ${rows}
     URL.revokeObjectURL(url)
   }
 
+  function exportMilestonesHTML() {
+    const esc = (t: string) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    const today = fmt(new Date())
+    const activeProjects = [...projects].filter(p => p.status === 'active').sort((a, b) => a.name.localeCompare(b.name))
+    const activeIds = new Set(activeProjects.map(p => p.id))
+
+    const openP0 = milestones
+      .filter(m => !m.done && m.priority === 'P0' && activeIds.has(m.project_id))
+      .sort((a, b) => (a.due_date ?? '9999').localeCompare(b.due_date ?? '9999'))
+    const p0Section = openP0.length === 0 ? '' : `
+<h2 style="color:#c0392b">Open P0 — Needs Attention (${openP0.length})</h2>
+<ul>${openP0.map(m => {
+      const proj = projects.find(p => p.id === m.project_id)
+      const overdue = m.due_date && m.due_date < today
+      return `<li><strong>${esc(m.title)}</strong> — <em>${esc(proj?.name ?? '')}</em>${m.due_date ? ` <span style="color:${overdue ? '#c0392b' : '#666'}">(${overdue ? 'overdue · ' : 'due '}${m.due_date})</span>` : ''}</li>`
+    }).join('')}</ul>`
+
+    const sections = activeProjects.map(p => {
+      const ms = [...milestones.filter(m => m.project_id === p.id)].sort((a, b) =>
+        (a.done === b.done ? 0 : a.done ? 1 : -1) || priorityRank(a.priority) - priorityRank(b.priority) || a.created_at.localeCompare(b.created_at)
+      )
+      if (ms.length === 0) return ''
+      const done = ms.filter(m => m.done).length
+      const rows = ms.map(m => {
+        const overdue = !m.done && m.due_date && m.due_date < today
+        return `<tr>
+  <td style="text-align:center">${m.done ? '✓' : '☐'}</td>
+  <td>${m.priority}</td>
+  <td${m.done ? ' style="text-decoration:line-through;color:#999"' : ''}>${esc(m.title)}</td>
+  <td style="color:${overdue ? '#c0392b' : '#666'}">${m.due_date ? `${overdue ? '⚠ ' : ''}${m.due_date}` : '—'}</td>
+</tr>`
+      }).join('')
+      return `<h2>${esc(p.name)} <small style="color:#888;font-weight:normal">(${done}/${ms.length} done)</small></h2>
+<table border="1" cellpadding="6" cellspacing="0" style="border-collapse:collapse;width:100%">
+  <thead><tr><th>Done</th><th>Priority</th><th>Milestone</th><th>Due</th></tr></thead>
+  <tbody>${rows}</tbody>
+</table>`
+    }).filter(Boolean).join('<br/>')
+
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Milestones Summary</title>
+<style>body{font-family:Arial,sans-serif;max-width:900px;margin:40px auto;color:#111}h1{margin-bottom:8px}h2{margin-top:32px;margin-bottom:4px}table{width:100%;margin-top:8px}th{background:#f0f0f0;text-align:left}td,th{padding:6px 10px}ul{line-height:1.6}</style>
+</head><body>
+<h1>Code Pod — Milestones Summary</h1>
+<p style="color:#666">Exported ${new Date().toLocaleDateString()} · Active projects only</p>
+${p0Section}
+${sections || '<p><em>No milestones yet.</em></p>'}
+</body></html>`
+
+    const blob = new Blob([html], { type: 'text/html' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `milestones-${new Date().toISOString().split('T')[0]}.html`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
   async function exportAssignmentsDOCX() {
     const cellBorder = { style: BorderStyle.SINGLE, size: 4, color: 'DDDDDD' }
     const border = { top: cellBorder, bottom: cellBorder, left: cellBorder, right: cellBorder }
@@ -2327,7 +2384,13 @@ ${rows}
             <div className="flex gap-6 items-start">
               {/* Left: per-project milestone checklists */}
               <div className="flex-1 min-w-0 space-y-3">
-                <div className="flex justify-end">
+                <div className="flex justify-end gap-2">
+                  <button
+                    onClick={exportMilestonesHTML}
+                    className="text-xs px-3 py-1.5 rounded-lg border border-gray-700 text-gray-400 hover:text-gray-200 transition-colors"
+                  >
+                    Download as HTML
+                  </button>
                   <button
                     onClick={() => setHideEmptyMilestoneProjects(v => !v)}
                     className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${
