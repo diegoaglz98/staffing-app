@@ -399,7 +399,7 @@ ${rows}
     URL.revokeObjectURL(url)
   }
 
-  function exportMilestonesHTML() {
+  function buildMilestonesHTML() {
     const esc = (t: string) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
     const today = fmt(new Date())
     const activeProjects = [...projects].filter(p => p.status === 'active').sort((a, b) => a.name.localeCompare(b.name))
@@ -446,14 +446,38 @@ ${rows}
 ${p0Section}
 ${sections || '<p><em>No milestones yet.</em></p>'}
 </body></html>`
+    return html
+  }
 
-    const blob = new Blob([html], { type: 'text/html' })
+  function exportMilestonesHTML() {
+    const blob = new Blob([buildMilestonesHTML()], { type: 'text/html' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
     a.download = `milestones-${new Date().toISOString().split('T')[0]}.html`
     a.click()
     URL.revokeObjectURL(url)
+  }
+
+  function exportMilestonesPDF() {
+    const iframe = document.createElement('iframe')
+    iframe.style.position = 'fixed'
+    iframe.style.right = '0'
+    iframe.style.bottom = '0'
+    iframe.style.width = '0'
+    iframe.style.height = '0'
+    iframe.style.border = '0'
+    document.body.appendChild(iframe)
+    const doc = iframe.contentWindow?.document
+    if (!doc) { document.body.removeChild(iframe); return }
+    doc.open()
+    doc.write(buildMilestonesHTML())
+    doc.close()
+    iframe.contentWindow?.focus()
+    setTimeout(() => {
+      iframe.contentWindow?.print()
+      setTimeout(() => document.body.removeChild(iframe), 1000)
+    }, 300)
   }
 
   async function exportAssignmentsDOCX() {
@@ -2391,6 +2415,12 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                     className="text-xs px-3 py-1.5 rounded-lg border border-gray-700 text-gray-400 hover:text-gray-200 transition-colors"
                   >
                     Download as HTML
+                  </button>
+                  <button
+                    onClick={exportMilestonesPDF}
+                    className="text-xs px-3 py-1.5 rounded-lg border border-gray-700 text-gray-400 hover:text-gray-200 transition-colors"
+                  >
+                    Download as PDF
                   </button>
                   <button
                     onClick={() => setHideEmptyMilestoneProjects(v => !v)}
