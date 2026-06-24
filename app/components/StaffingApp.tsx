@@ -808,15 +808,21 @@ ${rows}
                             <td className="py-3.5 font-medium text-gray-100">{p.name}</td>
                             <td className="py-3.5 text-gray-500">{p.customer_codename ?? '—'}</td>
                             <td className="py-3.5">
-                              <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${
-                                p.status === 'active' ? 'bg-emerald-500/10 text-emerald-400' :
-                                p.status === 'starting-soon' ? 'bg-sky-500/10 text-sky-400' :
-                                p.status === 'on-hold' ? 'bg-amber-500/10 text-amber-400' :
-                                p.status === 'paused' ? 'bg-rose-500/10 text-rose-400' :
-                                'bg-gray-700 text-gray-400'
-                              }`}>
-                                {p.status}
-                              </span>
+                              <select
+                                value={p.status}
+                                onChange={e => updateProjectStatus(p.id, e.target.value)}
+                                title="Change project status"
+                                className={`px-2.5 py-1 pr-6 rounded-full text-xs font-medium cursor-pointer appearance-none focus:outline-none focus:ring-1 focus:ring-gray-500 ${
+                                  p.status === 'active' ? 'bg-emerald-500/10 text-emerald-400' :
+                                  p.status === 'starting-soon' ? 'bg-sky-500/10 text-sky-400' :
+                                  p.status === 'on-hold' ? 'bg-amber-500/10 text-amber-400' :
+                                  p.status === 'paused' ? 'bg-rose-500/10 text-rose-400' :
+                                  'bg-gray-700 text-gray-400'
+                                }`}
+                                style={{ backgroundImage: 'none' }}
+                              >
+                                {STATUS_OPTIONS.map(o => <option key={o.value} value={o.value} className="bg-gray-900 text-gray-100">{o.label}</option>)}
+                              </select>
                             </td>
                             <td className="py-3.5 text-gray-500">{p.start_date ?? '—'}</td>
                             <td className="py-3.5 text-gray-500">{p.end_date ?? '—'}</td>
