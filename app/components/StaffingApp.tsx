@@ -99,6 +99,7 @@ export default function StaffingApp() {
   const [scenarioAssignments, setScenarioAssignments] = useState<ScenarioAssignment[]>([])
   const [milestones, setMilestones] = useState<Milestone[]>([])
   const [milestoneDrafts, setMilestoneDrafts] = useState<Record<string, { title: string; priority: string; due_date: string }>>({})
+  const [hideEmptyMilestoneProjects, setHideEmptyMilestoneProjects] = useState(false)
   const [loadError, setLoadError] = useState(false)
   const [selectedScenarioId, setSelectedScenarioId] = useState<string | null>(null)
   const [newScenarioName, setNewScenarioName] = useState('')
@@ -2325,9 +2326,24 @@ ${rows}
             <div className="flex gap-6 items-start">
               {/* Left: per-project milestone checklists */}
               <div className="flex-1 min-w-0 space-y-3">
-                {activeProjects.length === 0 ? (
-                  <p className="text-gray-600 text-sm">No active projects. Milestones are tracked for active projects only.</p>
-                ) : activeProjects.map(p => {
+                <div className="flex justify-end">
+                  <button
+                    onClick={() => setHideEmptyMilestoneProjects(v => !v)}
+                    className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${
+                      hideEmptyMilestoneProjects ? 'text-emerald-400' : 'border-gray-700 text-gray-400 hover:text-gray-200'
+                    }`}
+                    style={hideEmptyMilestoneProjects ? { borderColor: '#193a29' } : {}}
+                  >
+                    {hideEmptyMilestoneProjects ? 'Hiding projects without milestones' : 'Show all projects'}
+                  </button>
+                </div>
+                {(() => {
+                  const shownProjects = hideEmptyMilestoneProjects
+                    ? activeProjects.filter(p => milestones.some(m => m.project_id === p.id))
+                    : activeProjects
+                  return shownProjects.length === 0 ? (
+                  <p className="text-gray-600 text-sm">{activeProjects.length === 0 ? 'No active projects. Milestones are tracked for active projects only.' : 'No active projects have milestones yet.'}</p>
+                ) : shownProjects.map(p => {
                   const ms = [...milestones.filter(m => m.project_id === p.id)].sort((a, b) =>
                     (a.done === b.done ? 0 : a.done ? 1 : -1) || priorityRank(a.priority) - priorityRank(b.priority) || a.created_at.localeCompare(b.created_at)
                   )
@@ -2379,7 +2395,8 @@ ${rows}
                       </div>
                     </div>
                   )
-                })}
+                })
+                })()}
               </div>
 
               {/* Right: stats + P0 reminders */}
