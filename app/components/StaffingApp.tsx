@@ -44,6 +44,23 @@ type ScenarioAssignment = {
   assignment_role: string | null
 }
 
+type Milestone = {
+  id: string
+  project_id: string
+  title: string
+  priority: string
+  done: boolean
+  due_date: string | null
+  created_at: string
+}
+
+const PRIORITIES = ['P0', 'P1', 'P2']
+const priorityRank = (p: string) => { const i = PRIORITIES.indexOf(p); return i === -1 ? 99 : i }
+const priorityColor = (p: string) =>
+  p === 'P0' ? 'bg-red-500/10 text-red-400' :
+  p === 'P1' ? 'bg-amber-500/10 text-amber-400' :
+  'bg-sky-500/10 text-sky-400'
+
 const VALID_POSITIONS = ['SPA', 'SPL I', 'SPL II', 'Manager, Delivery', 'Senior SPL', 'Head of Delivery', 'GenAI Consultant']
 
 const STATUS_OPTIONS: { value: string; label: string }[] = [
@@ -74,12 +91,14 @@ function parseCSVLine(line: string): string[] {
 }
 
 export default function StaffingApp() {
-  const [tab, setTab] = useState<'projects' | 'staff' | 'assignments' | 'dashboard' | 'scenarios'>('dashboard')
+  const [tab, setTab] = useState<'projects' | 'staff' | 'assignments' | 'dashboard' | 'scenarios' | 'milestones'>('dashboard')
   const [projects, setProjects] = useState<Project[]>([])
   const [staff, setStaff] = useState<Staff[]>([])
   const [assignments, setAssignments] = useState<Assignment[]>([])
   const [scenarios, setScenarios] = useState<Scenario[]>([])
   const [scenarioAssignments, setScenarioAssignments] = useState<ScenarioAssignment[]>([])
+  const [milestones, setMilestones] = useState<Milestone[]>([])
+  const [milestoneDrafts, setMilestoneDrafts] = useState<Record<string, { title: string; priority: string; due_date: string }>>({})
   const [loadError, setLoadError] = useState(false)
   const [selectedScenarioId, setSelectedScenarioId] = useState<string | null>(null)
   const [newScenarioName, setNewScenarioName] = useState('')
@@ -164,8 +183,9 @@ export default function StaffingApp() {
         supabase.from('assignments').select('*'),
         supabase.from('scenarios').select('*').order('created_at', { ascending: true }),
         supabase.from('scenario_assignments').select('*'),
+        supabase.from('milestones').select('*').order('created_at', { ascending: true }),
       ])
-      const [p, s, a, sc, sa] = await Promise.race([queries, timeout])
+      const [p, s, a, sc, sa, ms] = await Promise.race([queries, timeout])
       // Core tables must load; scenario tables are optional (may not exist yet)
       if (p.error || s.error || a.error) throw (p.error || s.error || a.error)
       if (p.data) setProjects(p.data)
@@ -182,6 +202,7 @@ export default function StaffingApp() {
       if (a.data) setAssignments(a.data)
       if (sc.data) setScenarios(sc.data)
       if (sa.data) setScenarioAssignments(sa.data)
+      if (ms.data) setMilestones(ms.data)
     } catch {
       setLoadError(true)
     } finally {
@@ -525,6 +546,43 @@ ${rows}
     setConfirmApplyScenario(null)
   }
 
+  function getMilestoneDraft(projectId: string) {
+    return milestoneDrafts[projectId] ?? { title: '', priority: 'P1', due_date: '' }
+  }
+  function setMilestoneDraft(projectId: string, partial: Partial<{ title: string; priority: string; due_date: string }>) {
+    setMilestoneDrafts(prev => ({ ...prev, [projectId]: { ...getMilestoneDraft(projectId), ...partial } }))
+  }
+
+  async function addMilestone(projectId: string) {
+    const draft = getMilestoneDraft(projectId)
+    if (!draft.title.trim()) return
+    const { data } = await supabase.from('milestones').insert([{
+      project_id: projectId,
+      title: draft.title.trim(),
+      priority: draft.priority || 'P1',
+      due_date: draft.due_date || null,
+    }]).select().single()
+    if (data) {
+      setMilestones([...milestones, data])
+      setMilestoneDrafts(prev => ({ ...prev, [projectId]: { title: '', priority: draft.priority, due_date: '' } }))
+    }
+  }
+
+  async function toggleMilestone(id: string, done: boolean) {
+    const { data } = await supabase.from('milestones').update({ done }).eq('id', id).select().single()
+    if (data) setMilestones(prev => prev.map(m => m.id === id ? data : m))
+  }
+
+  async function updateMilestonePriority(id: string, priority: string) {
+    const { data } = await supabase.from('milestones').update({ priority }).eq('id', id).select().single()
+    if (data) setMilestones(prev => prev.map(m => m.id === id ? data : m))
+  }
+
+  async function deleteMilestone(id: string) {
+    await supabase.from('milestones').delete().eq('id', id)
+    setMilestones(milestones.filter(m => m.id !== id))
+  }
+
   function sortedList<T extends { name: string }>(list: T[], sort: 'default' | 'az' | 'za') {
     if (sort === 'az') return [...list].sort((a, b) => a.name.localeCompare(b.name))
     if (sort === 'za') return [...list].sort((a, b) => b.name.localeCompare(a.name))
@@ -690,6 +748,7 @@ ${rows}
             { key: 'staff', label: 'Staff' },
             { key: 'assignments', label: 'Assignments' },
             { key: 'scenarios', label: 'Staffing Scenarios' },
+            { key: 'milestones', label: 'Milestones' },
           ] as const).map(({ key, label }) => (
             <button
               key={key}
@@ -2246,6 +2305,129 @@ ${rows}
             })()}
           </div>
         )}
+
+        {/* Milestones Tab */}
+        {tab === 'milestones' && (() => {
+          const today = fmt(new Date())
+          const activeProjects = [...projects].filter(p => p.status === 'active').sort((a, b) => a.name.localeCompare(b.name))
+          const activeIds = new Set(activeProjects.map(p => p.id))
+          const allMs = milestones.filter(m => activeIds.has(m.project_id))
+          const total = allMs.length
+          const doneCount = allMs.filter(m => m.done).length
+          const pct = total ? Math.round((doneCount / total) * 100) : 0
+          const openP0 = allMs.filter(m => !m.done && m.priority === 'P0')
+          const openCounts = {
+            P0: allMs.filter(m => !m.done && m.priority === 'P0').length,
+            P1: allMs.filter(m => !m.done && m.priority === 'P1').length,
+            P2: allMs.filter(m => !m.done && m.priority === 'P2').length,
+          }
+          return (
+            <div className="flex gap-6 items-start">
+              {/* Left: per-project milestone checklists */}
+              <div className="flex-1 min-w-0 space-y-3">
+                {activeProjects.length === 0 ? (
+                  <p className="text-gray-600 text-sm">No active projects. Milestones are tracked for active projects only.</p>
+                ) : activeProjects.map(p => {
+                  const ms = [...milestones.filter(m => m.project_id === p.id)].sort((a, b) =>
+                    (a.done === b.done ? 0 : a.done ? 1 : -1) || priorityRank(a.priority) - priorityRank(b.priority) || a.created_at.localeCompare(b.created_at)
+                  )
+                  const pDone = ms.filter(m => m.done).length
+                  const draft = getMilestoneDraft(p.id)
+                  return (
+                    <div key={p.id} className="border border-gray-800 rounded-xl p-5 bg-gray-900/40">
+                      <div className="flex items-center justify-between mb-4">
+                        <h3 className="font-semibold text-gray-100">{p.name}</h3>
+                        {ms.length > 0 && <span className="text-xs text-gray-500">{pDone}/{ms.length} done</span>}
+                      </div>
+                      {ms.length > 0 && (
+                        <div className="space-y-1.5 mb-3">
+                          {ms.map(m => {
+                            const overdue = !m.done && m.due_date && m.due_date < today
+                            return (
+                              <div key={m.id} className="flex items-center gap-3 bg-gray-800/40 rounded-lg px-3 py-2 text-sm">
+                                <input type="checkbox" checked={m.done} onChange={e => toggleMilestone(m.id, e.target.checked)} className="accent-[#193a29] w-4 h-4 shrink-0" />
+                                <span className={`flex-1 ${m.done ? 'line-through text-gray-600' : 'text-gray-200'}`}>{m.title}</span>
+                                {m.due_date && <span className={`text-xs ${overdue ? 'text-red-400 font-medium' : 'text-gray-500'}`}>{overdue ? '⚠ ' : ''}{m.due_date}</span>}
+                                <select
+                                  value={m.priority}
+                                  onChange={e => updateMilestonePriority(m.id, e.target.value)}
+                                  title="Priority"
+                                  className={`text-xs font-medium px-2 py-0.5 pr-5 rounded-full cursor-pointer appearance-none focus:outline-none focus:ring-1 focus:ring-gray-500 ${priorityColor(m.priority)}`}
+                                  style={{ backgroundImage: 'none' }}
+                                >
+                                  {PRIORITIES.map(pr => <option key={pr} value={pr} className="bg-gray-900 text-gray-100">{pr}</option>)}
+                                </select>
+                                <button className={btnDanger} onClick={() => deleteMilestone(m.id)}>×</button>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      )}
+                      <div className="flex flex-wrap gap-2">
+                        <input
+                          className={inputSmClass + ' flex-1 min-w-[180px]'}
+                          placeholder="New milestone…"
+                          value={draft.title}
+                          onChange={e => setMilestoneDraft(p.id, { title: e.target.value })}
+                          onKeyDown={e => e.key === 'Enter' && addMilestone(p.id)}
+                        />
+                        <select className={selectSmClass + ' w-20'} value={draft.priority} onChange={e => setMilestoneDraft(p.id, { priority: e.target.value })}>
+                          {PRIORITIES.map(pr => <option key={pr} value={pr}>{pr}</option>)}
+                        </select>
+                        <input type="date" className={inputSmClass + ' w-40'} value={draft.due_date} onChange={e => setMilestoneDraft(p.id, { due_date: e.target.value })} />
+                        <button className="text-xs px-3 py-1 rounded bg-gray-700 text-gray-300 hover:text-white transition-colors" onClick={() => addMilestone(p.id)}>Add</button>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+
+              {/* Right: stats + P0 reminders */}
+              <div className="w-64 shrink-0 sticky top-6 flex flex-col gap-4">
+                <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
+                  <p className="text-xs text-gray-500 uppercase tracking-wider mb-3">Overall</p>
+                  <p className="text-3xl font-bold text-gray-100">{pct}%</p>
+                  <p className="text-xs text-gray-600 mb-3">{doneCount} of {total} done</p>
+                  <div className="w-full bg-gray-800 rounded-full h-2">
+                    <div className="h-2 rounded-full bg-emerald-600" style={{ width: `${pct}%` }} />
+                  </div>
+                  <div className="flex gap-3 mt-4 text-xs">
+                    <span className="text-red-400">{openCounts.P0} P0</span>
+                    <span className="text-amber-400">{openCounts.P1} P1</span>
+                    <span className="text-sky-400">{openCounts.P2} P2</span>
+                    <span className="text-gray-600">open</span>
+                  </div>
+                </div>
+
+                <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
+                  <div className="flex items-center justify-between mb-3">
+                    <p className="text-xs text-gray-500 uppercase tracking-wider">P0 — needs attention</p>
+                    <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${openP0.length > 0 ? 'bg-red-500/10 text-red-400' : 'bg-emerald-500/10 text-emerald-400'}`}>{openP0.length}</span>
+                  </div>
+                  {openP0.length === 0 ? (
+                    <p className="text-xs text-gray-600">No open P0 milestones. 🎉</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {[...openP0].sort((a, b) => (a.due_date ?? '9999').localeCompare(b.due_date ?? '9999')).map(m => {
+                        const proj = projects.find(p => p.id === m.project_id)
+                        const overdue = m.due_date && m.due_date < today
+                        return (
+                          <div key={m.id} className="border border-gray-800 rounded-lg px-3 py-2">
+                            <p className="text-sm text-gray-200 leading-tight">{m.title}</p>
+                            <div className="flex items-center justify-between mt-1">
+                              <span className="text-xs text-gray-500">{proj?.name}</span>
+                              {m.due_date && <span className={`text-xs ${overdue ? 'text-red-400 font-medium' : 'text-gray-500'}`}>{overdue ? '⚠ overdue · ' : 'due '}{m.due_date}</span>}
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )
+        })()}
       </div>
 
       {pendingOOO && (() => {
