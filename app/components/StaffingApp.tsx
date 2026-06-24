@@ -624,6 +624,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
     if (data) {
       setMilestones([...milestones, data])
       setMilestoneDrafts(prev => ({ ...prev, [projectId]: { title: '', priority: draft.priority, due_date: '' } }))
+      setAddingMilestoneProjectId(null)
     }
   }
 
