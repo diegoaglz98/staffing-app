@@ -1164,7 +1164,10 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                         ) : (
                           <>
                             <td className="py-3.5 pr-6 font-medium text-gray-100">
-                              {s.name}
+                              <span className="inline-flex items-center gap-1.5">
+                                {s.name}
+                                {s.flexed && <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-violet-500/10 text-violet-400">⤢ Flexed</span>}
+                              </span>
                               {s.flexed && s.flex_notes && <span className="block text-xs font-normal text-violet-400 mt-0.5">📝 {s.flex_notes}</span>}
                             </td>
                             <td className="py-3.5 pr-6 text-gray-500">{s.position ?? '—'}</td>
