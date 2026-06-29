@@ -11,6 +11,7 @@ type Project = {
   status: string
   start_date: string | null
   end_date: string | null
+  flagged: boolean
 }
 
 type Staff = {
@@ -275,6 +276,11 @@ export default function StaffingApp() {
         setConfirmFreeStaff({ projectId: id, count: assignedCount })
       }
     }
+  }
+
+  async function toggleProjectFlag(id: string, flagged: boolean) {
+    const { data } = await supabase.from('projects').update({ flagged }).eq('id', id).select().single()
+    if (data) setProjects(projects.map(p => p.id === id ? data : p))
   }
 
   async function deleteProject(id: string) {
@@ -1451,7 +1457,9 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                       className={`border rounded-xl p-5 transition-all ${
                         isOver
                           ? 'border-[#193a29] bg-[#193a29]/10 scale-[1.01]'
-                          : 'border-gray-800 bg-gray-900/40'
+                          : p.flagged
+                            ? 'border-red-500/40 bg-red-500/5'
+                            : 'border-gray-800 bg-gray-900/40'
                       }`}
                       onDragOver={e => { e.preventDefault(); setDragOverProjectId(p.id) }}
                       onDragLeave={() => setDragOverProjectId(null)}
@@ -1487,6 +1495,16 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                           >
                             +
                           </button>
+                          <button
+                            onClick={() => toggleProjectFlag(p.id, !p.flagged)}
+                            title={p.flagged ? 'Flagged: needs more support — click to clear' : 'Flag: needs more support'}
+                            className={`text-sm leading-none transition-colors ${p.flagged ? '' : 'opacity-40 hover:opacity-100 grayscale'}`}
+                          >
+                            🚩
+                          </button>
+                          {p.flagged && (
+                            <span className="px-2 py-0.5 rounded-full text-[11px] font-medium bg-red-500/10 text-red-400">Needs more support</span>
+                          )}
                           {p.status === 'active' && (
                             <span className={`px-2 py-0.5 rounded-full text-[11px] font-medium ${
                               staffingStatus === 'understaffed' ? 'bg-amber-500/10 text-amber-400' :
