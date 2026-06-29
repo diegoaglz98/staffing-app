@@ -21,6 +21,7 @@ type Staff = {
   ooo_return_date: string | null
   flexed: boolean
   onboarding: boolean
+  flex_notes: string | null
 }
 
 type Assignment = {
@@ -122,7 +123,7 @@ export default function StaffingApp() {
   const [editProject, setEditProject] = useState({ name: '', customer_codename: '', status: 'active', duration_weeks: '' })
 
   const [editingStaffId, setEditingStaffId] = useState<string | null>(null)
-  const [editStaff, setEditStaff] = useState({ name: '', position: '', ooo: false, ooo_return_date: '' })
+  const [editStaff, setEditStaff] = useState({ name: '', position: '', ooo: false, ooo_return_date: '', flex_notes: '' })
   const [inlineAssignment, setInlineAssignment] = useState({ project_id: '', assignment_role: '' })
   const [csvErrors, setCsvErrors] = useState<string[]>([])
   const [staffSort, setStaffSort] = useState<'default' | 'az' | 'za'>('az')
@@ -297,13 +298,13 @@ export default function StaffingApp() {
   }
 
   function startEditStaff(s: Staff) {
-    setEditStaff({ name: s.name, position: s.position ?? '', ooo: s.ooo, ooo_return_date: s.ooo_return_date ?? '' })
+    setEditStaff({ name: s.name, position: s.position ?? '', ooo: s.ooo, ooo_return_date: s.ooo_return_date ?? '', flex_notes: s.flex_notes ?? '' })
     setEditingStaffId(s.id)
   }
 
   async function saveStaff(id: string) {
     if (!editStaff.name.trim()) return
-    const updates = { name: editStaff.name.trim(), position: editStaff.position || null, ooo: editStaff.ooo, ooo_return_date: editStaff.ooo_return_date || null }
+    const updates = { name: editStaff.name.trim(), position: editStaff.position || null, ooo: editStaff.ooo, ooo_return_date: editStaff.ooo_return_date || null, flex_notes: editStaff.flex_notes.trim() || null }
     const { data } = await supabase.from('staff').update(updates).eq('id', id).select().single()
     if (data) {
       setStaff(staff.map(s => s.id === id ? data : s))
@@ -1100,6 +1101,13 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                               {editStaff.ooo && (
                                 <input type="date" className={inputSmClass} value={editStaff.ooo_return_date} onChange={e => setEditStaff({ ...editStaff, ooo_return_date: e.target.value })} />
                               )}
+                              <input
+                                type="text"
+                                className={inputSmClass + ' mt-1'}
+                                placeholder="Flex notes"
+                                value={editStaff.flex_notes}
+                                onChange={e => setEditStaff({ ...editStaff, flex_notes: e.target.value })}
+                              />
                             </td>
                             <td className="py-2 pr-2 align-top">
                               <div className="flex flex-wrap gap-1 mb-1.5">
@@ -1155,7 +1163,10 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                           </>
                         ) : (
                           <>
-                            <td className="py-3.5 pr-6 font-medium text-gray-100">{s.name}</td>
+                            <td className="py-3.5 pr-6 font-medium text-gray-100">
+                              {s.name}
+                              {s.flexed && s.flex_notes && <span className="block text-xs font-normal text-violet-400 mt-0.5">📝 {s.flex_notes}</span>}
+                            </td>
                             <td className="py-3.5 pr-6 text-gray-500">{s.position ?? '—'}</td>
                             <td className="py-3.5 pr-6">
                               {s.ooo ? (
@@ -1629,6 +1640,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                   <p className="font-medium text-gray-200 leading-tight">{s.name}</p>
                   {s.position && <p className="text-xs text-gray-500 mt-0.5">{s.position}</p>}
                   {s.ooo && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-500/10 text-amber-400 mt-1 inline-block">OOO</span>}
+                  {s.flexed && s.flex_notes && <p className="text-[10px] text-violet-400 mt-1 leading-snug">📝 {s.flex_notes}</p>}
                 </div>
               )
 
@@ -2318,6 +2330,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                           <p className="font-medium text-gray-200 leading-tight">{s.name}</p>
                           {s.position && <p className="text-xs text-gray-500 mt-0.5">{s.position}</p>}
                           {s.ooo && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-500/10 text-amber-400 mt-1 inline-block">OOO</span>}
+                  {s.flexed && s.flex_notes && <p className="text-[10px] text-violet-400 mt-1 leading-snug">📝 {s.flex_notes}</p>}
                         </div>
                       )
                       const zoneDrop = (zone: 'unassigned' | 'flexed' | 'ooo' | 'onboarding') => async (e: React.DragEvent) => {
