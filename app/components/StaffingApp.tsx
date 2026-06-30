@@ -103,6 +103,8 @@ export default function StaffingApp() {
   const [milestoneDrafts, setMilestoneDrafts] = useState<Record<string, { title: string; priority: string; due_date: string }>>({})
   const [hideEmptyMilestoneProjects, setHideEmptyMilestoneProjects] = useState(false)
   const [addingMilestoneProjectId, setAddingMilestoneProjectId] = useState<string | null>(null)
+  const [editingMilestoneId, setEditingMilestoneId] = useState<string | null>(null)
+  const [editMilestone, setEditMilestone] = useState({ title: '', due_date: '' })
   const [loadError, setLoadError] = useState(false)
   const [selectedScenarioId, setSelectedScenarioId] = useState<string | null>(null)
   const [newScenarioName, setNewScenarioName] = useState('')
@@ -672,6 +674,20 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
   async function deleteMilestone(id: string) {
     await supabase.from('milestones').delete().eq('id', id)
     setMilestones(milestones.filter(m => m.id !== id))
+  }
+
+  function startEditMilestone(m: Milestone) {
+    setEditMilestone({ title: m.title, due_date: m.due_date ?? '' })
+    setEditingMilestoneId(m.id)
+  }
+
+  async function saveMilestone(id: string) {
+    if (!editMilestone.title.trim()) return
+    const { data } = await supabase.from('milestones').update({ title: editMilestone.title.trim(), due_date: editMilestone.due_date || null }).eq('id', id).select().single()
+    if (data) {
+      setMilestones(prev => prev.map(m => m.id === id ? data : m))
+      setEditingMilestoneId(null)
+    }
   }
 
   function sortedList<T extends { name: string }>(list: T[], sort: 'default' | 'az' | 'za') {
@@ -2490,19 +2506,37 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                             const overdue = !m.done && m.due_date && m.due_date < today
                             return (
                               <div key={m.id} className="flex items-center gap-3 bg-gray-800/40 rounded-lg px-3 py-2 text-sm">
-                                <input type="checkbox" checked={m.done} onChange={e => toggleMilestone(m.id, e.target.checked)} className="accent-[#193a29] w-4 h-4 shrink-0" />
-                                <span className={`flex-1 ${m.done ? 'line-through text-gray-600' : 'text-gray-200'}`}>{m.title}</span>
-                                {m.due_date && <span className={`text-xs ${overdue ? 'text-red-400 font-medium' : 'text-gray-500'}`}>{overdue ? '⚠ ' : ''}{m.due_date}</span>}
-                                <select
-                                  value={m.priority}
-                                  onChange={e => updateMilestonePriority(m.id, e.target.value)}
-                                  title="Priority"
-                                  className={`text-xs font-medium px-2 py-0.5 pr-5 rounded-full cursor-pointer appearance-none focus:outline-none focus:ring-1 focus:ring-gray-500 ${priorityColor(m.priority)}`}
-                                  style={{ backgroundImage: 'none' }}
-                                >
-                                  {PRIORITIES.map(pr => <option key={pr} value={pr} className="bg-gray-900 text-gray-100">{pr}</option>)}
-                                </select>
-                                <button className={btnDanger} onClick={() => deleteMilestone(m.id)}>×</button>
+                                {editingMilestoneId === m.id ? (
+                                  <>
+                                    <input
+                                      className={inputSmClass + ' flex-1'}
+                                      value={editMilestone.title}
+                                      autoFocus
+                                      onChange={e => setEditMilestone({ ...editMilestone, title: e.target.value })}
+                                      onKeyDown={e => e.key === 'Enter' && saveMilestone(m.id)}
+                                    />
+                                    <input type="date" className={inputSmClass + ' w-40'} value={editMilestone.due_date} onChange={e => setEditMilestone({ ...editMilestone, due_date: e.target.value })} />
+                                    <button className={btnSave} onClick={() => saveMilestone(m.id)}>Save</button>
+                                    <button className={btnCancel} onClick={() => setEditingMilestoneId(null)}>Cancel</button>
+                                  </>
+                                ) : (
+                                  <>
+                                    <input type="checkbox" checked={m.done} onChange={e => toggleMilestone(m.id, e.target.checked)} className="accent-[#193a29] w-4 h-4 shrink-0" />
+                                    <span className={`flex-1 ${m.done ? 'line-through text-gray-600' : 'text-gray-200'}`}>{m.title}</span>
+                                    {m.due_date && <span className={`text-xs ${overdue ? 'text-red-400 font-medium' : 'text-gray-500'}`}>{overdue ? '⚠ ' : ''}{m.due_date}</span>}
+                                    <select
+                                      value={m.priority}
+                                      onChange={e => updateMilestonePriority(m.id, e.target.value)}
+                                      title="Priority"
+                                      className={`text-xs font-medium px-2 py-0.5 pr-5 rounded-full cursor-pointer appearance-none focus:outline-none focus:ring-1 focus:ring-gray-500 ${priorityColor(m.priority)}`}
+                                      style={{ backgroundImage: 'none' }}
+                                    >
+                                      {PRIORITIES.map(pr => <option key={pr} value={pr} className="bg-gray-900 text-gray-100">{pr}</option>)}
+                                    </select>
+                                    <button className={btnEdit} onClick={() => startEditMilestone(m)}>Edit</button>
+                                    <button className={btnDanger} onClick={() => deleteMilestone(m.id)}>×</button>
+                                  </>
+                                )}
                               </div>
                             )
                           })}
