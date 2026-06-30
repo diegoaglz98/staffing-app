@@ -412,18 +412,16 @@ ${rows}
     const esc = (t: string) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
     const today = fmt(new Date())
     const activeProjects = [...projects].filter(p => p.status === 'active').sort((a, b) => a.name.localeCompare(b.name))
-    const activeIds = new Set(activeProjects.map(p => p.id))
 
-    const openP0 = milestones
-      .filter(m => !m.done && m.priority === 'P0' && activeIds.has(m.project_id))
-      .sort((a, b) => (a.due_date ?? '9999').localeCompare(b.due_date ?? '9999'))
-    const p0Section = openP0.length === 0 ? '' : `
-<h2 style="color:#c0392b">Open P0 — Needs Attention (${openP0.length})</h2>
-<ul>${openP0.map(m => {
-      const proj = projects.find(p => p.id === m.project_id)
-      const overdue = m.due_date && m.due_date < today
-      return `<li><strong>${esc(m.title)}</strong> — <em>${esc(proj?.name ?? '')}</em>${m.due_date ? ` <span style="color:${overdue ? '#c0392b' : '#666'}">(${overdue ? 'overdue · ' : 'due '}${m.due_date})</span>` : ''}</li>`
-    }).join('')}</ul>`
+    const prColors: Record<string, [string, string]> = {
+      P0: ['#fdecea', '#c0392b'],
+      P1: ['#fef3c7', '#b45309'],
+      P2: ['#e0f2fe', '#0369a1'],
+    }
+    const prPill = (pr: string) => {
+      const [bg, fg] = prColors[pr] ?? ['#eeeeee', '#555555']
+      return `<span style="background:${bg};color:${fg};padding:2px 8px;border-radius:999px;font-weight:600;font-size:12px">${pr}</span>`
+    }
 
     const sections = activeProjects.map(p => {
       const ms = [...milestones.filter(m => m.project_id === p.id)].sort((a, b) =>
@@ -435,7 +433,7 @@ ${rows}
         const overdue = !m.done && m.due_date && m.due_date < today
         return `<tr>
   <td style="text-align:center">${m.done ? '✓' : '☐'}</td>
-  <td>${m.priority}</td>
+  <td>${prPill(m.priority)}</td>
   <td${m.done ? ' style="text-decoration:line-through;color:#999"' : ''}>${esc(m.title)}</td>
   <td style="color:${overdue ? '#c0392b' : '#666'}">${m.due_date ? `${overdue ? '⚠ ' : ''}${m.due_date}` : '—'}</td>
 </tr>`
@@ -452,7 +450,6 @@ ${rows}
 </head><body>
 <h1>Code Pod — Milestones Summary</h1>
 <p style="color:#666">Exported ${new Date().toLocaleDateString()} · Active projects only</p>
-${p0Section}
 ${sections || '<p><em>No milestones yet.</em></p>'}
 </body></html>`
     return html
