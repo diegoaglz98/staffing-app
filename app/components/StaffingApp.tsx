@@ -2522,7 +2522,11 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                                 ) : (
                                   <>
                                     <input type="checkbox" checked={m.done} onChange={e => toggleMilestone(m.id, e.target.checked)} className="accent-[#193a29] w-4 h-4 shrink-0" />
-                                    <span className={`flex-1 ${m.done ? 'line-through text-gray-600' : 'text-gray-200'}`}>{m.title}</span>
+                                    <span
+                                      onClick={() => startEditMilestone(m)}
+                                      title="Click to edit"
+                                      className={`flex-1 cursor-pointer hover:underline decoration-dotted underline-offset-4 ${m.done ? 'line-through text-gray-600' : 'text-gray-200'}`}
+                                    >{m.title}</span>
                                     {m.due_date && <span className={`text-xs ${overdue ? 'text-red-400 font-medium' : 'text-gray-500'}`}>{overdue ? '⚠ ' : ''}{m.due_date}</span>}
                                     <select
                                       value={m.priority}
