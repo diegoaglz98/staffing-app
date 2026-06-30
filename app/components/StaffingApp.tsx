@@ -2511,11 +2511,12 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                                     <input
                                       className={inputSmClass + ' flex-1'}
                                       value={editMilestone.title}
+                                      placeholder="Milestone name"
                                       autoFocus
                                       onChange={e => setEditMilestone({ ...editMilestone, title: e.target.value })}
                                       onKeyDown={e => e.key === 'Enter' && saveMilestone(m.id)}
                                     />
-                                    <input type="date" className={inputSmClass + ' w-40'} value={editMilestone.due_date} onChange={e => setEditMilestone({ ...editMilestone, due_date: e.target.value })} />
+                                    <input type="date" className={inputSmClass + ' shrink-0'} style={{ width: 150 }} value={editMilestone.due_date} onChange={e => setEditMilestone({ ...editMilestone, due_date: e.target.value })} />
                                     <button className={btnSave} onClick={() => saveMilestone(m.id)}>Save</button>
                                     <button className={btnCancel} onClick={() => setEditingMilestoneId(null)}>Cancel</button>
                                   </>
