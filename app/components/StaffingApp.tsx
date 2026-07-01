@@ -15,7 +15,7 @@ type Project = {
   emoji: string | null
 }
 
-const PROJECT_EMOJIS = ['📁', '🚀', '🎯', '🔥', '⭐', '🧪', '🤖', '🛡️', '📊', '💡', '⚙️', '🧠', '🌐', '📈', '🏆', '🐛', '🔒', '📝', '🎨', '⚡', '🧩', '📦', '🔧', '🩺']
+const PROJECT_EMOJIS = ['📁', '🚀', '🎯', '🔥', '⭐', '🧪', '🤖', '🛡️', '📊', '💡', '⚙️', '🧠', '🌐', '📈', '🏆', '🐛', '🔒', '📝', '🎨', '⚡', '🧩', '📦', '🔧', '🩺', '💬', '🎓', '🗂️', '✅', '🔬', '🛰️', '📡', '💻', '📱', '☁️', '🔑', '🧵', '📐', '🕹️', '🎬', '🎧', '📷', '🏗️', '🚦', '🧭', '⏱️', '📅', '💰', '🏦', '⚖️', '🩹', '🧬', '🔭', '🌟', '💎', '🎲', '🃏', '🐙', '🦾', '👾', '🦉']
 
 type Staff = {
   id: string
@@ -145,6 +145,7 @@ export default function StaffingApp() {
   const [showAddProjectInline, setShowAddProjectInline] = useState(false)
   const [supervisorFilter, setSupervisorFilter] = useState('')
   const [emojiPickerProjectId, setEmojiPickerProjectId] = useState<string | null>(null)
+  const [customEmoji, setCustomEmoji] = useState('')
   const [quickAdd, setQuickAdd] = useState({ staff_id: '', assignment_role: '' })
   const [draggedStaffId, setDraggedStaffId] = useState<string | null>(null)
   const [draggedAssignmentId, setDraggedAssignmentId] = useState<string | null>(null)
@@ -1542,11 +1543,26 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                             {emojiPickerProjectId === p.id && (
                               <>
                                 <div className="fixed inset-0 z-10" onClick={() => setEmojiPickerProjectId(null)} />
-                                <div className="absolute left-0 top-8 z-20 bg-gray-900 border border-gray-700 rounded-lg p-2 shadow-xl grid grid-cols-6 gap-1 w-56">
-                                  {PROJECT_EMOJIS.map(em => (
-                                    <button key={em} onClick={() => { updateProjectEmoji(p.id, em); setEmojiPickerProjectId(null) }} className="text-lg hover:bg-gray-800 rounded p-1">{em}</button>
-                                  ))}
-                                  <button onClick={() => { updateProjectEmoji(p.id, null); setEmojiPickerProjectId(null) }} className="col-span-6 text-xs text-gray-500 hover:text-gray-300 mt-1">Reset to default</button>
+                                <div className="absolute left-0 top-8 z-20 bg-gray-900 border border-gray-700 rounded-lg p-2 shadow-xl w-60">
+                                  <div className="grid grid-cols-6 gap-1 max-h-48 overflow-y-auto">
+                                    {PROJECT_EMOJIS.map(em => (
+                                      <button key={em} onClick={() => { updateProjectEmoji(p.id, em); setEmojiPickerProjectId(null) }} className="text-lg hover:bg-gray-800 rounded p-1">{em}</button>
+                                    ))}
+                                  </div>
+                                  <div className="flex gap-1 mt-2 pt-2 border-t border-gray-800">
+                                    <input
+                                      className={inputSmClass + ' flex-1'}
+                                      placeholder="Paste any emoji…"
+                                      value={customEmoji}
+                                      onChange={e => setCustomEmoji(e.target.value)}
+                                      onKeyDown={e => { if (e.key === 'Enter' && customEmoji.trim()) { updateProjectEmoji(p.id, customEmoji.trim()); setCustomEmoji(''); setEmojiPickerProjectId(null) } }}
+                                    />
+                                    <button
+                                      className="text-xs px-2 py-1 rounded bg-gray-700 text-gray-300 hover:text-white transition-colors"
+                                      onClick={() => { if (customEmoji.trim()) { updateProjectEmoji(p.id, customEmoji.trim()); setCustomEmoji(''); setEmojiPickerProjectId(null) } }}
+                                    >Set</button>
+                                  </div>
+                                  <button onClick={() => { updateProjectEmoji(p.id, null); setEmojiPickerProjectId(null) }} className="w-full text-xs text-gray-500 hover:text-gray-300 mt-2">Reset to default</button>
                                 </div>
                               </>
                             )}
