@@ -1287,6 +1287,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                   style={supervisorFilter ? { borderColor: '#193a29' } : {}}
                 >
                   <option value="">All supervisors</option>
+                  <option value="__none__">No supervisor</option>
                   {staff
                     .filter(s => assignments.some(a => a.staff_id === s.id && a.assignment_role === 'Supervisor'))
                     .sort((a, b) => a.name.localeCompare(b.name))
@@ -1470,7 +1471,12 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
               <p className="text-gray-600 text-sm">Add projects first.</p>
             ) : (
               <div className="space-y-3">
-                {[...projects].filter(p => visibleStatuses[p.status]).filter(p => !supervisorFilter || assignments.some(a => a.project_id === p.id && a.staff_id === supervisorFilter && a.assignment_role === 'Supervisor')).sort((a, b) => statusRank(a.status) - statusRank(b.status) || a.name.localeCompare(b.name)).map(p => {
+                {[...projects].filter(p => visibleStatuses[p.status]).filter(p => {
+                  if (!supervisorFilter) return true
+                  const hasSupervisor = assignments.some(a => a.project_id === p.id && a.assignment_role === 'Supervisor')
+                  if (supervisorFilter === '__none__') return !hasSupervisor
+                  return assignments.some(a => a.project_id === p.id && a.staff_id === supervisorFilter && a.assignment_role === 'Supervisor')
+                }).sort((a, b) => statusRank(a.status) - statusRank(b.status) || a.name.localeCompare(b.name)).map(p => {
                   const projectAssignments = assignments.filter(a => a.project_id === p.id)
                   const isOver = dragOverProjectId === p.id
                   const roles = projectAssignments.map(a => a.assignment_role)
