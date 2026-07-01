@@ -140,6 +140,7 @@ export default function StaffingApp() {
   const [statusFilterOpen, setStatusFilterOpen] = useState(false)
   const [addingToProjectId, setAddingToProjectId] = useState<string | null>(null)
   const [showAddProjectInline, setShowAddProjectInline] = useState(false)
+  const [supervisorFilter, setSupervisorFilter] = useState('')
   const [quickAdd, setQuickAdd] = useState({ staff_id: '', assignment_role: '' })
   const [draggedStaffId, setDraggedStaffId] = useState<string | null>(null)
   const [draggedAssignmentId, setDraggedAssignmentId] = useState<string | null>(null)
@@ -1276,6 +1277,21 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                 >
                   {hideAssignedInDropdown ? 'Unassigned only' : 'Show unassigned only'}
                 </button>
+                <select
+                  value={supervisorFilter}
+                  onChange={e => setSupervisorFilter(e.target.value)}
+                  title="Filter projects by supervisor"
+                  className={`text-xs px-3 py-1.5 rounded-lg border transition-colors cursor-pointer ${
+                    supervisorFilter ? 'text-emerald-400' : 'border-gray-700 text-gray-400 hover:text-gray-200'
+                  }`}
+                  style={supervisorFilter ? { borderColor: '#193a29' } : {}}
+                >
+                  <option value="">All supervisors</option>
+                  {staff
+                    .filter(s => assignments.some(a => a.staff_id === s.id && a.assignment_role === 'Supervisor'))
+                    .sort((a, b) => a.name.localeCompare(b.name))
+                    .map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                </select>
                 </div>
               </div>
               <div className="flex flex-wrap gap-2">
@@ -1454,7 +1470,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
               <p className="text-gray-600 text-sm">Add projects first.</p>
             ) : (
               <div className="space-y-3">
-                {[...projects].filter(p => visibleStatuses[p.status]).sort((a, b) => statusRank(a.status) - statusRank(b.status) || a.name.localeCompare(b.name)).map(p => {
+                {[...projects].filter(p => visibleStatuses[p.status]).filter(p => !supervisorFilter || assignments.some(a => a.project_id === p.id && a.staff_id === supervisorFilter && a.assignment_role === 'Supervisor')).sort((a, b) => statusRank(a.status) - statusRank(b.status) || a.name.localeCompare(b.name)).map(p => {
                   const projectAssignments = assignments.filter(a => a.project_id === p.id)
                   const isOver = dragOverProjectId === p.id
                   const roles = projectAssignments.map(a => a.assignment_role)
