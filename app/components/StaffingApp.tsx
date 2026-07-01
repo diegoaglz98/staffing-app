@@ -12,7 +12,10 @@ type Project = {
   start_date: string | null
   end_date: string | null
   flagged: boolean
+  emoji: string | null
 }
+
+const PROJECT_EMOJIS = ['📁', '🚀', '🎯', '🔥', '⭐', '🧪', '🤖', '🛡️', '📊', '💡', '⚙️', '🧠', '🌐', '📈', '🏆', '🐛', '🔒', '📝', '🎨', '⚡', '🧩', '📦', '🔧', '🩺']
 
 type Staff = {
   id: string
@@ -141,6 +144,7 @@ export default function StaffingApp() {
   const [addingToProjectId, setAddingToProjectId] = useState<string | null>(null)
   const [showAddProjectInline, setShowAddProjectInline] = useState(false)
   const [supervisorFilter, setSupervisorFilter] = useState('')
+  const [emojiPickerProjectId, setEmojiPickerProjectId] = useState<string | null>(null)
   const [quickAdd, setQuickAdd] = useState({ staff_id: '', assignment_role: '' })
   const [draggedStaffId, setDraggedStaffId] = useState<string | null>(null)
   const [draggedAssignmentId, setDraggedAssignmentId] = useState<string | null>(null)
@@ -283,6 +287,11 @@ export default function StaffingApp() {
 
   async function toggleProjectFlag(id: string, flagged: boolean) {
     const { data } = await supabase.from('projects').update({ flagged }).eq('id', id).select().single()
+    if (data) setProjects(projects.map(p => p.id === id ? data : p))
+  }
+
+  async function updateProjectEmoji(id: string, emoji: string | null) {
+    const { data } = await supabase.from('projects').update({ emoji }).eq('id', id).select().single()
     if (data) setProjects(projects.map(p => p.id === id ? data : p))
   }
 
@@ -1522,6 +1531,26 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                     >
                       <div className="flex items-center justify-between mb-4">
                         <div className="flex items-center gap-2">
+                          <div className="relative">
+                            <button
+                              onClick={() => setEmojiPickerProjectId(emojiPickerProjectId === p.id ? null : p.id)}
+                              title="Set project emoji"
+                              className="text-lg leading-none hover:scale-110 transition-transform"
+                            >
+                              {p.emoji || '📁'}
+                            </button>
+                            {emojiPickerProjectId === p.id && (
+                              <>
+                                <div className="fixed inset-0 z-10" onClick={() => setEmojiPickerProjectId(null)} />
+                                <div className="absolute left-0 top-8 z-20 bg-gray-900 border border-gray-700 rounded-lg p-2 shadow-xl grid grid-cols-6 gap-1 w-56">
+                                  {PROJECT_EMOJIS.map(em => (
+                                    <button key={em} onClick={() => { updateProjectEmoji(p.id, em); setEmojiPickerProjectId(null) }} className="text-lg hover:bg-gray-800 rounded p-1">{em}</button>
+                                  ))}
+                                  <button onClick={() => { updateProjectEmoji(p.id, null); setEmojiPickerProjectId(null) }} className="col-span-6 text-xs text-gray-500 hover:text-gray-300 mt-1">Reset to default</button>
+                                </div>
+                              </>
+                            )}
+                          </div>
                           <h3 className="font-semibold text-gray-100">{p.name}</h3>
                           <button
                             onClick={() => { setAddingToProjectId(addingToProjectId === p.id ? null : p.id); setQuickAdd({ staff_id: '', assignment_role: '' }) }}
