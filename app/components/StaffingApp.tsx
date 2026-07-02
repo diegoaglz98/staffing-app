@@ -66,7 +66,7 @@ const priorityColor = (p: string) =>
   p === 'P1' ? 'bg-amber-500/10 text-amber-400' :
   'bg-sky-500/10 text-sky-400'
 
-const VALID_POSITIONS = ['SPA', 'SPL I', 'SPL II', 'Manager, Delivery', 'Senior SPL', 'Head of Delivery', 'GenAI Consultant']
+const VALID_POSITIONS = ['SPA', 'SPL I', 'SPL II', 'Manager, Delivery', 'Senior SPL', 'Head of Delivery', 'Director, Delivery', 'GenAI Consultant']
 
 const STATUS_OPTIONS: { value: string; label: string }[] = [
   { value: 'active', label: 'Active' },
@@ -1114,13 +1114,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                             <td className="py-2 pr-2">
                               <select className={selectSmClass} value={editStaff.position} onChange={e => setEditStaff({ ...editStaff, position: e.target.value })}>
                                 <option value="">Position</option>
-                                <option>SPA</option>
-                                <option>SPL I</option>
-                                <option>SPL II</option>
-                                <option>Manager, Delivery</option>
-                                <option>Senior SPL</option>
-                                <option>Head of Delivery</option>
-                                <option>GenAI Consultant</option>
+                                {VALID_POSITIONS.map(pos => <option key={pos}>{pos}</option>)}
                               </select>
                             </td>
                             <td className="py-2 pr-2 align-top">
