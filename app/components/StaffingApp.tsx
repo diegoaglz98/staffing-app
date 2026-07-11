@@ -1419,8 +1419,8 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                           if (data) setAssignments(prev => [...prev, data])
                         }
                         const member = staff.find(s => s.id === pendingDrop.staffId)
-                        if (member?.flexed) {
-                          const { data } = await supabase.from('staff').update({ flexed: false }).eq('id', pendingDrop.staffId).select().single()
+                        if (member?.flexed || member?.onboarding) {
+                          const { data } = await supabase.from('staff').update({ flexed: false, onboarding: false }).eq('id', pendingDrop.staffId).select().single()
                           if (data) setStaff(prev => prev.map(s => s.id === pendingDrop.staffId ? data : s))
                         }
                         setPendingDrop(null)
@@ -1890,8 +1890,8 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
           const assignedStaffIds = new Set(assignments.map(a => a.staff_id))
           const availableStaff = staff.filter(s => !assignedStaffIds.has(s.id) && !s.flexed && !s.ooo && !s.onboarding)
           const oooCount = staff.filter(s => s.ooo).length
-          const flexedCount = staff.filter(s => s.flexed).length
-          const onboardingCount = staff.filter(s => s.onboarding).length
+          const flexedCount = staff.filter(s => s.flexed && !assignedStaffIds.has(s.id)).length
+          const onboardingCount = staff.filter(s => s.onboarding && !assignedStaffIds.has(s.id)).length
 
           const activeProjectIds = new Set(
             projects
