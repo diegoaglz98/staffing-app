@@ -137,6 +137,7 @@ export default function StaffingApp() {
   const [hideAssignedInDropdown, setHideAssignedInDropdown] = useState(false)
   const [projectSort, setProjectSort] = useState<{ col: string; dir: 'az' | 'za' }>({ col: 'status', dir: 'az' })
   const [showSupervisorsInChart, setShowSupervisorsInChart] = useState(false)
+  const [customerActiveOnly, setCustomerActiveOnly] = useState(false)
   const [visibleStatuses, setVisibleStatuses] = useState<Record<string, boolean>>({
     'active': true, 'starting-soon': true, 'paused': true, 'on-hold': false, 'completed': false,
   })
@@ -1956,11 +1957,13 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
           })
           const totalActiveForStaffing = staffingStatusCounts.understaffed + staffingStatusCounts.good + staffingStatusCounts.overstaffed
 
-          const customerCounts = projects.reduce((acc, p) => {
-            const key = p.customer_codename || 'No Codename'
-            acc[key] = (acc[key] || 0) + 1
-            return acc
-          }, {} as Record<string, number>)
+          const customerCounts = projects
+            .filter(p => !customerActiveOnly || p.status === 'active')
+            .reduce((acc, p) => {
+              const key = p.customer_codename || 'No Codename'
+              acc[key] = (acc[key] || 0) + 1
+              return acc
+            }, {} as Record<string, number>)
           const maxCustomer = Math.max(...Object.values(customerCounts), 1)
 
           const headcounts = projects.filter(p => p.status === 'active').map(p => {
@@ -2024,7 +2027,33 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
               {/* Charts row */}
               <div className="grid grid-cols-2 gap-4">
                 {barChart('Projects by Status', statusCounts, maxStatus, 'bg-[#193a29]')}
-                {barChart('Projects by Customer', customerCounts, maxCustomer, 'bg-violet-500')}
+                <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
+                  <div className="flex items-center justify-between mb-4">
+                    <p className="text-xs text-gray-500 uppercase tracking-wider">Projects by Customer</p>
+                    <button
+                      onClick={() => setCustomerActiveOnly(v => !v)}
+                      className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${
+                        customerActiveOnly ? 'text-emerald-400' : 'border-gray-700 text-gray-400 hover:text-gray-200'
+                      }`}
+                      style={customerActiveOnly ? { borderColor: '#193a29' } : {}}
+                    >
+                      {customerActiveOnly ? 'Active only' : 'All statuses'}
+                    </button>
+                  </div>
+                  <div className="space-y-3">
+                    {Object.entries(customerCounts).sort((a, b) => b[1] - a[1]).map(([label, count]) => (
+                      <div key={label}>
+                        <div className="flex justify-between text-xs mb-1">
+                          <span className="text-gray-300">{label}</span>
+                          <span className="text-gray-500">{count}</span>
+                        </div>
+                        <div className="w-full bg-gray-800 rounded-full h-2">
+                          <div className="h-2 rounded-full bg-violet-500" style={{ width: `${(count / maxCustomer) * 100}%` }} />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
               </div>
 
               {/* Staffing status distribution (active projects) */}
