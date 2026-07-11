@@ -752,6 +752,17 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
     return projectSort.dir === 'az' ? '↑' : '↓'
   }
 
+  function toggleSwitch(on: boolean, onToggle: () => void, label: string) {
+    return (
+      <button onClick={onToggle} className="flex items-center gap-2 group">
+        <span className={`text-xs transition-colors ${on ? 'text-emerald-400' : 'text-gray-500 group-hover:text-gray-300'}`}>{label}</span>
+        <span className={`relative w-9 h-5 rounded-full transition-colors shrink-0 ${on ? 'bg-emerald-500' : 'bg-gray-700'}`}>
+          <span className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${on ? 'translate-x-4' : ''}`} />
+        </span>
+      </button>
+    )
+  }
+
   function statusFilterDropdown() {
     const shownCount = STATUS_OPTIONS.filter(o => visibleStatuses[o.value]).length
     return (
@@ -1040,15 +1051,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Add Staff Member</h2>
                 <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => setHideAssigned(!hideAssigned)}
-                    className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${
-                      hideAssigned ? 'text-emerald-400' : 'border-gray-700 text-gray-400 hover:text-gray-200'
-                    }`}
-                    style={hideAssigned ? { borderColor: '#193a29' } : {}}
-                  >
-                    {hideAssigned ? 'Unassigned only' : 'Show unassigned only'}
-                  </button>
+                  {toggleSwitch(hideAssigned, () => setHideAssigned(!hideAssigned), 'Unassigned only')}
                   <label className="cursor-pointer text-xs text-gray-400 hover:text-gray-200 transition-colors border border-gray-700 rounded-lg px-3 py-1.5">
                     Import CSV
                     <input type="file" accept=".csv" className="hidden" onChange={importStaffCSV} />
@@ -1282,15 +1285,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                 >
                   Download as DOCX
                 </button>
-                <button
-                  onClick={() => setHideAssignedInDropdown(!hideAssignedInDropdown)}
-                  className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${
-                    hideAssignedInDropdown ? 'text-emerald-400' : 'border-gray-700 text-gray-400 hover:text-gray-200'
-                  }`}
-                  style={hideAssignedInDropdown ? { borderColor: '#193a29' } : {}}
-                >
-                  {hideAssignedInDropdown ? 'Unassigned only' : 'Show unassigned only'}
-                </button>
+                {toggleSwitch(hideAssignedInDropdown, () => setHideAssignedInDropdown(!hideAssignedInDropdown), 'Unassigned only')}
                 <select
                   value={supervisorFilter}
                   onChange={e => setSupervisorFilter(e.target.value)}
@@ -2030,12 +2025,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                 <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
                   <div className="flex items-center justify-between mb-4">
                     <p className="text-xs text-gray-500 uppercase tracking-wider">Projects by Customer</p>
-                    <button onClick={() => setCustomerActiveOnly(v => !v)} className="flex items-center gap-2 group">
-                      <span className={`text-xs transition-colors ${customerActiveOnly ? 'text-emerald-400' : 'text-gray-500 group-hover:text-gray-300'}`}>Active only</span>
-                      <span className={`relative w-9 h-5 rounded-full transition-colors ${customerActiveOnly ? 'bg-emerald-500' : 'bg-gray-700'}`}>
-                        <span className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${customerActiveOnly ? 'translate-x-4' : ''}`} />
-                      </span>
-                    </button>
+                    {toggleSwitch(customerActiveOnly, () => setCustomerActiveOnly(v => !v), 'Active only')}
                   </div>
                   <div className="space-y-3">
                     {Object.entries(customerCounts).sort((a, b) => b[1] - a[1]).map(([label, count]) => (
@@ -2089,15 +2079,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
               <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
                 <div className="flex items-center justify-between mb-4">
                   <p className="text-xs text-gray-500 uppercase tracking-wider">Total Headcount per Project <span className="normal-case text-gray-600 ml-1">— active</span></p>
-                  <button
-                    onClick={() => setShowSupervisorsInChart(v => !v)}
-                    className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${
-                      showSupervisorsInChart ? 'text-emerald-400' : 'border-gray-700 text-gray-400 hover:text-gray-200'
-                    }`}
-                    style={showSupervisorsInChart ? { borderColor: '#193a29' } : {}}
-                  >
-                    {showSupervisorsInChart ? 'Supervisors: on' : 'Supervisors: off'}
-                  </button>
+                  {toggleSwitch(showSupervisorsInChart, () => setShowSupervisorsInChart(v => !v), 'Supervisors')}
                 </div>
                 {headcounts.length === 0 ? (
                   <p className="text-gray-600 text-sm">No assignments yet.</p>
@@ -2566,15 +2548,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                   >
                     Download as PDF
                   </button>
-                  <button
-                    onClick={() => setHideEmptyMilestoneProjects(v => !v)}
-                    className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${
-                      hideEmptyMilestoneProjects ? 'text-emerald-400' : 'border-gray-700 text-gray-400 hover:text-gray-200'
-                    }`}
-                    style={hideEmptyMilestoneProjects ? { borderColor: '#193a29' } : {}}
-                  >
-                    {hideEmptyMilestoneProjects ? 'Hiding projects without milestones' : 'Show all projects'}
-                  </button>
+                  <div className="pl-1">{toggleSwitch(hideEmptyMilestoneProjects, () => setHideEmptyMilestoneProjects(v => !v), 'With milestones only')}</div>
                 </div>
                 {(() => {
                   const shownProjects = hideEmptyMilestoneProjects
