@@ -1911,16 +1911,6 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
             ? (Array.from(supervisorMap.values()).reduce((sum, s) => sum + s.size, 0) / supervisorMap.size).toFixed(1)
             : '0'
 
-          const today = new Date()
-          const soon = new Date(); soon.setDate(today.getDate() + 30)
-          const endingSoonProjects = projects.filter(p => {
-            if (!p.end_date) return false
-            const end = new Date(p.end_date)
-            return end >= today && end <= soon
-          })
-          const becomingAvailable = staff.filter(s =>
-            assignments.some(a => a.staff_id === s.id && endingSoonProjects.some(p => p.id === a.project_id))
-          )
 
           const KEY_ROLES = ['Supervisor', 'STO', 'Ops Support']
           const understaffed = projects
@@ -2105,38 +2095,6 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                       </div>
                     )})}
 
-                  </div>
-                )}
-              </div>
-
-              {/* Becoming available soon */}
-              <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
-                <p className="text-xs text-gray-500 uppercase tracking-wider mb-4">Becoming Available Soon <span className="normal-case">(next 30 days)</span></p>
-                {becomingAvailable.length === 0 ? (
-                  <p className="text-gray-600 text-sm">No one becoming available in the next 30 days.</p>
-                ) : (
-                  <div className="space-y-2">
-                    {becomingAvailable.map(s => {
-                      const memberAssignments = assignments.filter(a => a.staff_id === s.id && endingSoonProjects.some(p => p.id === a.project_id))
-                      return (
-                        <div key={s.id} className="flex items-center justify-between bg-gray-800/60 rounded-lg px-4 py-2.5 text-sm">
-                          <div className="flex items-center gap-3">
-                            <span className="font-medium text-gray-200">{s.name}</span>
-                            {s.position && <span className="text-xs text-gray-500">{s.position}</span>}
-                          </div>
-                          <div className="flex gap-2">
-                            {memberAssignments.map(a => {
-                              const p = projects.find(pr => pr.id === a.project_id)
-                              return p ? (
-                                <span key={a.id} className="text-xs px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400">
-                                  {p.name} · ends {p.end_date}
-                                </span>
-                              ) : null
-                            })}
-                          </div>
-                        </div>
-                      )
-                    })}
                   </div>
                 )}
               </div>
