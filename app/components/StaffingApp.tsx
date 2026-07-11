@@ -2030,14 +2030,11 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                 <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
                   <div className="flex items-center justify-between mb-4">
                     <p className="text-xs text-gray-500 uppercase tracking-wider">Projects by Customer</p>
-                    <button
-                      onClick={() => setCustomerActiveOnly(v => !v)}
-                      className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${
-                        customerActiveOnly ? 'text-emerald-400' : 'border-gray-700 text-gray-400 hover:text-gray-200'
-                      }`}
-                      style={customerActiveOnly ? { borderColor: '#193a29' } : {}}
-                    >
-                      {customerActiveOnly ? 'Active only' : 'All statuses'}
+                    <button onClick={() => setCustomerActiveOnly(v => !v)} className="flex items-center gap-2 group">
+                      <span className={`text-xs transition-colors ${customerActiveOnly ? 'text-emerald-400' : 'text-gray-500 group-hover:text-gray-300'}`}>Active only</span>
+                      <span className={`relative w-9 h-5 rounded-full transition-colors ${customerActiveOnly ? 'bg-emerald-500' : 'bg-gray-700'}`}>
+                        <span className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${customerActiveOnly ? 'translate-x-4' : ''}`} />
+                      </span>
                     </button>
                   </div>
                   <div className="space-y-3">
