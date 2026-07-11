@@ -1963,7 +1963,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
           }, {} as Record<string, number>)
           const maxCustomer = Math.max(...Object.values(customerCounts), 1)
 
-          const headcounts = projects.map(p => {
+          const headcounts = projects.filter(p => p.status === 'active').map(p => {
             const pa = assignments.filter(a => a.project_id === p.id)
             return {
               name: p.name,
@@ -2062,7 +2062,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
               {/* Headcount per project */}
               <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
                 <div className="flex items-center justify-between mb-4">
-                  <p className="text-xs text-gray-500 uppercase tracking-wider">Total Headcount per Project</p>
+                  <p className="text-xs text-gray-500 uppercase tracking-wider">Total Headcount per Project <span className="normal-case text-gray-600 ml-1">— active</span></p>
                   <button
                     onClick={() => setShowSupervisorsInChart(v => !v)}
                     className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${
