@@ -669,6 +669,11 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
     }
   }
 
+  async function clearStaffOOO(staffId: string) {
+    const { data } = await supabase.from('staff').update({ ooo: false, ooo_return_date: null }).eq('id', staffId).select().single()
+    if (data) setStaff(prev => prev.map(s => s.id === staffId ? data : s))
+  }
+
   async function toggleMilestone(id: string, done: boolean) {
     const { data } = await supabase.from('milestones').update({ done }).eq('id', id).select().single()
     if (data) setMilestones(prev => prev.map(m => m.id === id ? data : m))
@@ -1679,6 +1684,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                                   {member?.ooo && (
                                     <span className="flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400" title={member.ooo_return_date ? `OOO — back ${member.ooo_return_date}` : 'Out of office'}>
                                       ⚠️ OOO{member.ooo_return_date ? ` · back ${member.ooo_return_date}` : ''}
+                                      <button onClick={() => clearStaffOOO(member.id)} title="Clear OOO" className="ml-0.5 text-amber-400/70 hover:text-amber-300 leading-none">×</button>
                                     </span>
                                   )}
                                   {overAllocated && (
