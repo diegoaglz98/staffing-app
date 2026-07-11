@@ -842,7 +842,11 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
   return (
     <div className="min-h-screen bg-gray-950 text-gray-100">
       <div className="border-b px-8 py-5 flex items-center justify-between" style={{ borderColor: '#193a29' }}>
-        <h1 className="text-xl font-semibold text-gray-100 tracking-tight">Code Pod Project Manager</h1>
+        <div className="flex items-center gap-3">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/logo.png" alt="Code Pod logo" className="h-10 w-auto shrink-0" />
+          <h1 className="text-xl font-semibold text-gray-100 tracking-tight">Code Pod Project Manager</h1>
+        </div>
         <div className="flex items-center gap-1 bg-gray-900 rounded-lg p-1">
           {(['dark', 'system', 'light'] as const).map(t => (
             <button
