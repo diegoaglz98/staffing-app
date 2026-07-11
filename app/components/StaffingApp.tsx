@@ -145,6 +145,8 @@ export default function StaffingApp() {
   const [addingToProjectId, setAddingToProjectId] = useState<string | null>(null)
   const [showAddProjectInline, setShowAddProjectInline] = useState(false)
   const [supervisorFilter, setSupervisorFilter] = useState('')
+  const [showProjectAddBetween, setShowProjectAddBetween] = useState(false)
+  const [logoSpins, setLogoSpins] = useState(0)
   const [emojiPickerProjectId, setEmojiPickerProjectId] = useState<string | null>(null)
   const [customEmoji, setCustomEmoji] = useState('')
   const [quickAdd, setQuickAdd] = useState({ staff_id: '', assignment_role: '' })
@@ -852,11 +854,19 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
   }
 
   return (
-    <div className="min-h-screen bg-gray-950 text-gray-100">
+    <div
+      className="min-h-screen bg-gray-950 text-gray-100"
+      style={{ transform: `rotate(${logoSpins * 360}deg)`, transition: 'transform 1s ease-in-out' }}
+    >
       <div className="border-b px-8 py-5 flex items-center justify-between" style={{ borderColor: '#193a29' }}>
         <div className="flex items-center gap-3">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/logo.png" alt="Code Pod logo" className="h-10 w-auto shrink-0" />
+          <img
+            src="/logo.png"
+            alt="Code Pod logo"
+            onClick={() => setLogoSpins(n => n + 1)}
+            className="h-10 w-auto shrink-0 cursor-pointer hover:scale-110 active:scale-95 transition-transform select-none"
+          />
           <h1 className="text-xl font-semibold text-gray-100 tracking-tight">Code Pod Project Manager</h1>
         </div>
         <div className="flex items-center gap-1 bg-gray-900 rounded-lg p-1">
@@ -1372,6 +1382,29 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                     <button className={btnPrimary} style={{ backgroundColor: '#193a29' }} onClick={addProject}>Add</button>
                   </div>
                 </div>
+              )}
+            </div>
+
+            {/* Quick add-project between the form and the project list */}
+            <div className="mb-4">
+              {showProjectAddBetween ? (
+                <div className="bg-gray-900 rounded-xl p-4 border border-gray-800 flex flex-wrap gap-2 items-center">
+                  <input className={inputClass} placeholder="Project name *" value={newProject.name} autoFocus onChange={e => setNewProject({ ...newProject, name: e.target.value })} onKeyDown={e => { if (e.key === 'Enter') { addProject(); setShowProjectAddBetween(false) } }} />
+                  <input className={inputClass} placeholder="Customer Codename" value={newProject.customer_codename} onChange={e => setNewProject({ ...newProject, customer_codename: e.target.value })} />
+                  <select className={selectClass} value={newProject.status} onChange={e => setNewProject({ ...newProject, status: e.target.value })}>
+                    {STATUS_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                  </select>
+                  <input className={inputClass} type="number" placeholder="Expected Duration (Weeks)" value={newProject.duration_weeks} onChange={e => setNewProject({ ...newProject, duration_weeks: e.target.value })} style={{ width: 200 }} />
+                  <button className={btnPrimary} style={{ backgroundColor: '#193a29' }} onClick={() => { addProject(); setShowProjectAddBetween(false) }}>Add</button>
+                  <button className={btnCancel} onClick={() => setShowProjectAddBetween(false)}>Cancel</button>
+                </div>
+              ) : (
+                <button
+                  onClick={() => setShowProjectAddBetween(true)}
+                  className="w-full border border-dashed border-gray-700 rounded-xl py-2.5 text-gray-500 hover:text-gray-300 hover:border-gray-500 text-sm transition-colors"
+                >
+                  + Add a project
+                </button>
               )}
             </div>
 
