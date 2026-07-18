@@ -59,12 +59,14 @@ type Milestone = {
   created_at: string
 }
 
-const PRIORITIES = ['P0', 'P1', 'P2']
+const PRIORITIES = ['P00', 'P0', 'P1', 'P2']
 const priorityRank = (p: string) => { const i = PRIORITIES.indexOf(p); return i === -1 ? 99 : i }
 const priorityColor = (p: string) =>
+  p === 'P00' ? 'bg-red-600/25 text-red-300' :
   p === 'P0' ? 'bg-red-500/10 text-red-400' :
   p === 'P1' ? 'bg-amber-500/10 text-amber-400' :
   'bg-sky-500/10 text-sky-400'
+const priorityLabel = (p: string) => p === 'P00' ? '⚠️ P00' : p
 
 const VALID_POSITIONS = ['SPA', 'SPL I', 'SPL II', 'Manager, Delivery', 'Senior SPL', 'Head of Delivery', 'Director, Delivery', 'GenAI Consultant']
 
@@ -428,13 +430,15 @@ ${rows}
     const activeProjects = [...projects].filter(p => p.status === 'active').sort((a, b) => a.name.localeCompare(b.name))
 
     const prColors: Record<string, [string, string]> = {
+      P00: ['#f8d0cc', '#a01808'],
       P0: ['#fdecea', '#c0392b'],
       P1: ['#fef3c7', '#b45309'],
       P2: ['#e0f2fe', '#0369a1'],
     }
     const prPill = (pr: string) => {
       const [bg, fg] = prColors[pr] ?? ['#eeeeee', '#555555']
-      return `<span style="background:${bg};color:${fg};padding:2px 8px;border-radius:999px;font-weight:600;font-size:12px">${pr}</span>`
+      const label = pr === 'P00' ? '⚠ P00' : pr
+      return `<span style="background:${bg};color:${fg};padding:2px 8px;border-radius:999px;font-weight:600;font-size:12px">${label}</span>`
     }
 
     const sections = activeProjects.map(p => {
@@ -2516,8 +2520,9 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
           const total = allMs.length
           const doneCount = allMs.filter(m => m.done).length
           const pct = total ? Math.round((doneCount / total) * 100) : 0
-          const openP0 = allMs.filter(m => !m.done && m.priority === 'P0')
+          const openP0 = allMs.filter(m => !m.done && (m.priority === 'P00' || m.priority === 'P0'))
           const openCounts = {
+            P00: allMs.filter(m => !m.done && m.priority === 'P00').length,
             P0: allMs.filter(m => !m.done && m.priority === 'P0').length,
             P1: allMs.filter(m => !m.done && m.priority === 'P1').length,
             P2: allMs.filter(m => !m.done && m.priority === 'P2').length,
@@ -2595,7 +2600,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                                       className={`text-xs font-medium px-2 py-0.5 pr-5 rounded-full cursor-pointer appearance-none focus:outline-none focus:ring-1 focus:ring-gray-500 ${priorityColor(m.priority)}`}
                                       style={{ backgroundImage: 'none' }}
                                     >
-                                      {PRIORITIES.map(pr => <option key={pr} value={pr} className="bg-gray-900 text-gray-100">{pr}</option>)}
+                                      {PRIORITIES.map(pr => <option key={pr} value={pr} className="bg-gray-900 text-gray-100">{priorityLabel(pr)}</option>)}
                                     </select>
                                     <button className={btnEdit} onClick={() => startEditMilestone(m)}>Edit</button>
                                     <button className={btnDanger} onClick={() => deleteMilestone(m.id)}>×</button>
@@ -2617,7 +2622,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                             onKeyDown={e => e.key === 'Enter' && addMilestone(p.id)}
                           />
                           <select className={selectSmClass + ' w-20'} value={draft.priority} onChange={e => setMilestoneDraft(p.id, { priority: e.target.value })}>
-                            {PRIORITIES.map(pr => <option key={pr} value={pr}>{pr}</option>)}
+                            {PRIORITIES.map(pr => <option key={pr} value={pr}>{priorityLabel(pr)}</option>)}
                           </select>
                           <input type="date" className={inputSmClass + ' w-40'} value={draft.due_date} onChange={e => setMilestoneDraft(p.id, { due_date: e.target.value })} />
                           <button className="text-xs px-3 py-1 rounded bg-gray-700 text-gray-300 hover:text-white transition-colors" onClick={() => addMilestone(p.id)}>Add</button>
@@ -2646,7 +2651,8 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                   <div className="w-full bg-gray-800 rounded-full h-2">
                     <div className="h-2 rounded-full bg-emerald-600" style={{ width: `${pct}%` }} />
                   </div>
-                  <div className="flex gap-3 mt-4 text-xs">
+                  <div className="flex gap-3 mt-4 text-xs flex-wrap">
+                    {openCounts.P00 > 0 && <span className="text-red-300">⚠️ {openCounts.P00} P00</span>}
                     <span className="text-red-400">{openCounts.P0} P0</span>
                     <span className="text-amber-400">{openCounts.P1} P1</span>
                     <span className="text-sky-400">{openCounts.P2} P2</span>
@@ -2656,7 +2662,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
 
                 <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
                   <div className="flex items-center justify-between mb-3">
-                    <p className="text-xs text-gray-500 uppercase tracking-wider">P0 — needs attention</p>
+                    <p className="text-xs text-gray-500 uppercase tracking-wider">P00 / P0 — needs attention</p>
                     <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${openP0.length > 0 ? 'bg-red-500/10 text-red-400' : 'bg-emerald-500/10 text-emerald-400'}`}>{openP0.length}</span>
                   </div>
                   {openP0.length === 0 ? (
