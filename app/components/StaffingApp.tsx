@@ -148,6 +148,7 @@ export default function StaffingApp() {
   const [showAddProjectInline, setShowAddProjectInline] = useState(false)
   const [supervisorFilter, setSupervisorFilter] = useState('')
   const [showProjectAddBetween, setShowProjectAddBetween] = useState(false)
+  const [groupBySupervisor, setGroupBySupervisor] = useState(false)
   const [logoSpins, setLogoSpins] = useState(0)
   const [emojiPickerProjectId, setEmojiPickerProjectId] = useState<string | null>(null)
   const [customEmoji, setCustomEmoji] = useState('')
@@ -1316,6 +1317,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                     .sort((a, b) => a.name.localeCompare(b.name))
                     .map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                 </select>
+                {toggleSwitch(groupBySupervisor, () => setGroupBySupervisor(v => !v), 'Group by supervisor')}
                 </div>
               </div>
               <div className="flex flex-wrap gap-2">
@@ -1513,7 +1515,75 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
 
             {/* Left: project list */}
             <div className="flex-1 min-w-0">
-            {projects.length === 0 ? (
+            {groupBySupervisor ? (() => {
+              const visibleProjects = [...projects].filter(p => visibleStatuses[p.status])
+              const groupsMap = new Map<string, { key: string; name: string; items: { project: Project; members: Assignment[] }[] }>()
+              const ensure = (key: string, name: string) => {
+                if (!groupsMap.has(key)) groupsMap.set(key, { key, name, items: [] })
+                return groupsMap.get(key)!
+              }
+              visibleProjects.forEach(p => {
+                const sups = assignments.filter(a => a.project_id === p.id && a.assignment_role === 'Supervisor')
+                const members = assignments.filter(a => a.project_id === p.id && a.assignment_role !== 'Supervisor')
+                if (sups.length === 0) {
+                  ensure('__none__', 'No supervisor').items.push({ project: p, members })
+                } else {
+                  sups.forEach(sup => {
+                    const st = staff.find(s => s.id === sup.staff_id)
+                    ensure(sup.staff_id, st?.name ?? 'Unknown').items.push({ project: p, members })
+                  })
+                }
+              })
+              let groups = Array.from(groupsMap.values())
+              if (supervisorFilter) groups = groups.filter(g => g.key === supervisorFilter)
+              groups.sort((a, b) => a.key === '__none__' ? 1 : b.key === '__none__' ? -1 : a.name.localeCompare(b.name))
+              if (groups.length === 0) return <p className="text-gray-600 text-sm">No supervisors to show.</p>
+              return (
+                <div className="space-y-3">
+                  {groups.map(g => {
+                    const totalMembers = g.items.reduce((n, it) => n + it.members.length, 0)
+                    return (
+                      <div key={g.key} className="border border-gray-800 rounded-xl p-5 bg-gray-900/40">
+                        <div className="flex items-center justify-between mb-4">
+                          <h3 className="font-semibold text-gray-100">{g.key === '__none__' ? '⚠️ No supervisor' : `👤 ${g.name}`}</h3>
+                          <span className="text-xs text-gray-500">{g.items.length} project{g.items.length !== 1 ? 's' : ''} · {totalMembers} team</span>
+                        </div>
+                        <div className="space-y-3">
+                          {[...g.items].sort((a, b) => a.project.name.localeCompare(b.project.name)).map(it => (
+                            <div key={it.project.id} className="border border-gray-800 rounded-lg p-3 bg-gray-900/40">
+                              <p className="text-sm font-medium text-gray-200 mb-2">{it.project.emoji || '📁'} {it.project.name}</p>
+                              {it.members.length === 0 ? (
+                                <p className="text-xs text-gray-600">No non-supervisor team.</p>
+                              ) : (
+                                <div className="space-y-1.5">
+                                  {[...it.members].sort((a, b) => {
+                                    const order = ['STO', 'Ops Support']
+                                    return (order.indexOf(a.assignment_role ?? '') === -1 ? 99 : order.indexOf(a.assignment_role ?? '')) -
+                                           (order.indexOf(b.assignment_role ?? '') === -1 ? 99 : order.indexOf(b.assignment_role ?? ''))
+                                  }).map(a => {
+                                    const member = staff.find(s => s.id === a.staff_id)
+                                    return (
+                                      <div key={a.id} className="flex items-center justify-between bg-gray-800/60 rounded-lg px-3 py-2 text-sm">
+                                        <div className="flex items-center gap-3">
+                                          <span className="font-medium text-gray-200">{member?.name ?? 'Unknown'}</span>
+                                          {a.assignment_role && <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${roleColor(a.assignment_role)}`}>{a.assignment_role}</span>}
+                                          {member?.position && <span className="text-xs text-gray-500">{member.position}</span>}
+                                        </div>
+                                        <button className={btnDanger} onClick={() => removeAssignment(a.id)}>×</button>
+                                      </div>
+                                    )
+                                  })}
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )
+            })() : projects.length === 0 ? (
               <p className="text-gray-600 text-sm">Add projects first.</p>
             ) : (
               <div className="space-y-3">
