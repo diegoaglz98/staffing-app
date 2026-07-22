@@ -149,6 +149,7 @@ export default function StaffingApp() {
   const [supervisorFilter, setSupervisorFilter] = useState('')
   const [showProjectAddBetween, setShowProjectAddBetween] = useState(false)
   const [groupBySupervisor, setGroupBySupervisor] = useState(false)
+  const [editingStaffAssignmentId, setEditingStaffAssignmentId] = useState<string | null>(null)
   const [logoSpins, setLogoSpins] = useState(0)
   const [emojiPickerProjectId, setEmojiPickerProjectId] = useState<string | null>(null)
   const [customEmoji, setCustomEmoji] = useState('')
@@ -675,6 +676,15 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
       setMilestoneDrafts(prev => ({ ...prev, [projectId]: { title: '', priority: draft.priority, due_date: '' } }))
       setAddingMilestoneProjectId(null)
     }
+  }
+
+  async function updateAssignmentProject(id: string, projectId: string) {
+    const a = assignments.find(x => x.id === id)
+    if (!a || a.project_id === projectId) return
+    const dup = assignments.some(x => x.id !== id && x.project_id === projectId && x.staff_id === a.staff_id)
+    if (dup) return
+    const { data } = await supabase.from('assignments').update({ project_id: projectId }).eq('id', id).select().single()
+    if (data) setAssignments(prev => prev.map(x => x.id === id ? data : x))
   }
 
   async function clearStaffOOO(staffId: string) {
@@ -1240,14 +1250,35 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                                 <div className="flex flex-wrap gap-1">
                                   {staffAssignments.map(a => {
                                     const project = projects.find(p => p.id === a.project_id)
-                                    return project ? (
-                                      <span key={a.id} className="text-xs px-2 py-0.5 rounded-full bg-gray-800 text-gray-300 flex items-center gap-1">
+                                    if (!project) return null
+                                    if (editingStaffAssignmentId === a.id) {
+                                      return (
+                                        <select
+                                          key={a.id}
+                                          autoFocus
+                                          value={a.project_id}
+                                          onChange={e => { updateAssignmentProject(a.id, e.target.value); setEditingStaffAssignmentId(null) }}
+                                          onBlur={() => setEditingStaffAssignmentId(null)}
+                                          className={selectSmClass}
+                                          style={{ width: 'auto' }}
+                                        >
+                                          {[...projects].sort((p1, p2) => p1.name.localeCompare(p2.name)).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                                        </select>
+                                      )
+                                    }
+                                    return (
+                                      <button
+                                        key={a.id}
+                                        onClick={() => setEditingStaffAssignmentId(a.id)}
+                                        title="Click to move to another project"
+                                        className="text-xs px-2 py-0.5 rounded-full bg-gray-800 text-gray-300 flex items-center gap-1 hover:bg-gray-700 hover:ring-1 hover:ring-gray-600 transition-colors cursor-pointer"
+                                      >
                                         {project.name}
                                         {a.assignment_role && (
                                           <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-medium ${roleColor(a.assignment_role)}`}>{a.assignment_role}</span>
                                         )}
-                                      </span>
-                                    ) : null
+                                      </button>
+                                    )
                                   })}
                                 </div>
                               )}
