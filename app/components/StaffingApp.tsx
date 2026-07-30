@@ -107,7 +107,7 @@ export default function StaffingApp() {
   const [milestones, setMilestones] = useState<Milestone[]>([])
   const [milestoneDrafts, setMilestoneDrafts] = useState<Record<string, { title: string; priority: string; due_date: string }>>({})
   const [hideEmptyMilestoneProjects, setHideEmptyMilestoneProjects] = useState(false)
-  const [showCompletedMilestones, setShowCompletedMilestones] = useState(true)
+  const [showCompletedMilestones, setShowCompletedMilestones] = useState(false)
   const [addingMilestoneProjectId, setAddingMilestoneProjectId] = useState<string | null>(null)
   const [editingMilestoneId, setEditingMilestoneId] = useState<string | null>(null)
   const [editMilestone, setEditMilestone] = useState({ title: '', due_date: '' })
