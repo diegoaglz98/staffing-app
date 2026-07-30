@@ -107,6 +107,7 @@ export default function StaffingApp() {
   const [milestones, setMilestones] = useState<Milestone[]>([])
   const [milestoneDrafts, setMilestoneDrafts] = useState<Record<string, { title: string; priority: string; due_date: string }>>({})
   const [hideEmptyMilestoneProjects, setHideEmptyMilestoneProjects] = useState(false)
+  const [showCompletedMilestones, setShowCompletedMilestones] = useState(true)
   const [addingMilestoneProjectId, setAddingMilestoneProjectId] = useState<string | null>(null)
   const [editingMilestoneId, setEditingMilestoneId] = useState<string | null>(null)
   const [editMilestone, setEditMilestone] = useState({ title: '', due_date: '' })
@@ -2645,6 +2646,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                   >
                     Download as PDF
                   </button>
+                  <div className="pl-1">{toggleSwitch(showCompletedMilestones, () => setShowCompletedMilestones(v => !v), 'Show completed')}</div>
                   <div className="pl-1">{toggleSwitch(hideEmptyMilestoneProjects, () => setHideEmptyMilestoneProjects(v => !v), 'With milestones only')}</div>
                 </div>
                 {(() => {
@@ -2658,6 +2660,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                     (a.done === b.done ? 0 : a.done ? 1 : -1) || priorityRank(a.priority) - priorityRank(b.priority) || a.created_at.localeCompare(b.created_at)
                   )
                   const pDone = ms.filter(m => m.done).length
+                  const visibleMs = showCompletedMilestones ? ms : ms.filter(m => !m.done)
                   const draft = getMilestoneDraft(p.id)
                   return (
                     <div key={p.id} className="border border-gray-800 rounded-xl p-5 bg-gray-900/40">
@@ -2665,9 +2668,9 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                         <h3 className="font-semibold text-gray-100">{p.name}</h3>
                         {ms.length > 0 && <span className="text-xs text-gray-500">{pDone}/{ms.length} done</span>}
                       </div>
-                      {ms.length > 0 && (
+                      {visibleMs.length > 0 && (
                         <div className="space-y-1.5 mb-3">
-                          {ms.map(m => {
+                          {visibleMs.map(m => {
                             const overdue = !m.done && m.due_date && m.due_date < today
                             return (
                               <div key={m.id} className="flex items-center gap-3 bg-gray-800/40 rounded-lg px-3 py-2 text-sm">
