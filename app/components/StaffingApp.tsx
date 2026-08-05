@@ -167,6 +167,8 @@ export default function StaffingApp() {
   const [confirmFreeStaff, setConfirmFreeStaff] = useState<{ projectId: string; count: number } | null>(null)
   const [pendingOOO, setPendingOOO] = useState<{ staffId: string; assignmentId: string | null } | null>(null)
   const [oooDate, setOooDate] = useState('')
+  const [pendingFlex, setPendingFlex] = useState<{ staffId: string; assignmentId: string | null } | null>(null)
+  const [flexNote, setFlexNote] = useState('')
   const [dropRole, setDropRole] = useState('')
 
   useEffect(() => {
@@ -1920,18 +1922,21 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                   <div
                     onDragOver={e => { e.preventDefault(); setDragOverFlexed(true) }}
                     onDragLeave={() => setDragOverFlexed(false)}
-                    onDrop={async e => {
+                    onDrop={e => {
                       e.preventDefault(); setDragOverFlexed(false)
                       const type = e.dataTransfer.getData('type')
                       const id = e.dataTransfer.getData('id')
                       if (type === 'staff' && id) {
-                        await setStaffZone(id, 'flexed')
+                        const member = staff.find(s => s.id === id)
+                        setFlexNote(member?.flex_notes ?? '')
+                        setPendingFlex({ staffId: id, assignmentId: null })
                         setDraggedStaffId(null)
                       } else if (type === 'assignment' && id) {
                         const assignment = assignments.find(a => a.id === id)
                         if (assignment) {
-                          await setStaffZone(assignment.staff_id, 'flexed')
-                          await removeAssignment(id)
+                          const member = staff.find(s => s.id === assignment.staff_id)
+                          setFlexNote(member?.flex_notes ?? '')
+                          setPendingFlex({ staffId: assignment.staff_id, assignmentId: id })
                         }
                         setDraggedAssignmentId(null)
                       }
@@ -2794,6 +2799,49 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
           )
         })()}
       </div>
+
+      {pendingFlex && (() => {
+        const member = staff.find(s => s.id === pendingFlex.staffId)
+        return (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => { setPendingFlex(null); setFlexNote('') }}>
+            <div className="bg-gray-900 border border-gray-700 rounded-xl p-6 w-80 shadow-xl" onClick={e => e.stopPropagation()}>
+              <p className="text-sm font-semibold text-gray-100 mb-1">Flex {member?.name}</p>
+              <p className="text-xs text-gray-500 mb-4">Add a note about this flex (optional):</p>
+              <input
+                type="text"
+                className={inputClass + ' w-full mb-4'}
+                placeholder="e.g. Flexed to MM until Q3"
+                value={flexNote}
+                autoFocus
+                onChange={e => setFlexNote(e.target.value)}
+                onKeyDown={async e => {
+                  if (e.key === 'Enter') {
+                    const { data } = await supabase.from('staff').update({ flexed: true, ooo: false, onboarding: false, flex_notes: flexNote.trim() || null }).eq('id', pendingFlex.staffId).select().single()
+                    if (data) setStaff(prev => prev.map(s => s.id === pendingFlex.staffId ? data : s))
+                    if (pendingFlex.assignmentId) await removeAssignment(pendingFlex.assignmentId)
+                    setPendingFlex(null); setFlexNote('')
+                  }
+                }}
+              />
+              <div className="flex gap-2 justify-end">
+                <button className={btnCancel} onClick={() => { setPendingFlex(null); setFlexNote('') }}>Cancel</button>
+                <button
+                  className={btnPrimary}
+                  style={{ backgroundColor: '#193a29' }}
+                  onClick={async () => {
+                    const { data } = await supabase.from('staff').update({ flexed: true, ooo: false, onboarding: false, flex_notes: flexNote.trim() || null }).eq('id', pendingFlex.staffId).select().single()
+                    if (data) setStaff(prev => prev.map(s => s.id === pendingFlex.staffId ? data : s))
+                    if (pendingFlex.assignmentId) await removeAssignment(pendingFlex.assignmentId)
+                    setPendingFlex(null); setFlexNote('')
+                  }}
+                >
+                  Flex
+                </button>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
 
       {pendingOOO && (() => {
         const member = staff.find(s => s.id === pendingOOO.staffId)
