@@ -1608,7 +1608,51 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                                 }
                               }}
                             >
-                              <p className="text-sm font-medium text-gray-200 mb-2">{it.project.emoji || '📁'} {it.project.name}</p>
+                              <div className="flex items-center gap-2 mb-2">
+                                <p className="text-sm font-medium text-gray-200">{it.project.emoji || '📁'} {it.project.name}</p>
+                                <button
+                                  onClick={() => { setAddingToProjectId(addingToProjectId === it.project.id ? null : it.project.id); setQuickAdd({ staff_id: '', assignment_role: '' }) }}
+                                  title="Add a person to this project"
+                                  className="w-5 h-5 flex items-center justify-center rounded-full border border-gray-600 text-gray-400 hover:text-white hover:border-gray-400 transition-colors text-sm leading-none"
+                                >
+                                  +
+                                </button>
+                              </div>
+                              {addingToProjectId === it.project.id && (
+                                <div className="flex flex-wrap gap-2 mb-2 p-2 rounded-lg bg-gray-800/40 border border-gray-700">
+                                  <select
+                                    className={selectSmClass + ' flex-1 min-w-[150px]'}
+                                    value={quickAdd.staff_id}
+                                    onChange={e => setQuickAdd({ ...quickAdd, staff_id: e.target.value })}
+                                  >
+                                    <option value="">Select staff…</option>
+                                    {[...staff]
+                                      .filter(s => !assignments.some(a => a.project_id === it.project.id && a.staff_id === s.id))
+                                      .sort((a, b) => a.name.localeCompare(b.name))
+                                      .map(s => <option key={s.id} value={s.id}>{s.name}{s.position ? ` — ${s.position}` : ''}</option>)}
+                                  </select>
+                                  <select
+                                    className={selectSmClass + ' w-28'}
+                                    value={quickAdd.assignment_role}
+                                    onChange={e => setQuickAdd({ ...quickAdd, assignment_role: e.target.value })}
+                                  >
+                                    <option value="">Role</option>
+                                    <option>Supervisor</option>
+                                    <option>STO</option>
+                                    <option>Ops Support</option>
+                                  </select>
+                                  <button
+                                    className="text-xs px-2 py-1 rounded bg-gray-700 text-gray-300 hover:text-white transition-colors whitespace-nowrap"
+                                    onClick={async () => {
+                                      if (!quickAdd.staff_id) return
+                                      const { data } = await supabase.from('assignments').insert([{ project_id: it.project.id, staff_id: quickAdd.staff_id, assignment_role: quickAdd.assignment_role || null }]).select().single()
+                                      if (data) setAssignments(prev => [...prev, data])
+                                      setQuickAdd({ staff_id: '', assignment_role: '' })
+                                      setAddingToProjectId(null)
+                                    }}
+                                  >+ Add</button>
+                                </div>
+                              )}
                               {it.members.length === 0 ? (
                                 <p className="text-xs text-gray-600">{isOver ? 'Drop to add' : 'No non-supervisor team.'}</p>
                               ) : (
