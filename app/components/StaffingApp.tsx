@@ -1583,11 +1583,34 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                           <span className="text-xs text-gray-500">{g.items.length} project{g.items.length !== 1 ? 's' : ''} · {totalMembers} team</span>
                         </div>
                         <div className="space-y-3">
-                          {[...g.items].sort((a, b) => a.project.name.localeCompare(b.project.name)).map(it => (
-                            <div key={it.project.id} className="border border-gray-800 rounded-lg p-3 bg-gray-900/40">
+                          {[...g.items].sort((a, b) => a.project.name.localeCompare(b.project.name)).map(it => {
+                            const isOver = dragOverProjectId === it.project.id
+                            return (
+                            <div
+                              key={it.project.id}
+                              className={`border rounded-lg p-3 transition-all ${isOver ? 'border-[#193a29] bg-[#193a29]/10' : 'border-gray-800 bg-gray-900/40'}`}
+                              onDragOver={e => { e.preventDefault(); setDragOverProjectId(it.project.id) }}
+                              onDragLeave={() => setDragOverProjectId(null)}
+                              onDrop={e => {
+                                e.preventDefault(); setDragOverProjectId(null)
+                                const type = e.dataTransfer.getData('type')
+                                const id = e.dataTransfer.getData('id')
+                                if (type === 'staff' && id) {
+                                  if (!assignments.some(x => x.project_id === it.project.id && x.staff_id === id)) setPendingDrop({ staffId: id, projectId: it.project.id })
+                                  setDraggedStaffId(null)
+                                } else if (type === 'assignment' && id) {
+                                  const assignment = assignments.find(x => x.id === id)
+                                  if (assignment && assignment.project_id !== it.project.id && !assignments.some(x => x.project_id === it.project.id && x.staff_id === assignment.staff_id)) {
+                                    setPendingMove({ assignmentId: id, projectId: it.project.id })
+                                    setDropRole(assignment.assignment_role ?? '')
+                                  }
+                                  setDraggedAssignmentId(null)
+                                }
+                              }}
+                            >
                               <p className="text-sm font-medium text-gray-200 mb-2">{it.project.emoji || '📁'} {it.project.name}</p>
                               {it.members.length === 0 ? (
-                                <p className="text-xs text-gray-600">No non-supervisor team.</p>
+                                <p className="text-xs text-gray-600">{isOver ? 'Drop to add' : 'No non-supervisor team.'}</p>
                               ) : (
                                 <div className="space-y-1.5">
                                   {[...it.members].sort((a, b) => {
@@ -1597,7 +1620,13 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                                   }).map(a => {
                                     const member = staff.find(s => s.id === a.staff_id)
                                     return (
-                                      <div key={a.id} className="flex items-center justify-between bg-gray-800/60 rounded-lg px-3 py-2 text-sm">
+                                      <div
+                                        key={a.id}
+                                        draggable
+                                        onDragStart={e => { e.dataTransfer.setData('type', 'assignment'); e.dataTransfer.setData('id', a.id); setDraggedAssignmentId(a.id); setDraggedStaffId(null) }}
+                                        onDragEnd={() => setDraggedAssignmentId(null)}
+                                        className={`flex items-center justify-between bg-gray-800/60 rounded-lg px-3 py-2 text-sm cursor-grab active:cursor-grabbing transition-opacity ${draggedAssignmentId === a.id ? 'opacity-40' : ''}`}
+                                      >
                                         <div className="flex items-center gap-3">
                                           <span className="font-medium text-gray-200">{member?.name ?? 'Unknown'}</span>
                                           {a.assignment_role && <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${roleColor(a.assignment_role)}`}>{a.assignment_role}</span>}
@@ -1610,7 +1639,8 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                                 </div>
                               )}
                             </div>
-                          ))}
+                            )
+                          })}
                         </div>
                       </div>
                     )
