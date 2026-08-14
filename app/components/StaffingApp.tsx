@@ -948,20 +948,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
             <div className="bg-gray-900 rounded-xl p-5 mb-6 border border-gray-800">
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Add Project</h2>
-                <div className="flex items-center gap-2">
-                  {(() => {
-                    const n = inactiveAssignmentIds().length
-                    return n > 0 ? (
-                      <button
-                        onClick={() => setConfirmClearInactive(true)}
-                        className="text-xs px-3 py-1.5 rounded-lg border border-red-500/30 text-red-400 hover:bg-red-500/10 transition-colors"
-                      >
-                        Clear staffing from inactive ({n})
-                      </button>
-                    ) : null
-                  })()}
-                  {statusFilterDropdown()}
-                </div>
+                {statusFilterDropdown()}
               </div>
               <div className="flex flex-wrap gap-2">
                 <input
@@ -1380,6 +1367,17 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                     .map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                 </select>
                 {toggleSwitch(groupBySupervisor, () => setGroupBySupervisor(v => !v), 'Group by supervisor')}
+                {(() => {
+                  const n = inactiveAssignmentIds().length
+                  return n > 0 ? (
+                    <button
+                      onClick={() => setConfirmClearInactive(true)}
+                      className="text-xs px-3 py-1.5 rounded-lg border border-red-500/30 text-red-400 hover:bg-red-500/10 transition-colors"
+                    >
+                      Clear staffing from inactive ({n})
+                    </button>
+                  ) : null
+                })()}
                 </div>
               </div>
               <div className="flex flex-wrap gap-2">
