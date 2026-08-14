@@ -887,10 +887,8 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
   }
 
   return (
-    <div
-      className="min-h-screen bg-gray-950 text-gray-100"
-      style={{ transform: `rotate(${logoSpins * 360}deg)`, transition: 'transform 1s ease-in-out' }}
-    >
+    <div className="min-h-screen bg-gray-950 text-gray-100">
+      <div style={{ transform: `rotate(${logoSpins * 360}deg)`, transition: 'transform 1s ease-in-out' }}>
       <div className="border-b px-8 py-5 flex items-center justify-between" style={{ borderColor: '#193a29' }}>
         <div className="flex items-center gap-3">
           {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -2899,6 +2897,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
           )
         })()}
       </div>
+      </div>{/* end spin wrapper */}
 
       {confirmClearInactive && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setConfirmClearInactive(false)}>
