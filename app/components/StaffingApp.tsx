@@ -151,6 +151,7 @@ export default function StaffingApp() {
   const [showProjectAddBetween, setShowProjectAddBetween] = useState(false)
   const [groupBySupervisor, setGroupBySupervisor] = useState(false)
   const [editingStaffAssignmentId, setEditingStaffAssignmentId] = useState<string | null>(null)
+  const [confirmClearInactive, setConfirmClearInactive] = useState(false)
   const [logoSpins, setLogoSpins] = useState(0)
   const [emojiPickerProjectId, setEmojiPickerProjectId] = useState<string | null>(null)
   const [customEmoji, setCustomEmoji] = useState('')
@@ -294,6 +295,20 @@ export default function StaffingApp() {
         setConfirmFreeStaff({ projectId: id, count: assignedCount })
       }
     }
+  }
+
+  const INACTIVE_STATUSES = ['paused', 'on-hold', 'completed']
+  function inactiveAssignmentIds() {
+    const inactiveProjectIds = new Set(projects.filter(p => INACTIVE_STATUSES.includes(p.status)).map(p => p.id))
+    return assignments.filter(a => inactiveProjectIds.has(a.project_id)).map(a => a.id)
+  }
+  async function clearInactiveStaffing() {
+    const ids = inactiveAssignmentIds()
+    if (ids.length > 0) {
+      await supabase.from('assignments').delete().in('id', ids)
+      setAssignments(prev => prev.filter(a => !ids.includes(a.id)))
+    }
+    setConfirmClearInactive(false)
   }
 
   async function toggleProjectFlag(id: string, flagged: boolean) {
@@ -933,7 +948,20 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
             <div className="bg-gray-900 rounded-xl p-5 mb-6 border border-gray-800">
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Add Project</h2>
-                {statusFilterDropdown()}
+                <div className="flex items-center gap-2">
+                  {(() => {
+                    const n = inactiveAssignmentIds().length
+                    return n > 0 ? (
+                      <button
+                        onClick={() => setConfirmClearInactive(true)}
+                        className="text-xs px-3 py-1.5 rounded-lg border border-red-500/30 text-red-400 hover:bg-red-500/10 transition-colors"
+                      >
+                        Clear staffing from inactive ({n})
+                      </button>
+                    ) : null
+                  })()}
+                  {statusFilterDropdown()}
+                </div>
               </div>
               <div className="flex flex-wrap gap-2">
                 <input
@@ -2873,6 +2901,21 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
           )
         })()}
       </div>
+
+      {confirmClearInactive && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setConfirmClearInactive(false)}>
+          <div className="bg-gray-900 border border-gray-700 rounded-xl p-6 w-96 shadow-xl" onClick={e => e.stopPropagation()}>
+            <p className="text-sm font-semibold text-gray-100 mb-2">Clear staffing from inactive projects?</p>
+            <p className="text-xs text-gray-400 mb-5">
+              This removes <span className="text-red-400 font-medium">{inactiveAssignmentIds().length}</span> assignment{inactiveAssignmentIds().length === 1 ? '' : 's'} from all <span className="text-gray-200">paused, on-hold, and completed</span> projects, freeing up that staff. This can&apos;t be undone.
+            </p>
+            <div className="flex gap-2 justify-end">
+              <button className={btnCancel} onClick={() => setConfirmClearInactive(false)}>Cancel</button>
+              <button className={btnPrimary} style={{ backgroundColor: '#193a29' }} onClick={clearInactiveStaffing}>Clear staffing</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {pendingFlex && (() => {
         const member = staff.find(s => s.id === pendingFlex.staffId)
