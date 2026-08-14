@@ -303,12 +303,12 @@ export default function StaffingApp() {
     return assignments.filter(a => inactiveProjectIds.has(a.project_id)).map(a => a.id)
   }
   async function clearInactiveStaffing() {
-    const ids = inactiveAssignmentIds()
-    if (ids.length > 0) {
-      await supabase.from('assignments').delete().in('id', ids)
-      setAssignments(prev => prev.filter(a => !ids.includes(a.id)))
-    }
     setConfirmClearInactive(false)
+    const inactiveProjectIds = projects.filter(p => INACTIVE_STATUSES.includes(p.status)).map(p => p.id)
+    if (inactiveProjectIds.length === 0) return
+    const { error } = await supabase.from('assignments').delete().in('project_id', inactiveProjectIds)
+    if (error) { console.error('clearInactiveStaffing failed', error); return }
+    setAssignments(prev => prev.filter(a => !inactiveProjectIds.includes(a.project_id)))
   }
 
   async function toggleProjectFlag(id: string, flagged: boolean) {
@@ -1324,9 +1324,9 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
         {tab === 'assignments' && (
           <div>
             <div className="bg-gray-900 rounded-xl p-5 mb-6 border border-gray-800">
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Assign Staff to Project</h2>
-                <div className="flex items-center gap-2">
+              <div className="flex items-start justify-between gap-4 mb-4">
+                <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider shrink-0 pt-1.5">Assign Staff to Project</h2>
+                <div className="flex flex-wrap items-center justify-end gap-2">
                 <button
                   onClick={() => setShowAddProjectInline(v => !v)}
                   className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${
@@ -1372,7 +1372,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                   return n > 0 ? (
                     <button
                       onClick={() => setConfirmClearInactive(true)}
-                      className="text-xs px-3 py-1.5 rounded-lg border border-red-500/30 text-red-400 hover:bg-red-500/10 transition-colors"
+                      className="text-xs px-3 py-1.5 rounded-lg border border-red-500/30 text-red-400 hover:bg-red-500/10 transition-colors whitespace-nowrap"
                     >
                       Clear staffing from inactive ({n})
                     </button>
