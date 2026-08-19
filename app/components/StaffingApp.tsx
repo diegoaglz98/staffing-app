@@ -988,9 +988,11 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
             {projects.length === 0 ? (
               <p className="text-gray-600 text-sm">No projects yet.</p>
             ) : (
+              <>
               <table className="w-full text-sm">
                 <thead>
                   <tr className="text-left text-gray-500 border-b border-gray-800">
+                    <th className="pb-3 pr-3 font-medium text-xs uppercase tracking-wider w-8">#</th>
                     {[
                       { key: 'name', label: 'Name' },
                       { key: 'customer', label: 'Customer' },
@@ -1010,11 +1012,12 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                   </tr>
                 </thead>
                 <tbody>
-                  {sortedProjects(projects.filter(p => visibleStatuses[p.status])).map(p => {
+                  {sortedProjects(projects.filter(p => visibleStatuses[p.status])).map((p, idx) => {
                     const count = assignments.filter(a => a.project_id === p.id).length
                     const isEditing = editingProjectId === p.id
                     return (
                       <tr key={p.id} className="border-b border-gray-800/60 hover:bg-gray-900/60 transition-colors">
+                        <td className="py-3.5 pr-3 text-gray-600 text-xs tabular-nums align-top">{idx + 1}</td>
                         {isEditing ? (
                           <>
                             <td className="py-2 pr-2"><input className={inputSmClass} value={editProject.name} onChange={e => setEditProject({ ...editProject, name: e.target.value })} /></td>
@@ -1081,6 +1084,8 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                   })}
                 </tbody>
               </table>
+              <p className="text-xs text-gray-500 mt-4">Total projects in list: <span className="text-gray-300 font-medium">{projects.filter(p => visibleStatuses[p.status]).length}</span></p>
+              </>
             )}
           </div>
         )}
