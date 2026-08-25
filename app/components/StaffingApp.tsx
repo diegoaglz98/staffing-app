@@ -14,6 +14,7 @@ type Project = {
   flagged: boolean
   emoji: string | null
   is_pilot: boolean
+  is_internal: boolean
 }
 
 const PROJECT_EMOJIS = ['📁', '🚀', '🎯', '🔥', '⭐', '🧪', '🤖', '🛡️', '📊', '💡', '⚙️', '🧠', '🌐', '📈', '🏆', '🐛', '🔒', '📝', '🎨', '⚡', '🧩', '📦', '🔧', '🩺', '💬', '🎓', '🗂️', '✅', '🔬', '🛰️', '📡', '💻', '📱', '☁️', '🔑', '🧵', '📐', '🕹️', '🎬', '🎧', '📷', '🏗️', '🚦', '🧭', '⏱️', '📅', '💰', '🏦', '⚖️', '🩹', '🧬', '🔭', '🌟', '💎', '🎲', '🃏', '🐙', '🦾', '👾', '🦉']
@@ -125,12 +126,12 @@ export default function StaffingApp() {
   const [loading, setLoading] = useState(true)
   const [theme, setTheme] = useState<'dark' | 'light' | 'system'>('dark')
 
-  const [newProject, setNewProject] = useState({ name: '', customer_codename: '', status: 'active', duration_weeks: '', is_pilot: false })
+  const [newProject, setNewProject] = useState({ name: '', customer_codename: '', status: 'active', duration_weeks: '', is_pilot: false, is_internal: false })
   const [newStaff, setNewStaff] = useState({ name: '', position: '', ooo: false, ooo_return_date: '' })
   const [newAssignment, setNewAssignment] = useState({ project_id: '', staff_id: '', assignment_role: '' })
 
   const [editingProjectId, setEditingProjectId] = useState<string | null>(null)
-  const [editProject, setEditProject] = useState({ name: '', customer_codename: '', status: 'active', duration_weeks: '', is_pilot: false })
+  const [editProject, setEditProject] = useState({ name: '', customer_codename: '', status: 'active', duration_weeks: '', is_pilot: false, is_internal: false })
 
   const [editingStaffId, setEditingStaffId] = useState<string | null>(null)
   const [editStaff, setEditStaff] = useState({ name: '', position: '', ooo: false, ooo_return_date: '', flex_notes: '' })
@@ -250,10 +251,11 @@ export default function StaffingApp() {
       start_date: fmt(start),
       end_date: newProject.duration_weeks ? fmt(end) : null,
       is_pilot: newProject.is_pilot,
+      is_internal: newProject.is_internal,
     }]).select().single()
     if (data) {
       setProjects([data, ...projects])
-      setNewProject({ name: '', customer_codename: '', status: 'active', duration_weeks: '', is_pilot: false })
+      setNewProject({ name: '', customer_codename: '', status: 'active', duration_weeks: '', is_pilot: false, is_internal: false })
     }
   }
 
@@ -261,7 +263,7 @@ export default function StaffingApp() {
     const weeksRemaining = p.end_date
       ? String(Math.round((new Date(p.end_date).getTime() - new Date(p.start_date ?? '').getTime()) / (7 * 24 * 60 * 60 * 1000)))
       : ''
-    setEditProject({ name: p.name, customer_codename: p.customer_codename ?? '', status: p.status, duration_weeks: weeksRemaining, is_pilot: p.is_pilot })
+    setEditProject({ name: p.name, customer_codename: p.customer_codename ?? '', status: p.status, duration_weeks: weeksRemaining, is_pilot: p.is_pilot, is_internal: p.is_internal })
     setEditingProjectId(p.id)
   }
 
@@ -276,6 +278,7 @@ export default function StaffingApp() {
       status: editProject.status,
       end_date: editProject.duration_weeks ? fmt(end) : null,
       is_pilot: editProject.is_pilot,
+      is_internal: editProject.is_internal,
     }
     const wasCompleted = projects.find(p => p.id === id)?.status === 'completed'
     const { data } = await supabase.from('projects').update(updates).eq('id', id).select().single()
@@ -323,6 +326,11 @@ export default function StaffingApp() {
 
   async function updateProjectPilot(id: string, is_pilot: boolean) {
     const { data } = await supabase.from('projects').update({ is_pilot }).eq('id', id).select().single()
+    if (data) setProjects(projects.map(p => p.id === id ? data : p))
+  }
+
+  async function updateProjectInternal(id: string, is_internal: boolean) {
+    const { data } = await supabase.from('projects').update({ is_internal }).eq('id', id).select().single()
     if (data) setProjects(projects.map(p => p.id === id ? data : p))
   }
 
@@ -995,6 +1003,10 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                   <input type="checkbox" checked={newProject.is_pilot} onChange={e => setNewProject({ ...newProject, is_pilot: e.target.checked })} className="accent-[#193a29] w-4 h-4" />
                   Pilot
                 </label>
+                <label className="flex items-center gap-2 text-sm text-gray-400 cursor-pointer select-none">
+                  <input type="checkbox" checked={newProject.is_internal} onChange={e => setNewProject({ ...newProject, is_internal: e.target.checked })} className="accent-[#193a29] w-4 h-4" />
+                  Internal
+                </label>
                 <button className={btnPrimary} style={{ backgroundColor: '#193a29' }} onClick={addProject}>Add</button>
               </div>
             </div>
@@ -1008,6 +1020,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                   <tr className="text-left text-gray-500 border-b border-gray-800">
                     <th className="pb-3 pr-3 font-medium text-xs uppercase tracking-wider w-8">#</th>
                     <th className="pb-3 pr-3 font-medium text-xs uppercase tracking-wider w-12">Pilot</th>
+                    <th className="pb-3 pr-3 font-medium text-xs uppercase tracking-wider w-14">Internal</th>
                     {[
                       { key: 'name', label: 'Name' },
                       { key: 'customer', label: 'Customer' },
@@ -1039,6 +1052,15 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                             checked={p.is_pilot}
                             onChange={e => updateProjectPilot(p.id, e.target.checked)}
                             title="Pilot project"
+                            className="accent-[#193a29] w-4 h-4 cursor-pointer"
+                          />
+                        </td>
+                        <td className="py-3.5 pr-3 align-top">
+                          <input
+                            type="checkbox"
+                            checked={p.is_internal}
+                            onChange={e => updateProjectInternal(p.id, e.target.checked)}
+                            title="Internal project (no external customer)"
                             className="accent-[#193a29] w-4 h-4 cursor-pointer"
                           />
                         </td>
