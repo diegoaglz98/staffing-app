@@ -13,6 +13,7 @@ type Project = {
   end_date: string | null
   flagged: boolean
   emoji: string | null
+  is_pilot: boolean
 }
 
 const PROJECT_EMOJIS = ['📁', '🚀', '🎯', '🔥', '⭐', '🧪', '🤖', '🛡️', '📊', '💡', '⚙️', '🧠', '🌐', '📈', '🏆', '🐛', '🔒', '📝', '🎨', '⚡', '🧩', '📦', '🔧', '🩺', '💬', '🎓', '🗂️', '✅', '🔬', '🛰️', '📡', '💻', '📱', '☁️', '🔑', '🧵', '📐', '🕹️', '🎬', '🎧', '📷', '🏗️', '🚦', '🧭', '⏱️', '📅', '💰', '🏦', '⚖️', '🩹', '🧬', '🔭', '🌟', '💎', '🎲', '🃏', '🐙', '🦾', '👾', '🦉']
@@ -124,12 +125,12 @@ export default function StaffingApp() {
   const [loading, setLoading] = useState(true)
   const [theme, setTheme] = useState<'dark' | 'light' | 'system'>('dark')
 
-  const [newProject, setNewProject] = useState({ name: '', customer_codename: '', status: 'active', duration_weeks: '' })
+  const [newProject, setNewProject] = useState({ name: '', customer_codename: '', status: 'active', duration_weeks: '', is_pilot: false })
   const [newStaff, setNewStaff] = useState({ name: '', position: '', ooo: false, ooo_return_date: '' })
   const [newAssignment, setNewAssignment] = useState({ project_id: '', staff_id: '', assignment_role: '' })
 
   const [editingProjectId, setEditingProjectId] = useState<string | null>(null)
-  const [editProject, setEditProject] = useState({ name: '', customer_codename: '', status: 'active', duration_weeks: '' })
+  const [editProject, setEditProject] = useState({ name: '', customer_codename: '', status: 'active', duration_weeks: '', is_pilot: false })
 
   const [editingStaffId, setEditingStaffId] = useState<string | null>(null)
   const [editStaff, setEditStaff] = useState({ name: '', position: '', ooo: false, ooo_return_date: '', flex_notes: '' })
@@ -142,6 +143,7 @@ export default function StaffingApp() {
   const [projectSort, setProjectSort] = useState<{ col: string; dir: 'az' | 'za' }>({ col: 'status', dir: 'az' })
   const [showSupervisorsInChart, setShowSupervisorsInChart] = useState(false)
   const [customerActiveOnly, setCustomerActiveOnly] = useState(false)
+  const [excludePilots, setExcludePilots] = useState(false)
   const [visibleStatuses, setVisibleStatuses] = useState<Record<string, boolean>>({
     'active': true, 'starting-soon': true, 'paused': true, 'on-hold': false, 'completed': false,
   })
@@ -247,10 +249,11 @@ export default function StaffingApp() {
       status: newProject.status,
       start_date: fmt(start),
       end_date: newProject.duration_weeks ? fmt(end) : null,
+      is_pilot: newProject.is_pilot,
     }]).select().single()
     if (data) {
       setProjects([data, ...projects])
-      setNewProject({ name: '', customer_codename: '', status: 'active', duration_weeks: '' })
+      setNewProject({ name: '', customer_codename: '', status: 'active', duration_weeks: '', is_pilot: false })
     }
   }
 
@@ -258,7 +261,7 @@ export default function StaffingApp() {
     const weeksRemaining = p.end_date
       ? String(Math.round((new Date(p.end_date).getTime() - new Date(p.start_date ?? '').getTime()) / (7 * 24 * 60 * 60 * 1000)))
       : ''
-    setEditProject({ name: p.name, customer_codename: p.customer_codename ?? '', status: p.status, duration_weeks: weeksRemaining })
+    setEditProject({ name: p.name, customer_codename: p.customer_codename ?? '', status: p.status, duration_weeks: weeksRemaining, is_pilot: p.is_pilot })
     setEditingProjectId(p.id)
   }
 
@@ -272,6 +275,7 @@ export default function StaffingApp() {
       customer_codename: editProject.customer_codename.trim() || null,
       status: editProject.status,
       end_date: editProject.duration_weeks ? fmt(end) : null,
+      is_pilot: editProject.is_pilot,
     }
     const wasCompleted = projects.find(p => p.id === id)?.status === 'completed'
     const { data } = await supabase.from('projects').update(updates).eq('id', id).select().single()
@@ -982,6 +986,10 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                   onChange={e => setNewProject({ ...newProject, duration_weeks: e.target.value })}
                   style={{ width: 220 }}
                 />
+                <label className="flex items-center gap-2 text-sm text-gray-400 cursor-pointer select-none">
+                  <input type="checkbox" checked={newProject.is_pilot} onChange={e => setNewProject({ ...newProject, is_pilot: e.target.checked })} className="accent-[#193a29] w-4 h-4" />
+                  Pilot
+                </label>
                 <button className={btnPrimary} style={{ backgroundColor: '#193a29' }} onClick={addProject}>Add</button>
               </div>
             </div>
@@ -1034,7 +1042,13 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                             </td>
                             <td className="py-2 text-gray-500">{p.start_date ?? '—'}</td>
                             <td className="py-2 text-gray-500 text-xs">auto</td>
-                            <td className="py-2 pr-2"><input className={inputSmClass} type="number" placeholder="Weeks" value={editProject.duration_weeks} onChange={e => setEditProject({ ...editProject, duration_weeks: e.target.value })} /></td>
+                            <td className="py-2 pr-2">
+                              <input className={inputSmClass} type="number" placeholder="Weeks" value={editProject.duration_weeks} onChange={e => setEditProject({ ...editProject, duration_weeks: e.target.value })} />
+                              <label className="flex items-center gap-1.5 text-xs text-gray-400 cursor-pointer mt-1">
+                                <input type="checkbox" checked={editProject.is_pilot} onChange={e => setEditProject({ ...editProject, is_pilot: e.target.checked })} className="accent-[#193a29] w-3.5 h-3.5" />
+                                Pilot
+                              </label>
+                            </td>
                             <td className="py-2 text-gray-500">{count} assigned</td>
                             <td className="py-2 text-right">
                               <div className="flex justify-end gap-3">
@@ -1045,7 +1059,12 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                           </>
                         ) : (
                           <>
-                            <td className="py-3.5 font-medium text-gray-100">{p.name}</td>
+                            <td className="py-3.5 font-medium text-gray-100">
+                              <span className="inline-flex items-center gap-1.5">
+                                {p.name}
+                                {p.is_pilot && <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-purple-500/10 text-purple-400">Pilot</span>}
+                              </span>
+                            </td>
                             <td className="py-3.5 text-gray-500">{p.customer_codename ?? '—'}</td>
                             <td className="py-3.5">
                               <select
@@ -2143,7 +2162,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
         )}
 
         {/* Dashboard Tab */}
-        {tab === 'dashboard' && (() => {
+        {tab === 'dashboard' && ((projects: Project[], assignments: Assignment[]) => {
           const assignedStaffIds = new Set(assignments.map(a => a.staff_id))
           const availableStaff = staff.filter(s => !assignedStaffIds.has(s.id) && !s.flexed && !s.ooo && !s.onboarding)
           const oooCount = staff.filter(s => s.ooo).length
@@ -2255,6 +2274,9 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
 
           return (
             <div className="space-y-6">
+              <div className="flex justify-end">
+                {toggleSwitch(excludePilots, () => setExcludePilots(v => !v), 'Exclude pilots')}
+              </div>
               {/* Stat cards — averages */}
               <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
                 {statCard('Avg STOs / Project', avgSTOs, 'active, staffed projects')}
@@ -2434,7 +2456,14 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
               </div>
             </div>
           )
-        })()}
+        })(
+          excludePilots ? projects.filter(p => !p.is_pilot) : projects,
+          (() => {
+            if (!excludePilots) return assignments
+            const pilotIds = new Set(projects.filter(p => p.is_pilot).map(p => p.id))
+            return assignments.filter(a => !pilotIds.has(a.project_id))
+          })(),
+        )}
 
         {/* Staffing Scenarios Tab */}
         {tab === 'scenarios' && (
