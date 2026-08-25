@@ -321,6 +321,11 @@ export default function StaffingApp() {
     if (data) setProjects(projects.map(p => p.id === id ? data : p))
   }
 
+  async function updateProjectPilot(id: string, is_pilot: boolean) {
+    const { data } = await supabase.from('projects').update({ is_pilot }).eq('id', id).select().single()
+    if (data) setProjects(projects.map(p => p.id === id ? data : p))
+  }
+
   async function updateProjectEmoji(id: string, emoji: string | null) {
     const { data } = await supabase.from('projects').update({ emoji }).eq('id', id).select().single()
     if (data) setProjects(projects.map(p => p.id === id ? data : p))
@@ -1002,6 +1007,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                 <thead>
                   <tr className="text-left text-gray-500 border-b border-gray-800">
                     <th className="pb-3 pr-3 font-medium text-xs uppercase tracking-wider w-8">#</th>
+                    <th className="pb-3 pr-3 font-medium text-xs uppercase tracking-wider w-12">Pilot</th>
                     {[
                       { key: 'name', label: 'Name' },
                       { key: 'customer', label: 'Customer' },
@@ -1027,6 +1033,15 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                     return (
                       <tr key={p.id} className="border-b border-gray-800/60 hover:bg-gray-900/60 transition-colors">
                         <td className="py-3.5 pr-3 text-gray-600 text-xs tabular-nums align-top">{idx + 1}</td>
+                        <td className="py-3.5 pr-3 align-top">
+                          <input
+                            type="checkbox"
+                            checked={p.is_pilot}
+                            onChange={e => updateProjectPilot(p.id, e.target.checked)}
+                            title="Pilot project"
+                            className="accent-[#193a29] w-4 h-4 cursor-pointer"
+                          />
+                        </td>
                         {isEditing ? (
                           <>
                             <td className="py-2 pr-2"><input className={inputSmClass} value={editProject.name} onChange={e => setEditProject({ ...editProject, name: e.target.value })} /></td>
@@ -1042,13 +1057,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                             </td>
                             <td className="py-2 text-gray-500">{p.start_date ?? '—'}</td>
                             <td className="py-2 text-gray-500 text-xs">auto</td>
-                            <td className="py-2 pr-2">
-                              <input className={inputSmClass} type="number" placeholder="Weeks" value={editProject.duration_weeks} onChange={e => setEditProject({ ...editProject, duration_weeks: e.target.value })} />
-                              <label className="flex items-center gap-1.5 text-xs text-gray-400 cursor-pointer mt-1">
-                                <input type="checkbox" checked={editProject.is_pilot} onChange={e => setEditProject({ ...editProject, is_pilot: e.target.checked })} className="accent-[#193a29] w-3.5 h-3.5" />
-                                Pilot
-                              </label>
-                            </td>
+                            <td className="py-2 pr-2"><input className={inputSmClass} type="number" placeholder="Weeks" value={editProject.duration_weeks} onChange={e => setEditProject({ ...editProject, duration_weeks: e.target.value })} /></td>
                             <td className="py-2 text-gray-500">{count} assigned</td>
                             <td className="py-2 text-right">
                               <div className="flex justify-end gap-3">
@@ -1059,12 +1068,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                           </>
                         ) : (
                           <>
-                            <td className="py-3.5 font-medium text-gray-100">
-                              <span className="inline-flex items-center gap-1.5">
-                                {p.name}
-                                {p.is_pilot && <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-purple-500/10 text-purple-400">Pilot</span>}
-                              </span>
-                            </td>
+                            <td className="py-3.5 font-medium text-gray-100">{p.name}</td>
                             <td className="py-3.5 text-gray-500">{p.customer_codename ?? '—'}</td>
                             <td className="py-3.5">
                               <select
