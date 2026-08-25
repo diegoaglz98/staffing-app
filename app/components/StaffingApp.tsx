@@ -145,6 +145,7 @@ export default function StaffingApp() {
   const [showSupervisorsInChart, setShowSupervisorsInChart] = useState(false)
   const [customerActiveOnly, setCustomerActiveOnly] = useState(false)
   const [excludePilots, setExcludePilots] = useState(false)
+  const [excludeInternal, setExcludeInternal] = useState(false)
   const [visibleStatuses, setVisibleStatuses] = useState<Record<string, boolean>>({
     'active': true, 'starting-soon': true, 'paused': true, 'on-hold': false, 'completed': false,
   })
@@ -2300,8 +2301,9 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
 
           return (
             <div className="space-y-6">
-              <div className="flex justify-end">
+              <div className="flex justify-end gap-4">
                 {toggleSwitch(excludePilots, () => setExcludePilots(v => !v), 'Exclude pilots')}
+                {toggleSwitch(excludeInternal, () => setExcludeInternal(v => !v), 'Exclude internal')}
               </div>
               {/* Stat cards — averages */}
               <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
@@ -2483,11 +2485,10 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
             </div>
           )
         })(
-          excludePilots ? projects.filter(p => !p.is_pilot) : projects,
+          projects.filter(p => (!excludePilots || !p.is_pilot) && (!excludeInternal || !p.is_internal)),
           (() => {
-            if (!excludePilots) return assignments
-            const pilotIds = new Set(projects.filter(p => p.is_pilot).map(p => p.id))
-            return assignments.filter(a => !pilotIds.has(a.project_id))
+            const excludedIds = new Set(projects.filter(p => (excludePilots && p.is_pilot) || (excludeInternal && p.is_internal)).map(p => p.id))
+            return excludedIds.size ? assignments.filter(a => !excludedIds.has(a.project_id)) : assignments
           })(),
         )}
 
