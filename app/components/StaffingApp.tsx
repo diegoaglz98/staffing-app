@@ -1640,21 +1640,33 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
             <div className="flex-1 min-w-0">
             {groupBySupervisor ? (() => {
               const visibleProjects = [...projects].filter(p => visibleStatuses[p.status])
-              const groupsMap = new Map<string, { key: string; name: string; items: { project: Project; members: Assignment[] }[] }>()
+              const groupsMap = new Map<string, { key: string; name: string; items: { project: Project; members: Assignment[]; viaSTO: boolean }[] }>()
               const ensure = (key: string, name: string) => {
                 if (!groupsMap.has(key)) groupsMap.set(key, { key, name, items: [] })
                 return groupsMap.get(key)!
               }
               visibleProjects.forEach(p => {
-                const sups = assignments.filter(a => a.project_id === p.id && a.assignment_role === 'Supervisor')
-                const members = assignments.filter(a => a.project_id === p.id && a.assignment_role !== 'Supervisor')
-                if (sups.length === 0) {
-                  ensure('__none__', 'No supervisor').items.push({ project: p, members })
-                } else {
+                const projAssignments = assignments.filter(a => a.project_id === p.id)
+                const sups = projAssignments.filter(a => a.assignment_role === 'Supervisor')
+                if (sups.length > 0) {
+                  const members = projAssignments.filter(a => a.assignment_role !== 'Supervisor')
                   sups.forEach(sup => {
                     const st = staff.find(s => s.id === sup.staff_id)
-                    ensure(sup.staff_id, st?.name ?? 'Unknown').items.push({ project: p, members })
+                    ensure(sup.staff_id, st?.name ?? 'Unknown').items.push({ project: p, members, viaSTO: false })
                   })
+                } else {
+                  // No supervisor → fall back to the STO(s) as the acting supervisor
+                  const stos = projAssignments.filter(a => a.assignment_role === 'STO')
+                  if (stos.length > 0) {
+                    stos.forEach(sto => {
+                      const st = staff.find(s => s.id === sto.staff_id)
+                      const members = projAssignments.filter(a => a.assignment_role !== 'Supervisor' && a.id !== sto.id)
+                      ensure(sto.staff_id, st?.name ?? 'Unknown').items.push({ project: p, members, viaSTO: true })
+                    })
+                  } else {
+                    const members = projAssignments.filter(a => a.assignment_role !== 'Supervisor')
+                    ensure('__none__', 'No supervisor').items.push({ project: p, members, viaSTO: false })
+                  }
                 }
               })
               let groups = Array.from(groupsMap.values())
@@ -1698,7 +1710,10 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                               }}
                             >
                               <div className="flex items-center gap-2 mb-2">
-                                <p className="text-sm font-medium text-gray-200">{it.project.emoji || '📁'} {it.project.name}</p>
+                                <p className="text-sm font-medium text-gray-200 flex items-center gap-2">
+                                  {it.project.emoji || '📁'} {it.project.name}
+                                  {it.viaSTO && <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-amber-500/10 text-amber-400" title="No supervisor — STO shown as acting supervisor">STO acting as supervisor</span>}
+                                </p>
                                 <button
                                   onClick={() => { setAddingToProjectId(addingToProjectId === it.project.id ? null : it.project.id); setQuickAdd({ staff_id: '', assignment_role: '' }) }}
                                   title="Add a person to this project"
