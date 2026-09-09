@@ -28,6 +28,7 @@ type Staff = {
   flexed: boolean
   onboarding: boolean
   flex_notes: string | null
+  emoji: string | null
 }
 
 type Assignment = {
@@ -160,6 +161,7 @@ export default function StaffingApp() {
   const [logoSpins, setLogoSpins] = useState(0)
   const [emojiPickerProjectId, setEmojiPickerProjectId] = useState<string | null>(null)
   const [customEmoji, setCustomEmoji] = useState('')
+  const [emojiPickerStaffId, setEmojiPickerStaffId] = useState<string | null>(null)
   const [quickAdd, setQuickAdd] = useState({ staff_id: '', assignment_role: '' })
   const [draggedStaffId, setDraggedStaffId] = useState<string | null>(null)
   const [draggedAssignmentId, setDraggedAssignmentId] = useState<string | null>(null)
@@ -722,6 +724,11 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
     if (dup) return
     const { data } = await supabase.from('assignments').update({ project_id: projectId }).eq('id', id).select().single()
     if (data) setAssignments(prev => prev.map(x => x.id === id ? data : x))
+  }
+
+  async function updateStaffEmoji(id: string, emoji: string | null) {
+    const { data } = await supabase.from('staff').update({ emoji }).eq('id', id).select().single()
+    if (data) setStaff(prev => prev.map(s => s.id === id ? data : s))
   }
 
   async function clearStaffOOO(staffId: string) {
@@ -1680,7 +1687,45 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                     return (
                       <div key={g.key} className="border border-gray-800 rounded-xl p-5 bg-gray-900/40">
                         <div className="flex items-center justify-between mb-4">
-                          <h3 className="font-semibold text-gray-100">{g.key === '__none__' ? '⚠️ No supervisor' : `👤 ${g.name}`}</h3>
+                          {g.key === '__none__' ? (
+                            <h3 className="font-semibold text-gray-100">⚠️ No supervisor</h3>
+                          ) : (
+                            <h3 className="font-semibold text-gray-100 flex items-center gap-2">
+                              <span className="relative">
+                                <button
+                                  onClick={() => setEmojiPickerStaffId(emojiPickerStaffId === g.key ? null : g.key)}
+                                  title="Set supervisor emoji"
+                                  className="text-lg leading-none hover:scale-110 transition-transform"
+                                >
+                                  {staff.find(s => s.id === g.key)?.emoji || '👤'}
+                                </button>
+                                {emojiPickerStaffId === g.key && (
+                                  <>
+                                    <div className="fixed inset-0 z-10" onClick={() => setEmojiPickerStaffId(null)} />
+                                    <div className="absolute left-0 top-8 z-20 bg-gray-900 border border-gray-700 rounded-lg p-2 shadow-xl w-60">
+                                      <div className="grid grid-cols-6 gap-1 max-h-48 overflow-y-auto">
+                                        {PROJECT_EMOJIS.map(em => (
+                                          <button key={em} onClick={() => { updateStaffEmoji(g.key, em); setEmojiPickerStaffId(null) }} className="text-lg hover:bg-gray-800 rounded p-1">{em}</button>
+                                        ))}
+                                      </div>
+                                      <div className="flex gap-1 mt-2 pt-2 border-t border-gray-800">
+                                        <input
+                                          className={inputSmClass + ' flex-1'}
+                                          placeholder="Paste any emoji…"
+                                          value={customEmoji}
+                                          onChange={e => setCustomEmoji(e.target.value)}
+                                          onKeyDown={e => { if (e.key === 'Enter' && customEmoji.trim()) { updateStaffEmoji(g.key, customEmoji.trim()); setCustomEmoji(''); setEmojiPickerStaffId(null) } }}
+                                        />
+                                        <button className="text-xs px-2 py-1 rounded bg-gray-700 text-gray-300 hover:text-white transition-colors" onClick={() => { if (customEmoji.trim()) { updateStaffEmoji(g.key, customEmoji.trim()); setCustomEmoji(''); setEmojiPickerStaffId(null) } }}>Set</button>
+                                      </div>
+                                      <button onClick={() => { updateStaffEmoji(g.key, null); setEmojiPickerStaffId(null) }} className="w-full text-xs text-gray-500 hover:text-gray-300 mt-2">Reset to default</button>
+                                    </div>
+                                  </>
+                                )}
+                              </span>
+                              {g.name}
+                            </h3>
+                          )}
                           <span className="text-xs text-gray-500">{g.items.length} project{g.items.length !== 1 ? 's' : ''} · {totalMembers} team</span>
                         </div>
                         <div className="space-y-3">
