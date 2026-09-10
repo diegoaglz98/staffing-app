@@ -115,6 +115,8 @@ export default function StaffingApp() {
   const [showCompletedMilestones, setShowCompletedMilestones] = useState(false)
   const [weeklyDrafts, setWeeklyDrafts] = useState<Record<string, string>>({})
   const [slackReqStatus, setSlackReqStatus] = useState<Record<string, 'sending' | 'sent' | 'error'>>({})
+  const [slackPermalinks, setSlackPermalinks] = useState<Record<string, string>>({})
+  const [bulkSlack, setBulkSlack] = useState<{ done: number; total: number } | null>(null)
   const [addingMilestoneProjectId, setAddingMilestoneProjectId] = useState<string | null>(null)
   const [editingMilestoneId, setEditingMilestoneId] = useState<string | null>(null)
   const [editMilestone, setEditMilestone] = useState({ title: '', due_date: '' })
@@ -766,7 +768,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
     updateWeeklyTarget(p.id, String(Math.max(0, cur + delta)))
   }
 
-  async function requestMilestoneUpdate(p: Project) {
+  async function requestMilestoneUpdate(p: Project): Promise<boolean> {
     setSlackReqStatus(prev => ({ ...prev, [p.id]: 'sending' }))
     const openMs = [...milestones.filter(m => m.project_id === p.id && !m.done)]
       .sort((a, b) => priorityRank(a.priority) - priorityRank(b.priority) || a.created_at.localeCompare(b.created_at))
@@ -784,9 +786,22 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
         body: JSON.stringify({ projectName: p.name, milestones: openMs, weeklyTarget: p.weekly_target, stoMention }),
       })
       const data = await res.json().catch(() => ({}))
-      setSlackReqStatus(prev => ({ ...prev, [p.id]: res.ok && data.ok ? 'sent' : 'error' }))
+      const ok = res.ok && data.ok
+      setSlackReqStatus(prev => ({ ...prev, [p.id]: ok ? 'sent' : 'error' }))
+      if (ok && data.permalink) setSlackPermalinks(prev => ({ ...prev, [p.id]: data.permalink }))
+      return ok
     } catch {
       setSlackReqStatus(prev => ({ ...prev, [p.id]: 'error' }))
+      return false
+    }
+  }
+
+  async function requestUpdatesForAllActive() {
+    const active = [...projects].filter(p => p.status === 'active').sort((a, b) => a.name.localeCompare(b.name))
+    setBulkSlack({ done: 0, total: active.length })
+    for (const p of active) {
+      await requestMilestoneUpdate(p)
+      setBulkSlack(prev => (prev ? { ...prev, done: prev.done + 1 } : prev))
     }
   }
 
@@ -2917,7 +2932,19 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
             <div className="flex gap-6 items-start">
               {/* Left: per-project milestone checklists */}
               <div className="flex-1 min-w-0 space-y-3">
-                <div className="flex justify-end gap-2">
+                <div className="flex flex-wrap justify-end gap-2">
+                  <button
+                    onClick={requestUpdatesForAllActive}
+                    disabled={!!bulkSlack && bulkSlack.done < bulkSlack.total}
+                    className="text-xs px-3 py-1.5 rounded-lg border border-gray-700 text-gray-300 hover:text-white hover:border-gray-500 transition-colors"
+                    title="Post an update-request thread in #code_pod for every active project"
+                  >
+                    {bulkSlack && bulkSlack.done < bulkSlack.total
+                      ? `Requesting… ${bulkSlack.done}/${bulkSlack.total}`
+                      : bulkSlack && bulkSlack.done === bulkSlack.total
+                      ? `✓ Requested ${bulkSlack.total} active`
+                      : '💬 Request updates (all active)'}
+                  </button>
                   <button
                     onClick={exportMilestonesHTML}
                     className="text-xs px-3 py-1.5 rounded-lg border border-gray-700 text-gray-400 hover:text-gray-200 transition-colors"
@@ -2966,6 +2993,9 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                              slackReqStatus[p.id] === 'error' ? '⚠ Failed — retry' :
                              '💬 Request update'}
                           </button>
+                          {slackPermalinks[p.id] && (
+                            <a href={slackPermalinks[p.id]} target="_blank" rel="noopener noreferrer" className="text-xs text-sky-400 hover:text-sky-300 whitespace-nowrap">View thread ↗</a>
+                          )}
                         </div>
                       </div>
                       <div className="flex items-center gap-2 mb-4">

@@ -45,5 +45,15 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: `Slack error (thread): ${reply.error}`, ts: parent.ts }, { status: 500 })
   }
 
-  return NextResponse.json({ ok: true, ts: parent.ts })
+  // Fetch a clickable permalink to the thread
+  let permalink: string | null = null
+  try {
+    const pl = await fetch(
+      `https://slack.com/api/chat.getPermalink?channel=${encodeURIComponent(parent.channel)}&message_ts=${parent.ts}`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    ).then(r => r.json())
+    if (pl.ok) permalink = pl.permalink
+  } catch { /* permalink is best-effort */ }
+
+  return NextResponse.json({ ok: true, ts: parent.ts, permalink })
 }
