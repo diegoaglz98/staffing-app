@@ -118,6 +118,8 @@ export default function StaffingApp() {
   const [slackPermalinks, setSlackPermalinks] = useState<Record<string, string>>({})
   const [bulkSlack, setBulkSlack] = useState<{ done: number; total: number } | null>(null)
   const [confirmEmptyUpdate, setConfirmEmptyUpdate] = useState<Project | null>(null)
+  const [pendingSlackIds, setPendingSlackIds] = useState<{ project: Project; stos: { id: string; name: string }[] } | null>(null)
+  const [slackIdInputs, setSlackIdInputs] = useState<Record<string, string>>({})
   const [addingMilestoneProjectId, setAddingMilestoneProjectId] = useState<string | null>(null)
   const [editingMilestoneId, setEditingMilestoneId] = useState<string | null>(null)
   const [editMilestone, setEditMilestone] = useState({ title: '', due_date: '' })
@@ -769,7 +771,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
     updateWeeklyTarget(p.id, String(Math.max(0, cur + delta)))
   }
 
-  async function requestMilestoneUpdate(p: Project): Promise<boolean> {
+  async function requestMilestoneUpdate(p: Project, slackIdOverride?: Record<string, string>): Promise<boolean> {
     setSlackReqStatus(prev => ({ ...prev, [p.id]: 'sending' }))
     const openMs = [...milestones.filter(m => m.project_id === p.id && !m.done)]
       .sort((a, b) => priorityRank(a.priority) - priorityRank(b.priority) || a.created_at.localeCompare(b.created_at))
@@ -778,7 +780,10 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
       .filter(a => a.project_id === p.id && a.assignment_role === 'STO')
       .map(a => staff.find(s => s.id === a.staff_id))
       .filter((s): s is Staff => !!s)
-      .map(s => s.slack_user_id ? `<@${s.slack_user_id}>` : s.name)
+      .map(s => {
+        const sid = slackIdOverride?.[s.id] ?? s.slack_user_id
+        return sid ? `<@${sid}>` : s.name
+      })
       .join(', ')
     try {
       const res = await fetch('/api/slack/request-update', {
@@ -801,7 +806,40 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
     const hasOpenMs = milestones.some(m => m.project_id === p.id && !m.done)
     const hasPP = p.weekly_target != null
     if (!hasOpenMs && !hasPP) { setConfirmEmptyUpdate(p); return }
-    requestMilestoneUpdate(p)
+    proceedRequest(p)
+  }
+
+  // Prompt for missing STO Slack IDs before sending; otherwise send directly
+  function proceedRequest(p: Project) {
+    const missingStos = assignments
+      .filter(a => a.project_id === p.id && a.assignment_role === 'STO')
+      .map(a => staff.find(s => s.id === a.staff_id))
+      .filter((s): s is Staff => !!s && !s.slack_user_id)
+    // de-dupe by staff id
+    const unique = Array.from(new Map(missingStos.map(s => [s.id, s])).values())
+    if (unique.length > 0) {
+      setSlackIdInputs({})
+      setPendingSlackIds({ project: p, stos: unique.map(s => ({ id: s.id, name: s.name })) })
+    } else {
+      requestMilestoneUpdate(p)
+    }
+  }
+
+  async function submitSlackIdsAndRequest() {
+    if (!pendingSlackIds) return
+    const p = pendingSlackIds.project
+    const override: Record<string, string> = {}
+    for (const sto of pendingSlackIds.stos) {
+      const val = (slackIdInputs[sto.id] ?? '').trim()
+      if (val) {
+        override[sto.id] = val
+        const { data } = await supabase.from('staff').update({ slack_user_id: val }).eq('id', sto.id).select().single()
+        if (data) setStaff(prev => prev.map(s => s.id === sto.id ? data : s))
+      }
+    }
+    setPendingSlackIds(null)
+    setSlackIdInputs({})
+    requestMilestoneUpdate(p, override)
   }
 
   async function requestUpdatesForAllActive() {
@@ -3152,6 +3190,37 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
       </div>
       </div>{/* end spin wrapper */}
 
+      {pendingSlackIds && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => { setPendingSlackIds(null); setSlackIdInputs({}) }}>
+          <div className="bg-gray-900 border border-gray-700 rounded-xl p-6 w-96 shadow-xl" onClick={e => e.stopPropagation()}>
+            <p className="text-sm font-semibold text-gray-100 mb-1">Add STO Slack ID{pendingSlackIds.stos.length > 1 ? 's' : ''}</p>
+            <p className="text-xs text-gray-500 mb-4">
+              The STO{pendingSlackIds.stos.length > 1 ? 's' : ''} for <span className="text-gray-300">{pendingSlackIds.project.name}</span> {pendingSlackIds.stos.length > 1 ? "don't" : "doesn't"} have a Slack ID yet. Add it to tag them (Slack profile → ⋮ → Copy member ID). Saved to their staff profile.
+            </p>
+            <div className="space-y-2 mb-4">
+              {pendingSlackIds.stos.map(sto => (
+                <div key={sto.id} className="flex items-center gap-2">
+                  <span className="text-xs text-gray-300 w-32 truncate">{sto.name}</span>
+                  <input
+                    type="text"
+                    autoFocus
+                    className={inputSmClass + ' flex-1'}
+                    placeholder="U0123ABCD"
+                    value={slackIdInputs[sto.id] ?? ''}
+                    onChange={e => setSlackIdInputs(prev => ({ ...prev, [sto.id]: e.target.value }))}
+                    onKeyDown={e => e.key === 'Enter' && submitSlackIdsAndRequest()}
+                  />
+                </div>
+              ))}
+            </div>
+            <div className="flex gap-2 justify-end">
+              <button className={btnCancel} onClick={() => { const p = pendingSlackIds.project; setPendingSlackIds(null); setSlackIdInputs({}); requestMilestoneUpdate(p) }}>Skip &amp; send</button>
+              <button className={btnPrimary} style={{ backgroundColor: '#193a29' }} onClick={submitSlackIdsAndRequest}>Save &amp; request</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {confirmEmptyUpdate && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setConfirmEmptyUpdate(null)}>
           <div className="bg-gray-900 border border-gray-700 rounded-xl p-6 w-96 shadow-xl" onClick={e => e.stopPropagation()}>
@@ -3164,7 +3233,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
               <button
                 className={btnPrimary}
                 style={{ backgroundColor: '#193a29' }}
-                onClick={() => { const p = confirmEmptyUpdate; setConfirmEmptyUpdate(null); requestMilestoneUpdate(p) }}
+                onClick={() => { const p = confirmEmptyUpdate; setConfirmEmptyUpdate(null); proceedRequest(p) }}
               >
                 Yes, request update
               </button>
