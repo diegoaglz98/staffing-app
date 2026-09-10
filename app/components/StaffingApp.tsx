@@ -120,6 +120,8 @@ export default function StaffingApp() {
   const [confirmEmptyUpdate, setConfirmEmptyUpdate] = useState<Project | null>(null)
   const [pendingSlackIds, setPendingSlackIds] = useState<{ project: Project; stos: { id: string; name: string }[] } | null>(null)
   const [slackIdInputs, setSlackIdInputs] = useState<Record<string, string>>({})
+  const [overviewStatus, setOverviewStatus] = useState<'idle' | 'sending' | 'sent' | 'error' | 'empty'>('idle')
+  const [overviewPermalink, setOverviewPermalink] = useState<string | null>(null)
   const [addingMilestoneProjectId, setAddingMilestoneProjectId] = useState<string | null>(null)
   const [editingMilestoneId, setEditingMilestoneId] = useState<string | null>(null)
   const [editMilestone, setEditMilestone] = useState({ title: '', due_date: '' })
@@ -840,6 +842,60 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
     setPendingSlackIds(null)
     setSlackIdInputs({})
     requestMilestoneUpdate(p, override)
+  }
+
+  async function giveTeamOverview() {
+    const active = [...projects].filter(p => p.status === 'active').sort((a, b) => a.name.localeCompare(b.name))
+    const sections: string[] = []
+    for (const p of active) {
+      const openMs = [...milestones.filter(m => m.project_id === p.id && !m.done)]
+        .sort((a, b) => priorityRank(a.priority) - priorityRank(b.priority) || a.created_at.localeCompare(b.created_at))
+      const hasPP = p.weekly_target != null
+      if (openMs.length === 0 && !hasPP) continue
+      const stoTag = assignments
+        .filter(a => a.project_id === p.id && a.assignment_role === 'STO')
+        .map(a => staff.find(s => s.id === a.staff_id))
+        .filter((s): s is Staff => !!s)
+        .map(s => s.slack_user_id ? `<@${s.slack_user_id}>` : s.name)
+        .join(', ')
+      let sec = `*${p.emoji || '📁'} ${p.name}*${stoTag ? `  (STO: ${stoTag})` : ''}`
+      if (openMs.length > 0) {
+        sec += '\n' + openMs.map(m => `  • ${m.priority} — ${m.title}${m.due_date ? ` (due ${m.due_date})` : ''}`).join('\n')
+      } else {
+        sec += '\n  • _No open milestones_'
+      }
+      sec += `\n  _Production plan this week: ${hasPP ? `${p.weekly_target} task${p.weekly_target === 1 ? '' : 's'}` : 'not set'}_`
+      sections.push(sec)
+    }
+
+    if (sections.length === 0) { setOverviewStatus('empty'); return }
+
+    const text = [
+      ':mega: *Code Pod — Milestones & Production Plan overview*',
+      '',
+      sections.join('\n\n'),
+      '',
+      "Please give everyone visibility: share a quick update on your milestones and how you're pacing toward this week's production plan. STOs are tagged above — flag if you're off track. Any questions? Drop them in this thread. :point_down:",
+    ].join('\n')
+
+    setOverviewStatus('sending')
+    setOverviewPermalink(null)
+    try {
+      const res = await fetch('/api/slack/overview', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (res.ok && data.ok) {
+        setOverviewStatus('sent')
+        if (data.permalink) setOverviewPermalink(data.permalink)
+      } else {
+        setOverviewStatus('error')
+      }
+    } catch {
+      setOverviewStatus('error')
+    }
   }
 
   async function requestUpdatesForAllActive() {
@@ -2978,7 +3034,26 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
             <div className="flex gap-6 items-start">
               {/* Left: per-project milestone checklists */}
               <div className="flex-1 min-w-0 space-y-3">
-                <div className="flex flex-wrap justify-end gap-2">
+                <div className="flex flex-wrap justify-end gap-2 items-center">
+                  {overviewStatus === 'sent' && overviewPermalink && (
+                    <a href={overviewPermalink} target="_blank" rel="noopener noreferrer" className="text-xs text-sky-400 hover:text-sky-300 whitespace-nowrap">View post ↗</a>
+                  )}
+                  <button
+                    onClick={giveTeamOverview}
+                    disabled={overviewStatus === 'sending'}
+                    className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${
+                      overviewStatus === 'sent' ? 'border-emerald-500/40 text-emerald-400' :
+                      overviewStatus === 'error' || overviewStatus === 'empty' ? 'border-red-500/40 text-red-400' :
+                      'border-gray-700 text-gray-300 hover:text-white hover:border-gray-500'
+                    }`}
+                    title="Post a full overview of milestones & production plans to #code_pod"
+                  >
+                    {overviewStatus === 'sending' ? 'Posting…' :
+                     overviewStatus === 'sent' ? '✓ Overview posted' :
+                     overviewStatus === 'error' ? '⚠ Failed — retry' :
+                     overviewStatus === 'empty' ? 'Nothing to share' :
+                     '📣 Give milestones & PP update to the whole team'}
+                  </button>
                   <button
                     onClick={requestUpdatesForAllActive}
                     disabled={!!bulkSlack && bulkSlack.done < bulkSlack.total}
