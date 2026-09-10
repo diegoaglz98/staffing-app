@@ -117,6 +117,7 @@ export default function StaffingApp() {
   const [slackReqStatus, setSlackReqStatus] = useState<Record<string, 'sending' | 'sent' | 'error'>>({})
   const [slackPermalinks, setSlackPermalinks] = useState<Record<string, string>>({})
   const [bulkSlack, setBulkSlack] = useState<{ done: number; total: number } | null>(null)
+  const [confirmEmptyUpdate, setConfirmEmptyUpdate] = useState<Project | null>(null)
   const [addingMilestoneProjectId, setAddingMilestoneProjectId] = useState<string | null>(null)
   const [editingMilestoneId, setEditingMilestoneId] = useState<string | null>(null)
   const [editMilestone, setEditMilestone] = useState({ title: '', due_date: '' })
@@ -794,6 +795,13 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
       setSlackReqStatus(prev => ({ ...prev, [p.id]: 'error' }))
       return false
     }
+  }
+
+  function handleRequestUpdate(p: Project) {
+    const hasOpenMs = milestones.some(m => m.project_id === p.id && !m.done)
+    const hasPP = p.weekly_target != null
+    if (!hasOpenMs && !hasPP) { setConfirmEmptyUpdate(p); return }
+    requestMilestoneUpdate(p)
   }
 
   async function requestUpdatesForAllActive() {
@@ -2980,7 +2988,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                         <div className="flex items-center gap-3">
                           {ms.length > 0 && <span className="text-xs text-gray-500">{pDone}/{ms.length} done</span>}
                           <button
-                            onClick={() => requestMilestoneUpdate(p)}
+                            onClick={() => handleRequestUpdate(p)}
                             disabled={slackReqStatus[p.id] === 'sending'}
                             className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${
                               slackReqStatus[p.id] === 'sent' ? 'border-emerald-500/40 text-emerald-400' :
@@ -3143,6 +3151,27 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
         })()}
       </div>
       </div>{/* end spin wrapper */}
+
+      {confirmEmptyUpdate && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setConfirmEmptyUpdate(null)}>
+          <div className="bg-gray-900 border border-gray-700 rounded-xl p-6 w-96 shadow-xl" onClick={e => e.stopPropagation()}>
+            <p className="text-sm font-semibold text-gray-100 mb-2">Request update anyway?</p>
+            <p className="text-xs text-gray-400 mb-5">
+              <span className="text-gray-200">{confirmEmptyUpdate.name}</span> has <span className="text-amber-400 font-medium">no production plan and no open milestones</span> set. The thread will just ask for a general status update. Continue?
+            </p>
+            <div className="flex gap-2 justify-end">
+              <button className={btnCancel} onClick={() => setConfirmEmptyUpdate(null)}>No, cancel</button>
+              <button
+                className={btnPrimary}
+                style={{ backgroundColor: '#193a29' }}
+                onClick={() => { const p = confirmEmptyUpdate; setConfirmEmptyUpdate(null); requestMilestoneUpdate(p) }}
+              >
+                Yes, request update
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {confirmClearInactive && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setConfirmClearInactive(false)}>

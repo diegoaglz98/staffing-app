@@ -25,16 +25,35 @@ export async function POST(request: Request) {
   }
 
   // 2) Threaded reply with the details
-  const lines: string[] = ['Please provide an update on the following milestones:']
-  if (Array.isArray(milestones) && milestones.length > 0) {
-    lines.push(milestones.map((m: string) => `  • ${m}`).join('\n'))
+  const hasMilestones = Array.isArray(milestones) && milestones.length > 0
+  const hasPP = weeklyTarget !== null && weeklyTarget !== undefined
+  const lines: string[] = []
+
+  if (!hasMilestones && !hasPP) {
+    // Neither set → standard "overall update" template
+    lines.push('Please provide an overall status update on this project:')
+    lines.push('  • Current progress since the last update')
+    lines.push('  • Any blockers or risks')
+    lines.push('  • Focus / next steps for this week')
+    lines.push('')
+    lines.push('Also, is there a confirmed production plan for this week? If so, please share the target and how you are pacing against it.')
   } else {
-    lines.push('  _(no open milestones listed)_')
+    if (hasMilestones) {
+      lines.push('Please provide an update on the following milestones:')
+      lines.push(milestones.map((m: string) => `  • ${m}`).join('\n'))
+    }
+    if (hasPP) {
+      if (hasMilestones) lines.push('')
+      lines.push(
+        `${hasMilestones ? 'And on' : 'Please provide an update on'} pacing towards the production plan for this week of *${weeklyTarget}* task${weeklyTarget === 1 ? '' : 's'}.`
+      )
+    } else if (hasMilestones) {
+      // Milestones but no PP → ask whether a confirmed PP already exists
+      lines.push('')
+      lines.push('The production plan for this week has not been set here — is there a confirmed production plan already? If so, please share the target and how you are pacing against it.')
+    }
   }
-  lines.push('')
-  lines.push(
-    `And on pacing towards the production plan for this week of *${weeklyTarget ?? 'N/A'}* task${weeklyTarget === 1 ? '' : 's'}.`
-  )
+
   if (stoMention) {
     lines.push('')
     lines.push(`STO: ${stoMention}`)
