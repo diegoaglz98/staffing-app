@@ -30,6 +30,7 @@ type Staff = {
   onboarding: boolean
   flex_notes: string | null
   emoji: string | null
+  slack_user_id: string | null
 }
 
 type Assignment = {
@@ -113,6 +114,7 @@ export default function StaffingApp() {
   const [hideEmptyMilestoneProjects, setHideEmptyMilestoneProjects] = useState(false)
   const [showCompletedMilestones, setShowCompletedMilestones] = useState(false)
   const [weeklyDrafts, setWeeklyDrafts] = useState<Record<string, string>>({})
+  const [slackReqStatus, setSlackReqStatus] = useState<Record<string, 'sending' | 'sent' | 'error'>>({})
   const [addingMilestoneProjectId, setAddingMilestoneProjectId] = useState<string | null>(null)
   const [editingMilestoneId, setEditingMilestoneId] = useState<string | null>(null)
   const [editMilestone, setEditMilestone] = useState({ title: '', due_date: '' })
@@ -137,7 +139,7 @@ export default function StaffingApp() {
   const [editProject, setEditProject] = useState({ name: '', customer_codename: '', status: 'active', duration_weeks: '', is_pilot: false, is_internal: false })
 
   const [editingStaffId, setEditingStaffId] = useState<string | null>(null)
-  const [editStaff, setEditStaff] = useState({ name: '', position: '', ooo: false, ooo_return_date: '', flex_notes: '' })
+  const [editStaff, setEditStaff] = useState({ name: '', position: '', ooo: false, ooo_return_date: '', flex_notes: '', slack_user_id: '' })
   const [inlineAssignment, setInlineAssignment] = useState({ project_id: '', assignment_role: '' })
   const [csvErrors, setCsvErrors] = useState<string[]>([])
   const [staffSort, setStaffSort] = useState<'default' | 'az' | 'za'>('az')
@@ -365,13 +367,13 @@ export default function StaffingApp() {
   }
 
   function startEditStaff(s: Staff) {
-    setEditStaff({ name: s.name, position: s.position ?? '', ooo: s.ooo, ooo_return_date: s.ooo_return_date ?? '', flex_notes: s.flex_notes ?? '' })
+    setEditStaff({ name: s.name, position: s.position ?? '', ooo: s.ooo, ooo_return_date: s.ooo_return_date ?? '', flex_notes: s.flex_notes ?? '', slack_user_id: s.slack_user_id ?? '' })
     setEditingStaffId(s.id)
   }
 
   async function saveStaff(id: string) {
     if (!editStaff.name.trim()) return
-    const updates = { name: editStaff.name.trim(), position: editStaff.position || null, ooo: editStaff.ooo, ooo_return_date: editStaff.ooo_return_date || null, flex_notes: editStaff.flex_notes.trim() || null }
+    const updates = { name: editStaff.name.trim(), position: editStaff.position || null, ooo: editStaff.ooo, ooo_return_date: editStaff.ooo_return_date || null, flex_notes: editStaff.flex_notes.trim() || null, slack_user_id: editStaff.slack_user_id.trim() || null }
     const { data } = await supabase.from('staff').update(updates).eq('id', id).select().single()
     if (data) {
       setStaff(staff.map(s => s.id === id ? data : s))
@@ -762,6 +764,30 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
   function stepWeeklyTarget(p: Project, delta: number) {
     const cur = weeklyDrafts[p.id] != null ? (Number(weeklyDrafts[p.id]) || 0) : (p.weekly_target ?? 0)
     updateWeeklyTarget(p.id, String(Math.max(0, cur + delta)))
+  }
+
+  async function requestMilestoneUpdate(p: Project) {
+    setSlackReqStatus(prev => ({ ...prev, [p.id]: 'sending' }))
+    const openMs = [...milestones.filter(m => m.project_id === p.id && !m.done)]
+      .sort((a, b) => priorityRank(a.priority) - priorityRank(b.priority) || a.created_at.localeCompare(b.created_at))
+      .map(m => `${m.priority} — ${m.title}${m.due_date ? ` (due ${m.due_date})` : ''}`)
+    const stoMention = assignments
+      .filter(a => a.project_id === p.id && a.assignment_role === 'STO')
+      .map(a => staff.find(s => s.id === a.staff_id))
+      .filter((s): s is Staff => !!s)
+      .map(s => s.slack_user_id ? `<@${s.slack_user_id}>` : s.name)
+      .join(', ')
+    try {
+      const res = await fetch('/api/slack/request-update', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projectName: p.name, milestones: openMs, weeklyTarget: p.weekly_target, stoMention }),
+      })
+      const data = await res.json().catch(() => ({}))
+      setSlackReqStatus(prev => ({ ...prev, [p.id]: res.ok && data.ok ? 'sent' : 'error' }))
+    } catch {
+      setSlackReqStatus(prev => ({ ...prev, [p.id]: 'error' }))
+    }
   }
 
   function startEditMilestone(m: Milestone) {
@@ -1270,6 +1296,13 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                                 placeholder="Flex notes"
                                 value={editStaff.flex_notes}
                                 onChange={e => setEditStaff({ ...editStaff, flex_notes: e.target.value })}
+                              />
+                              <input
+                                type="text"
+                                className={inputSmClass + ' mt-1'}
+                                placeholder="Slack user ID (e.g. U0123ABCD)"
+                                value={editStaff.slack_user_id}
+                                onChange={e => setEditStaff({ ...editStaff, slack_user_id: e.target.value })}
                               />
                             </td>
                             <td className="py-2 pr-2 align-top">
@@ -2917,7 +2950,23 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                     <div key={p.id} className="border border-gray-800 rounded-xl p-5 bg-gray-900/40">
                       <div className="flex items-center justify-between mb-4">
                         <h3 className="font-semibold text-gray-100">{p.name}</h3>
-                        {ms.length > 0 && <span className="text-xs text-gray-500">{pDone}/{ms.length} done</span>}
+                        <div className="flex items-center gap-3">
+                          {ms.length > 0 && <span className="text-xs text-gray-500">{pDone}/{ms.length} done</span>}
+                          <button
+                            onClick={() => requestMilestoneUpdate(p)}
+                            disabled={slackReqStatus[p.id] === 'sending'}
+                            className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${
+                              slackReqStatus[p.id] === 'sent' ? 'border-emerald-500/40 text-emerald-400' :
+                              slackReqStatus[p.id] === 'error' ? 'border-red-500/40 text-red-400' :
+                              'border-gray-700 text-gray-400 hover:text-gray-200'
+                            }`}
+                          >
+                            {slackReqStatus[p.id] === 'sending' ? 'Requesting…' :
+                             slackReqStatus[p.id] === 'sent' ? '✓ Requested in Slack' :
+                             slackReqStatus[p.id] === 'error' ? '⚠ Failed — retry' :
+                             '💬 Request update'}
+                          </button>
+                        </div>
                       </div>
                       <div className="flex items-center gap-2 mb-4">
                         <span className="text-xs text-gray-500">Production plan (this week):</span>
