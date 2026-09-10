@@ -19,7 +19,7 @@ export async function POST(request: Request) {
     }).then(r => r.json())
 
   // 1) Parent message starts the thread
-  const parent = await post({ text: `:mega: Update requested on *${projectName}*` })
+  const parent = await post({ text: `:thread: Update requested on *${projectName}*` })
   if (!parent.ok) {
     return NextResponse.json({ error: `Slack error: ${parent.error}` }, { status: 500 })
   }
