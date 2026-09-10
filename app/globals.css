@@ -34,3 +34,8 @@ html.light {
   color-scheme: light;
   --color-amber-400: oklch(55% 0.16 68); /* darken amber for readability on light bg */
 }
+
+/* Hide native number-input spinners (we provide custom +/- steppers) */
+.no-spin::-webkit-outer-spin-button,
+.no-spin::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.no-spin { -moz-appearance: textfield; appearance: textfield; }

@@ -15,6 +15,7 @@ type Project = {
   emoji: string | null
   is_pilot: boolean
   is_internal: boolean
+  weekly_target: number | null
 }
 
 const PROJECT_EMOJIS = ['📁', '🚀', '🎯', '🔥', '⭐', '🧪', '🤖', '🛡️', '📊', '💡', '⚙️', '🧠', '🌐', '📈', '🏆', '🐛', '🔒', '📝', '🎨', '⚡', '🧩', '📦', '🔧', '🩺', '💬', '🎓', '🗂️', '✅', '🔬', '🛰️', '📡', '💻', '📱', '☁️', '🔑', '🧵', '📐', '🕹️', '🎬', '🎧', '📷', '🏗️', '🚦', '🧭', '⏱️', '📅', '💰', '🏦', '⚖️', '🩹', '🧬', '🔭', '🌟', '💎', '🎲', '🃏', '🐙', '🦾', '👾', '🦉']
@@ -111,6 +112,7 @@ export default function StaffingApp() {
   const [milestoneDrafts, setMilestoneDrafts] = useState<Record<string, { title: string; priority: string; due_date: string }>>({})
   const [hideEmptyMilestoneProjects, setHideEmptyMilestoneProjects] = useState(false)
   const [showCompletedMilestones, setShowCompletedMilestones] = useState(false)
+  const [weeklyDrafts, setWeeklyDrafts] = useState<Record<string, string>>({})
   const [addingMilestoneProjectId, setAddingMilestoneProjectId] = useState<string | null>(null)
   const [editingMilestoneId, setEditingMilestoneId] = useState<string | null>(null)
   const [editMilestone, setEditMilestone] = useState({ title: '', due_date: '' })
@@ -749,6 +751,17 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
   async function deleteMilestone(id: string) {
     await supabase.from('milestones').delete().eq('id', id)
     setMilestones(milestones.filter(m => m.id !== id))
+  }
+
+  async function updateWeeklyTarget(id: string, raw: string) {
+    const n = raw.trim() === '' ? null : Math.max(0, Math.floor(Number(raw)) || 0)
+    const { data } = await supabase.from('projects').update({ weekly_target: n }).eq('id', id).select().single()
+    if (data) setProjects(prev => prev.map(p => p.id === id ? data : p))
+    setWeeklyDrafts(prev => { const c = { ...prev }; delete c[id]; return c })
+  }
+  function stepWeeklyTarget(p: Project, delta: number) {
+    const cur = weeklyDrafts[p.id] != null ? (Number(weeklyDrafts[p.id]) || 0) : (p.weekly_target ?? 0)
+    updateWeeklyTarget(p.id, String(Math.max(0, cur + delta)))
   }
 
   function startEditMilestone(m: Milestone) {
@@ -2905,6 +2918,24 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                       <div className="flex items-center justify-between mb-4">
                         <h3 className="font-semibold text-gray-100">{p.name}</h3>
                         {ms.length > 0 && <span className="text-xs text-gray-500">{pDone}/{ms.length} done</span>}
+                      </div>
+                      <div className="flex items-center gap-2 mb-4">
+                        <span className="text-xs text-gray-500">Production plan (this week):</span>
+                        <div className="flex items-center border border-gray-700 rounded-lg overflow-hidden">
+                          <button onClick={() => stepWeeklyTarget(p, -1)} className="px-2.5 py-1 text-gray-400 hover:text-white hover:bg-gray-800 transition-colors leading-none">−</button>
+                          <input
+                            type="number"
+                            min="0"
+                            className="no-spin w-14 bg-transparent text-center text-sm text-gray-100 focus:outline-none py-1"
+                            placeholder="—"
+                            value={weeklyDrafts[p.id] ?? (p.weekly_target != null ? String(p.weekly_target) : '')}
+                            onChange={e => setWeeklyDrafts(prev => ({ ...prev, [p.id]: e.target.value }))}
+                            onBlur={e => updateWeeklyTarget(p.id, e.target.value)}
+                            onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
+                          />
+                          <button onClick={() => stepWeeklyTarget(p, 1)} className="px-2.5 py-1 text-gray-400 hover:text-white hover:bg-gray-800 transition-colors leading-none">+</button>
+                        </div>
+                        {p.weekly_target != null && <span className="text-xs text-gray-600">task{p.weekly_target === 1 ? '' : 's'} planned</span>}
                       </div>
                       {visibleMs.length > 0 && (
                         <div className="space-y-1.5 mb-3">
