@@ -121,7 +121,7 @@ export default function StaffingApp() {
   const [slackPermalinks, setSlackPermalinks] = useState<Record<string, string>>({})
   const [bulkSlack, setBulkSlack] = useState<{ done: number; total: number } | null>(null)
   const [confirmEmptyUpdate, setConfirmEmptyUpdate] = useState<Project | null>(null)
-  const [pendingSlackIds, setPendingSlackIds] = useState<{ project: Project; stos: { id: string; name: string }[] } | null>(null)
+  const [pendingSlackIds, setPendingSlackIds] = useState<{ project: Project; people: { id: string; name: string; role: string }[] } | null>(null)
   const [slackIdInputs, setSlackIdInputs] = useState<Record<string, string>>({})
   const [overviewStatus, setOverviewStatus] = useState<'idle' | 'sending' | 'sent' | 'error' | 'empty'>('idle')
   const [overviewPermalink, setOverviewPermalink] = useState<string | null>(null)
@@ -816,17 +816,21 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
     proceedRequest(p)
   }
 
-  // Prompt for missing STO Slack IDs before sending; otherwise send directly
+  // Prompt for missing STO/Supervisor Slack IDs before sending; otherwise send directly
   function proceedRequest(p: Project) {
-    const missingStos = assignments
-      .filter(a => a.project_id === p.id && a.assignment_role === 'STO')
-      .map(a => staff.find(s => s.id === a.staff_id))
-      .filter((s): s is Staff => !!s && !s.slack_user_id)
-    // de-dupe by staff id
-    const unique = Array.from(new Map(missingStos.map(s => [s.id, s])).values())
-    if (unique.length > 0) {
+    const missing = assignments
+      .filter(a => a.project_id === p.id && (a.assignment_role === 'STO' || a.assignment_role === 'Supervisor'))
+      .map(a => ({ role: a.assignment_role as string, staff: staff.find(s => s.id === a.staff_id) }))
+      .filter((x): x is { role: string; staff: Staff } => !!x.staff && !x.staff.slack_user_id)
+    // de-dupe by staff id (keep first role seen)
+    const seen = new Map<string, { id: string; name: string; role: string }>()
+    for (const x of missing) {
+      if (!seen.has(x.staff.id)) seen.set(x.staff.id, { id: x.staff.id, name: x.staff.name, role: x.role })
+    }
+    const people = Array.from(seen.values())
+    if (people.length > 0) {
       setSlackIdInputs({})
-      setPendingSlackIds({ project: p, stos: unique.map(s => ({ id: s.id, name: s.name })) })
+      setPendingSlackIds({ project: p, people })
     } else {
       requestMilestoneUpdate(p)
     }
@@ -836,12 +840,12 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
     if (!pendingSlackIds) return
     const p = pendingSlackIds.project
     const override: Record<string, string> = {}
-    for (const sto of pendingSlackIds.stos) {
-      const val = (slackIdInputs[sto.id] ?? '').trim()
+    for (const person of pendingSlackIds.people) {
+      const val = (slackIdInputs[person.id] ?? '').trim()
       if (val) {
-        override[sto.id] = val
-        const { data } = await supabase.from('staff').update({ slack_user_id: val }).eq('id', sto.id).select().single()
-        if (data) setStaff(prev => prev.map(s => s.id === sto.id ? data : s))
+        override[person.id] = val
+        const { data } = await supabase.from('staff').update({ slack_user_id: val }).eq('id', person.id).select().single()
+        if (data) setStaff(prev => prev.map(s => s.id === person.id ? data : s))
       }
     }
     setPendingSlackIds(null)
@@ -3273,28 +3277,29 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
       {pendingSlackIds && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => { setPendingSlackIds(null); setSlackIdInputs({}) }}>
           <div className="bg-gray-900 border border-gray-700 rounded-xl p-6 w-96 shadow-xl" onClick={e => e.stopPropagation()}>
-            <p className="text-sm font-semibold text-gray-100 mb-1">Add STO Slack ID{pendingSlackIds.stos.length > 1 ? 's' : ''}</p>
+            <p className="text-sm font-semibold text-gray-100 mb-1">Add Slack ID{pendingSlackIds.people.length > 1 ? 's' : ''}</p>
             <p className="text-xs text-gray-500 mb-4">
-              The STO{pendingSlackIds.stos.length > 1 ? 's' : ''} for <span className="text-gray-300">{pendingSlackIds.project.name}</span> {pendingSlackIds.stos.length > 1 ? "don't" : "doesn't"} have a Slack ID yet. Add it to tag them (Slack profile → ⋮ → Copy member ID). Saved to their staff profile.
+              {pendingSlackIds.people.length > 1 ? 'Some people' : 'This person'} on <span className="text-gray-300">{pendingSlackIds.project.name}</span> {pendingSlackIds.people.length > 1 ? "don't" : "doesn't"} have a Slack ID yet. Add it to tag them (Slack profile → ⋮ → Copy member ID). Saved to their staff profile.
             </p>
             <div className="space-y-2 mb-4">
-              {pendingSlackIds.stos.map(sto => (
-                <div key={sto.id} className="flex items-center gap-2">
-                  <span className="text-xs text-gray-300 w-32 truncate">{sto.name}</span>
+              {pendingSlackIds.people.map((person, i) => (
+                <div key={person.id} className="flex items-center gap-2">
+                  <span className="text-xs text-gray-300 w-36 truncate">{person.name} <span className="text-gray-600">({person.role})</span></span>
                   <input
                     type="text"
-                    autoFocus
+                    autoFocus={i === 0}
                     className={inputSmClass + ' flex-1'}
                     placeholder="U0123ABCD"
-                    value={slackIdInputs[sto.id] ?? ''}
-                    onChange={e => setSlackIdInputs(prev => ({ ...prev, [sto.id]: e.target.value }))}
+                    value={slackIdInputs[person.id] ?? ''}
+                    onChange={e => setSlackIdInputs(prev => ({ ...prev, [person.id]: e.target.value }))}
                     onKeyDown={e => e.key === 'Enter' && submitSlackIdsAndRequest()}
                   />
                 </div>
               ))}
             </div>
             <div className="flex gap-2 justify-end">
-              <button className={btnCancel} onClick={() => { const p = pendingSlackIds.project; setPendingSlackIds(null); setSlackIdInputs({}); requestMilestoneUpdate(p) }}>Skip &amp; send</button>
+              <button className={btnCancel} onClick={() => { setPendingSlackIds(null); setSlackIdInputs({}) }}>Cancel</button>
+              <button className={btnEdit} onClick={() => { const p = pendingSlackIds.project; setPendingSlackIds(null); setSlackIdInputs({}); requestMilestoneUpdate(p) }}>Skip &amp; send</button>
               <button className={btnPrimary} style={{ backgroundColor: '#193a29' }} onClick={submitSlackIdsAndRequest}>Save &amp; request</button>
             </div>
           </div>
