@@ -9,7 +9,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'SLACK_BOT_TOKEN is not configured on the server.' }, { status: 500 })
   }
 
-  const { projectName, milestones, weeklyTarget, stoMention } = await request.json()
+  const { projectName, milestones, weeklyTarget, stoMention, supMention, requesterMention } = await request.json()
 
   const post = (body: Record<string, unknown>) =>
     fetch('https://slack.com/api/chat.postMessage', {
@@ -54,9 +54,13 @@ export async function POST(request: Request) {
     }
   }
 
-  if (stoMention) {
+  const tags: string[] = []
+  if (stoMention) tags.push(`STO: ${stoMention}`)
+  if (supMention) tags.push(`Supervisor: ${supMention}`)
+  if (requesterMention) tags.push(`cc: ${requesterMention}`)
+  if (tags.length > 0) {
     lines.push('')
-    lines.push(`STO: ${stoMention}`)
+    lines.push(...tags)
   }
 
   const reply = await post({ thread_ts: parent.ts, text: lines.join('\n') })

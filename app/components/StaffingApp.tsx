@@ -20,6 +20,9 @@ type Project = {
 
 const PROJECT_EMOJIS = ['📁', '🚀', '🎯', '🔥', '⭐', '🧪', '🤖', '🛡️', '📊', '💡', '⚙️', '🧠', '🌐', '📈', '🏆', '🐛', '🔒', '📝', '🎨', '⚡', '🧩', '📦', '🔧', '🩺', '💬', '🎓', '🗂️', '✅', '🔬', '🛰️', '📡', '💻', '📱', '☁️', '🔑', '🧵', '📐', '🕹️', '🎬', '🎧', '📷', '🏗️', '🚦', '🧭', '⏱️', '📅', '💰', '🏦', '⚖️', '🩹', '🧬', '🔭', '🌟', '💎', '🎲', '🃏', '🐙', '🦾', '👾', '🦉']
 
+// The person who owns this tool — always cc'd on update requests
+const REQUESTER_SLACK_MENTION = '<@U020EEUSPPT>'
+
 type Staff = {
   id: string
   name: string
@@ -778,8 +781,8 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
     const openMs = [...milestones.filter(m => m.project_id === p.id && !m.done)]
       .sort((a, b) => priorityRank(a.priority) - priorityRank(b.priority) || a.created_at.localeCompare(b.created_at))
       .map(m => `${m.priority} — ${m.title}${m.due_date ? ` (due ${m.due_date})` : ''}`)
-    const stoMention = assignments
-      .filter(a => a.project_id === p.id && a.assignment_role === 'STO')
+    const mentionFor = (role: string) => assignments
+      .filter(a => a.project_id === p.id && a.assignment_role === role)
       .map(a => staff.find(s => s.id === a.staff_id))
       .filter((s): s is Staff => !!s)
       .map(s => {
@@ -787,11 +790,13 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
         return sid ? `<@${sid}>` : s.name
       })
       .join(', ')
+    const stoMention = mentionFor('STO')
+    const supMention = mentionFor('Supervisor')
     try {
       const res = await fetch('/api/slack/request-update', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ projectName: p.name, milestones: openMs, weeklyTarget: p.weekly_target, stoMention }),
+        body: JSON.stringify({ projectName: p.name, milestones: openMs, weeklyTarget: p.weekly_target, stoMention, supMention, requesterMention: REQUESTER_SLACK_MENTION }),
       })
       const data = await res.json().catch(() => ({}))
       const ok = res.ok && data.ok
