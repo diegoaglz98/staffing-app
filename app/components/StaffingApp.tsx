@@ -157,6 +157,8 @@ export default function StaffingApp() {
   const [hideAssigned, setHideAssigned] = useState(false)
   const [hideAssignedInDropdown, setHideAssignedInDropdown] = useState(false)
   const [projectSort, setProjectSort] = useState<{ col: string; dir: 'az' | 'za' }>({ col: 'status', dir: 'az' })
+  const [projectSearch, setProjectSearch] = useState('')
+  const [assignmentSearch, setAssignmentSearch] = useState('')
   const [showSupervisorsInChart, setShowSupervisorsInChart] = useState(false)
   const [customerActiveOnly, setCustomerActiveOnly] = useState(false)
   const [excludePilots, setExcludePilots] = useState(false)
@@ -1184,6 +1186,19 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
               </div>
             </div>
 
+            <div className="mb-4 relative">
+              <input
+                className={inputClass + ' w-full pl-9'}
+                placeholder="Search project names…"
+                value={projectSearch}
+                onChange={e => setProjectSearch(e.target.value)}
+              />
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-sm pointer-events-none">🔍</span>
+              {projectSearch && (
+                <button onClick={() => setProjectSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300 text-sm">✕</button>
+              )}
+            </div>
+
             {projects.length === 0 ? (
               <p className="text-gray-600 text-sm">No projects yet.</p>
             ) : (
@@ -1213,7 +1228,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                   </tr>
                 </thead>
                 <tbody>
-                  {sortedProjects(projects.filter(p => visibleStatuses[p.status])).map((p, idx) => {
+                  {sortedProjects(projects.filter(p => visibleStatuses[p.status] && p.name.toLowerCase().includes(projectSearch.trim().toLowerCase()))).map((p, idx) => {
                     const count = assignments.filter(a => a.project_id === p.id).length
                     const isEditing = editingProjectId === p.id
                     return (
@@ -1303,7 +1318,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                   })}
                 </tbody>
               </table>
-              <p className="text-xs text-gray-500 mt-4">Total projects in list: <span className="text-gray-300 font-medium">{projects.filter(p => visibleStatuses[p.status]).length}</span></p>
+              <p className="text-xs text-gray-500 mt-4">Total projects in list: <span className="text-gray-300 font-medium">{projects.filter(p => visibleStatuses[p.status] && p.name.toLowerCase().includes(projectSearch.trim().toLowerCase())).length}</span></p>
               </>
             )}
           </div>
@@ -1716,6 +1731,19 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
               )}
             </div>
 
+            <div className="mb-4 relative">
+              <input
+                className={inputClass + ' w-full pl-9'}
+                placeholder="Search project names…"
+                value={assignmentSearch}
+                onChange={e => setAssignmentSearch(e.target.value)}
+              />
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-sm pointer-events-none">🔍</span>
+              {assignmentSearch && (
+                <button onClick={() => setAssignmentSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300 text-sm">✕</button>
+              )}
+            </div>
+
             {/* Two-column layout */}
             <div className="flex gap-6 items-start">
 
@@ -1818,7 +1846,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
             {/* Left: project list */}
             <div className="flex-1 min-w-0">
             {groupBySupervisor ? (() => {
-              const visibleProjects = [...projects].filter(p => visibleStatuses[p.status])
+              const visibleProjects = [...projects].filter(p => visibleStatuses[p.status] && p.name.toLowerCase().includes(assignmentSearch.trim().toLowerCase()))
               const groupsMap = new Map<string, { key: string; name: string; items: { project: Project; members: Assignment[]; viaSTO: boolean }[] }>()
               const ensure = (key: string, name: string) => {
                 if (!groupsMap.has(key)) groupsMap.set(key, { key, name, items: [] })
@@ -2016,7 +2044,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
               <p className="text-gray-600 text-sm">Add projects first.</p>
             ) : (
               <div className="space-y-3">
-                {[...projects].filter(p => visibleStatuses[p.status]).filter(p => {
+                {[...projects].filter(p => visibleStatuses[p.status] && p.name.toLowerCase().includes(assignmentSearch.trim().toLowerCase())).filter(p => {
                   if (!supervisorFilter) return true
                   const hasSupervisor = assignments.some(a => a.project_id === p.id && a.assignment_role === 'Supervisor')
                   if (supervisorFilter === '__none__') return !hasSupervisor
