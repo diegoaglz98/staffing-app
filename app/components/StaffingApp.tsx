@@ -174,6 +174,7 @@ export default function StaffingApp() {
   const [groupBySupervisor, setGroupBySupervisor] = useState(false)
   const [editingStaffAssignmentId, setEditingStaffAssignmentId] = useState<string | null>(null)
   const [confirmClearInactive, setConfirmClearInactive] = useState(false)
+  const [confirmClearAll, setConfirmClearAll] = useState(false)
   const [logoSpins, setLogoSpins] = useState(0)
   const [emojiPickerProjectId, setEmojiPickerProjectId] = useState<string | null>(null)
   const [customEmoji, setCustomEmoji] = useState('')
@@ -329,6 +330,14 @@ export default function StaffingApp() {
     const inactiveProjectIds = new Set(projects.filter(p => INACTIVE_STATUSES.includes(p.status)).map(p => p.id))
     return assignments.filter(a => inactiveProjectIds.has(a.project_id)).map(a => a.id)
   }
+  async function clearAllAssignments() {
+    setConfirmClearAll(false)
+    if (assignments.length === 0) return
+    const { error } = await supabase.from('assignments').delete().neq('id', '00000000-0000-0000-0000-000000000000')
+    if (error) { console.error('clearAllAssignments failed', error); return }
+    setAssignments([])
+  }
+
   async function clearInactiveStaffing() {
     setConfirmClearInactive(false)
     const inactiveProjectIds = projects.filter(p => INACTIVE_STATUSES.includes(p.status)).map(p => p.id)
@@ -1635,6 +1644,14 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                     </button>
                   ) : null
                 })()}
+                {assignments.length > 0 && (
+                  <button
+                    onClick={() => setConfirmClearAll(true)}
+                    className="text-xs px-3 py-1.5 rounded-lg border border-red-500/30 text-red-400 hover:bg-red-500/10 transition-colors whitespace-nowrap"
+                  >
+                    Clear all assignments ({assignments.length})
+                  </button>
+                )}
                 </div>
               </div>
               <div className="flex flex-wrap gap-2">
@@ -3350,6 +3367,21 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
               >
                 Yes, request update
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {confirmClearAll && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setConfirmClearAll(false)}>
+          <div className="bg-gray-900 border border-gray-700 rounded-xl p-6 w-96 shadow-xl" onClick={e => e.stopPropagation()}>
+            <p className="text-sm font-semibold text-gray-100 mb-2">Clear ALL assignments?</p>
+            <p className="text-xs text-gray-400 mb-5">
+              This permanently removes <span className="text-red-400 font-medium">all {assignments.length} assignment{assignments.length === 1 ? '' : 's'}</span> from <span className="text-gray-200">every project</span>, freeing up all staff. This can&apos;t be undone.
+            </p>
+            <div className="flex gap-2 justify-end">
+              <button className={btnCancel} onClick={() => setConfirmClearAll(false)}>Cancel</button>
+              <button className={btnPrimary} style={{ backgroundColor: '#193a29' }} onClick={clearAllAssignments}>Clear all</button>
             </div>
           </div>
         </div>
