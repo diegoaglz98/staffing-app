@@ -123,6 +123,7 @@ export default function StaffingApp() {
   const [dragOverOrgId, setDragOverOrgId] = useState<string | null>(null)
   const [collapsedOrg, setCollapsedOrg] = useState<Record<string, boolean>>({})
   const [orgShowConsultants, setOrgShowConsultants] = useState(true)
+  const [orgColorsOn, setOrgColorsOn] = useState(true)
   const [pendingOrgRemove, setPendingOrgRemove] = useState<string | null>(null)
   const [milestoneDrafts, setMilestoneDrafts] = useState<Record<string, { title: string; priority: string; due_date: string }>>({})
   const [hideEmptyMilestoneProjects, setHideEmptyMilestoneProjects] = useState(false)
@@ -3393,10 +3394,11 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
           const parentOf = (sid: string) => orgChart.find(n => n.staff_id === sid)?.parent_staff_id ?? null
           const isConsultant = (sid: string) => staff.find(s => s.id === sid)?.position === 'GenAI Consultant'
           const orgColor = (sid: string) => {
+            if (!orgColorsOn) return 'border-gray-700 bg-gray-900'                                // colors off → all neutral
             if (root && sid === root.staff_id) return 'border-amber-500/60 bg-amber-500/15'      // org leader
             if (isConsultant(sid)) return 'border-violet-500/50 bg-violet-500/15'                 // consultants
             if (root && parentOf(sid) === root.staff_id) return 'border-emerald-500/50 bg-emerald-500/15' // direct reports
-            return 'border-gray-700 bg-gray-900'                                                  // everyone else
+            return 'border-sky-500/50 bg-sky-500/15'                                              // everyone else
           }
           const isAncestorOrSelf = (ancestor: string, node: string) => {
             let cur: string | null = node
@@ -3492,12 +3494,15 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                 {root && (
                   <div className="flex justify-between items-center gap-4 mb-3 flex-wrap">
                     <div className="flex items-center gap-4 flex-wrap text-[11px] text-gray-500">
-                      <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-amber-500/70 border border-amber-500" /> Org leader</span>
-                      <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-emerald-500/70 border border-emerald-500" /> Direct reports</span>
-                      <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-violet-500/70 border border-violet-500" /> Consultants</span>
-                      <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-gray-700 border border-gray-600" /> Everyone else</span>
+                      {orgColorsOn && <>
+                        <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-amber-500/70 border border-amber-500" /> Org leader</span>
+                        <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-emerald-500/70 border border-emerald-500" /> Direct reports</span>
+                        <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-violet-500/70 border border-violet-500" /> Consultants</span>
+                        <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-sky-500/70 border border-sky-500" /> Everyone else</span>
+                      </>}
                     </div>
                     <div className="flex items-center gap-3">
+                      {toggleSwitch(orgColorsOn, () => setOrgColorsOn(v => !v), 'Colors')}
                       {toggleSwitch(orgShowConsultants, () => setOrgShowConsultants(v => !v), 'Show consultants')}
                       <button onClick={() => exportOrgChart('download')} className="text-xs px-3 py-1.5 rounded-lg border border-gray-700 text-gray-400 hover:text-gray-200 transition-colors">Download PNG</button>
                       <button onClick={() => exportOrgChart('print')} className="text-xs px-3 py-1.5 rounded-lg border border-gray-700 text-gray-400 hover:text-gray-200 transition-colors">Print</button>
