@@ -121,6 +121,8 @@ export default function StaffingApp() {
   const [orgChart, setOrgChart] = useState<OrgNode[]>([])
   const [orgUnassignedOnly, setOrgUnassignedOnly] = useState(true)
   const [dragOverOrgId, setDragOverOrgId] = useState<string | null>(null)
+  const [collapsedOrg, setCollapsedOrg] = useState<Record<string, boolean>>({})
+  const [pendingOrgRemove, setPendingOrgRemove] = useState<string | null>(null)
   const [milestoneDrafts, setMilestoneDrafts] = useState<Record<string, { title: string; priority: string; due_date: string }>>({})
   const [hideEmptyMilestoneProjects, setHideEmptyMilestoneProjects] = useState(false)
   const [showCompletedMilestones, setShowCompletedMilestones] = useState(false)
@@ -813,6 +815,37 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
     }
     await supabase.from('org_chart').delete().in('staff_id', Array.from(toRemove))
     setOrgChart(prev => prev.filter(n => !toRemove.has(n.staff_id)))
+  }
+  async function removeOrgReattach(staffId: string) {
+    const newParent = orgChart.find(n => n.staff_id === staffId)?.parent_staff_id ?? null
+    const kids = orgChart.filter(n => n.parent_staff_id === staffId)
+    for (const k of kids) {
+      await supabase.from('org_chart').update({ parent_staff_id: newParent }).eq('staff_id', k.staff_id)
+    }
+    await supabase.from('org_chart').delete().eq('staff_id', staffId)
+    setOrgChart(prev => prev
+      .filter(n => n.staff_id !== staffId)
+      .map(n => n.parent_staff_id === staffId ? { ...n, parent_staff_id: newParent } : n))
+  }
+
+  async function exportOrgChart(mode: 'download' | 'print') {
+    const el = document.getElementById('org-chart-capture')
+    if (!el) return
+    const { toPng } = await import('html-to-image')
+    const bg = document.documentElement.classList.contains('light') ? '#ffffff' : '#030712'
+    const dataUrl = await toPng(el, { backgroundColor: bg, pixelRatio: 2, cacheBust: true })
+    if (mode === 'download') {
+      const a = document.createElement('a')
+      a.href = dataUrl
+      a.download = `org-chart-${new Date().toISOString().split('T')[0]}.png`
+      a.click()
+    } else {
+      const w = window.open('')
+      if (w) {
+        w.document.write(`<img src="${dataUrl}" style="max-width:100%" onload="window.print()" />`)
+        w.document.close()
+      }
+    }
   }
 
   function stepWeeklyTarget(p: Project, delta: number) {
@@ -3384,6 +3417,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
             const s = staff.find(x => x.id === staffId)
             const kids = childrenOf(staffId)
             const over = dragOverOrgId === staffId
+            const collapsed = !!collapsedOrg[staffId]
             return (
               <li key={staffId}>
                 <div
@@ -3396,11 +3430,24 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                 >
                   <div className="flex items-center gap-2">
                     <span className="text-sm font-medium text-gray-100 whitespace-nowrap">{s?.emoji ? `${s.emoji} ` : ''}{s?.name ?? 'Unknown'}</span>
-                    <button onClick={() => removeFromOrg(staffId)} title="Remove from chart (and anyone below)" className="text-gray-500 hover:text-red-400 leading-none text-xs">✕</button>
+                    <button
+                      onClick={() => { if (kids.length > 0) setPendingOrgRemove(staffId); else removeFromOrg(staffId) }}
+                      title="Remove from chart"
+                      className="text-gray-500 hover:text-red-400 leading-none text-xs"
+                    >✕</button>
                   </div>
                   {s?.position && <p className="text-[11px] text-gray-500 whitespace-nowrap">{s.position}</p>}
+                  {kids.length > 0 && (
+                    <button
+                      onClick={() => setCollapsedOrg(prev => ({ ...prev, [staffId]: !prev[staffId] }))}
+                      title={collapsed ? 'Expand' : 'Collapse'}
+                      className="mt-1 text-[10px] text-gray-500 hover:text-gray-200 transition-colors"
+                    >
+                      {collapsed ? `▸ ${kids.length} report${kids.length === 1 ? '' : 's'}` : '▾ collapse'}
+                    </button>
+                  )}
                 </div>
-                {kids.length > 0 && <ul>{kids.map(renderNode)}</ul>}
+                {kids.length > 0 && !collapsed && <ul>{kids.map(renderNode)}</ul>}
               </li>
             )
           }
@@ -3433,6 +3480,12 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
 
               {/* Right: the chart */}
               <div className="flex-1 min-w-0 overflow-x-auto">
+                {root && (
+                  <div className="flex justify-end gap-2 mb-3">
+                    <button onClick={() => exportOrgChart('download')} className="text-xs px-3 py-1.5 rounded-lg border border-gray-700 text-gray-400 hover:text-gray-200 transition-colors">Download PNG</button>
+                    <button onClick={() => exportOrgChart('print')} className="text-xs px-3 py-1.5 rounded-lg border border-gray-700 text-gray-400 hover:text-gray-200 transition-colors">Print</button>
+                  </div>
+                )}
                 {!root ? (
                   <div
                     onDragOver={e => { e.preventDefault(); setDragOverOrgId('root') }}
@@ -3443,7 +3496,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                     <p className="text-sm text-gray-500 px-6">Drag the top person here to start the org chart.<br /><span className="text-xs text-gray-600">Then drop others onto a card to place them underneath.</span></p>
                   </div>
                 ) : (
-                  <div className="org-tree py-4">
+                  <div id="org-chart-capture" className="org-tree py-4 pr-4">
                     <ul>{renderNode(root.staff_id)}</ul>
                   </div>
                 )}
@@ -3506,6 +3559,43 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
           </div>
         </div>
       )}
+
+      {pendingOrgRemove && (() => {
+        const s = staff.find(x => x.id === pendingOrgRemove)
+        const node = orgChart.find(n => n.staff_id === pendingOrgRemove)
+        const isRoot = node ? !node.parent_staff_id : false
+        const managerName = node?.parent_staff_id ? staff.find(x => x.id === node.parent_staff_id)?.name : null
+        const kidCount = orgChart.filter(n => n.parent_staff_id === pendingOrgRemove).length
+        return (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setPendingOrgRemove(null)}>
+            <div className="bg-gray-900 border border-gray-700 rounded-xl p-6 w-96 shadow-xl" onClick={e => e.stopPropagation()}>
+              <p className="text-sm font-semibold text-gray-100 mb-2">Remove {s?.name} from the chart</p>
+              <p className="text-xs text-gray-400 mb-5">
+                {s?.name} has {kidCount} direct report{kidCount === 1 ? '' : 's'}. What should happen to {kidCount === 1 ? 'them' : 'those below'}?
+              </p>
+              <div className="flex flex-col gap-2">
+                {!isRoot && (
+                  <button
+                    className="text-sm px-4 py-2 rounded-lg text-white font-medium hover:brightness-125 transition-colors"
+                    style={{ backgroundColor: '#193a29' }}
+                    onClick={() => { const id = pendingOrgRemove; setPendingOrgRemove(null); removeOrgReattach(id) }}
+                  >
+                    Remove only {s?.name} — move reports up{managerName ? ` to ${managerName}` : ''}
+                  </button>
+                )}
+                <button
+                  className="text-sm px-4 py-2 rounded-lg border border-red-500/40 text-red-400 hover:bg-red-500/10 transition-colors"
+                  onClick={() => { const id = pendingOrgRemove; setPendingOrgRemove(null); removeFromOrg(id) }}
+                >
+                  Remove {s?.name} and everyone below
+                </button>
+                <button className={btnCancel + ' mt-1'} onClick={() => setPendingOrgRemove(null)}>Cancel</button>
+              </div>
+              {isRoot && <p className="text-[11px] text-gray-600 mt-3">This is the top of the chart, so reports can&apos;t move up — removing takes the whole chart with it.</p>}
+            </div>
+          </div>
+        )
+      })()}
 
       {confirmClearAll && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setConfirmClearAll(false)}>
