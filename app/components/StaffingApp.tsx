@@ -1184,7 +1184,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
         </div>
       </div>
 
-      <div className="max-w-4xl mx-auto px-8 py-8">
+      <div className={`${tab === 'orgchart' ? 'max-w-none' : 'max-w-4xl'} mx-auto px-8 py-8`}>
         {/* Tabs */}
         <div className="flex gap-1 mb-8 bg-gray-900 rounded-xl p-1 w-fit">
           {([
