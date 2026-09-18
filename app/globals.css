@@ -39,3 +39,22 @@ html.light {
 .no-spin::-webkit-outer-spin-button,
 .no-spin::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
 .no-spin { -moz-appearance: textfield; appearance: textfield; }
+
+/* ---- Org chart (top-down tree with connectors) ---- */
+.org-tree { display: inline-flex; }
+.org-tree ul { display: flex; padding-top: 22px; position: relative; margin: 0; list-style: none; }
+.org-tree li { position: relative; padding: 22px 10px 0; text-align: center; list-style: none; }
+.org-tree li::before, .org-tree li::after {
+  content: ''; position: absolute; top: 0; right: 50%;
+  border-top: 1px solid rgba(125, 130, 140, 0.45); width: 50%; height: 22px;
+}
+.org-tree li::after { right: auto; left: 50%; border-left: 1px solid rgba(125, 130, 140, 0.45); }
+.org-tree li:only-child::after, .org-tree li:only-child::before { display: none; }
+.org-tree li:only-child { padding-top: 0; }
+.org-tree li:first-child::before, .org-tree li:last-child::after { border: 0 none; }
+.org-tree li:last-child::before { border-right: 1px solid rgba(125, 130, 140, 0.45); border-radius: 0 6px 0 0; }
+.org-tree li:first-child::after { border-radius: 6px 0 0 0; }
+.org-tree ul ul::before {
+  content: ''; position: absolute; top: 0; left: 50%;
+  border-left: 1px solid rgba(125, 130, 140, 0.45); width: 0; height: 22px;
+}

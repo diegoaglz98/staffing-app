@@ -67,6 +67,11 @@ type Milestone = {
   created_at: string
 }
 
+type OrgNode = {
+  staff_id: string
+  parent_staff_id: string | null
+}
+
 const PRIORITIES = ['P00', 'P0', 'P1', 'P2']
 const priorityRank = (p: string) => { const i = PRIORITIES.indexOf(p); return i === -1 ? 99 : i }
 const priorityColor = (p: string) =>
@@ -106,13 +111,16 @@ function parseCSVLine(line: string): string[] {
 }
 
 export default function StaffingApp() {
-  const [tab, setTab] = useState<'projects' | 'staff' | 'assignments' | 'dashboard' | 'scenarios' | 'milestones'>('dashboard')
+  const [tab, setTab] = useState<'projects' | 'staff' | 'assignments' | 'dashboard' | 'scenarios' | 'milestones' | 'orgchart'>('dashboard')
   const [projects, setProjects] = useState<Project[]>([])
   const [staff, setStaff] = useState<Staff[]>([])
   const [assignments, setAssignments] = useState<Assignment[]>([])
   const [scenarios, setScenarios] = useState<Scenario[]>([])
   const [scenarioAssignments, setScenarioAssignments] = useState<ScenarioAssignment[]>([])
   const [milestones, setMilestones] = useState<Milestone[]>([])
+  const [orgChart, setOrgChart] = useState<OrgNode[]>([])
+  const [orgUnassignedOnly, setOrgUnassignedOnly] = useState(true)
+  const [dragOverOrgId, setDragOverOrgId] = useState<string | null>(null)
   const [milestoneDrafts, setMilestoneDrafts] = useState<Record<string, { title: string; priority: string; due_date: string }>>({})
   const [hideEmptyMilestoneProjects, setHideEmptyMilestoneProjects] = useState(false)
   const [showCompletedMilestones, setShowCompletedMilestones] = useState(false)
@@ -231,8 +239,9 @@ export default function StaffingApp() {
         supabase.from('scenarios').select('*').order('created_at', { ascending: true }),
         supabase.from('scenario_assignments').select('*'),
         supabase.from('milestones').select('*').order('created_at', { ascending: true }),
+        supabase.from('org_chart').select('*'),
       ])
-      const [p, s, a, sc, sa, ms] = await Promise.race([queries, timeout])
+      const [p, s, a, sc, sa, ms, oc] = await Promise.race([queries, timeout])
       // Core tables must load; scenario tables are optional (may not exist yet)
       if (p.error || s.error || a.error) throw (p.error || s.error || a.error)
       if (p.data) setProjects(p.data)
@@ -250,6 +259,7 @@ export default function StaffingApp() {
       if (sc.data) setScenarios(sc.data)
       if (sa.data) setScenarioAssignments(sa.data)
       if (ms.data) setMilestones(ms.data)
+      if (oc.data) setOrgChart(oc.data)
     } catch {
       setLoadError(true)
     } finally {
@@ -782,6 +792,29 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
     if (data) setProjects(prev => prev.map(p => p.id === id ? data : p))
     setWeeklyDrafts(prev => { const c = { ...prev }; delete c[id]; return c })
   }
+  async function addToOrg(staffId: string, parentStaffId: string | null) {
+    if (orgChart.some(n => n.staff_id === staffId)) return
+    const { data } = await supabase.from('org_chart').insert([{ staff_id: staffId, parent_staff_id: parentStaffId }]).select().single()
+    if (data) setOrgChart(prev => [...prev, data])
+  }
+  async function moveOrgNode(staffId: string, parentStaffId: string | null) {
+    const { data } = await supabase.from('org_chart').update({ parent_staff_id: parentStaffId }).eq('staff_id', staffId).select().single()
+    if (data) setOrgChart(prev => prev.map(n => n.staff_id === staffId ? data : n))
+  }
+  async function removeFromOrg(staffId: string) {
+    // Collect the node and all its descendants
+    const toRemove = new Set([staffId])
+    let grew = true
+    while (grew) {
+      grew = false
+      for (const n of orgChart) {
+        if (n.parent_staff_id && toRemove.has(n.parent_staff_id) && !toRemove.has(n.staff_id)) { toRemove.add(n.staff_id); grew = true }
+      }
+    }
+    await supabase.from('org_chart').delete().in('staff_id', Array.from(toRemove))
+    setOrgChart(prev => prev.filter(n => !toRemove.has(n.staff_id)))
+  }
+
   function stepWeeklyTarget(p: Project, delta: number) {
     const cur = weeklyDrafts[p.id] != null ? (Number(weeklyDrafts[p.id]) || 0) : (p.weekly_target ?? 0)
     updateWeeklyTarget(p.id, String(Math.max(0, cur + delta)))
@@ -1128,6 +1161,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
             { key: 'assignments', label: 'Assignments' },
             { key: 'scenarios', label: 'Staffing Scenarios' },
             { key: 'milestones', label: 'Milestones' },
+            { key: 'orgchart', label: 'Org Chart' },
           ] as const).map(({ key, label }) => (
             <button
               key={key}
@@ -3312,6 +3346,107 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                     </div>
                   )}
                 </div>
+              </div>
+            </div>
+          )
+        })()}
+
+        {/* Org Chart Tab */}
+        {tab === 'orgchart' && (() => {
+          const inChart = new Set(orgChart.map(n => n.staff_id))
+          const root = orgChart.find(n => !n.parent_staff_id)
+          const childrenOf = (sid: string) => orgChart.filter(n => n.parent_staff_id === sid).map(n => n.staff_id)
+          const parentOf = (sid: string) => orgChart.find(n => n.staff_id === sid)?.parent_staff_id ?? null
+          const isAncestorOrSelf = (ancestor: string, node: string) => {
+            let cur: string | null = node
+            while (cur) { if (cur === ancestor) return true; cur = parentOf(cur) }
+            return false
+          }
+          const leftList = [...staff]
+            .filter(s => (orgUnassignedOnly ? !inChart.has(s.id) : true))
+            .sort((a, b) => a.name.localeCompare(b.name))
+
+          const onDropTarget = (targetStaffId: string | null) => (e: React.DragEvent) => {
+            e.preventDefault(); e.stopPropagation(); setDragOverOrgId(null)
+            const type = e.dataTransfer.getData('type')
+            const id = e.dataTransfer.getData('id')
+            if (!id) return
+            if (type === 'org-add') {
+              if (!inChart.has(id)) addToOrg(id, targetStaffId)
+            } else if (type === 'org-move') {
+              // Prevent dropping a node onto itself or one of its own descendants
+              if (targetStaffId && (id === targetStaffId || isAncestorOrSelf(id, targetStaffId))) return
+              moveOrgNode(id, targetStaffId)
+            }
+          }
+
+          const renderNode = (staffId: string) => {
+            const s = staff.find(x => x.id === staffId)
+            const kids = childrenOf(staffId)
+            const over = dragOverOrgId === staffId
+            return (
+              <li key={staffId}>
+                <div
+                  draggable
+                  onDragStart={e => { e.dataTransfer.setData('type', 'org-move'); e.dataTransfer.setData('id', staffId) }}
+                  onDragOver={e => { e.preventDefault(); setDragOverOrgId(staffId) }}
+                  onDragLeave={() => setDragOverOrgId(null)}
+                  onDrop={onDropTarget(staffId)}
+                  className={`org-node inline-block text-left rounded-lg border px-3 py-2 cursor-grab active:cursor-grabbing transition-all ${over ? 'border-[#193a29] bg-[#193a29]/20 scale-105' : 'border-gray-700 bg-gray-900'}`}
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium text-gray-100 whitespace-nowrap">{s?.emoji ? `${s.emoji} ` : ''}{s?.name ?? 'Unknown'}</span>
+                    <button onClick={() => removeFromOrg(staffId)} title="Remove from chart (and anyone below)" className="text-gray-500 hover:text-red-400 leading-none text-xs">✕</button>
+                  </div>
+                  {s?.position && <p className="text-[11px] text-gray-500 whitespace-nowrap">{s.position}</p>}
+                </div>
+                {kids.length > 0 && <ul>{kids.map(renderNode)}</ul>}
+              </li>
+            )
+          }
+
+          return (
+            <div className="flex gap-6 items-start">
+              {/* Left: staff list */}
+              <div className="w-56 shrink-0 sticky top-6">
+                <div className="mb-3">{toggleSwitch(orgUnassignedOnly, () => setOrgUnassignedOnly(v => !v), 'Unassigned only')}</div>
+                <p className="text-xs text-gray-500 uppercase tracking-wider mb-2">Staff — drag into chart</p>
+                <div className="flex flex-col gap-2 max-h-[70vh] overflow-y-auto pr-1">
+                  {leftList.length === 0 ? (
+                    <p className="text-xs text-gray-600">{orgUnassignedOnly ? 'Everyone is on the chart.' : 'No staff.'}</p>
+                  ) : leftList.map(s => {
+                    const placed = inChart.has(s.id)
+                    return (
+                      <div
+                        key={s.id}
+                        draggable={!placed}
+                        onDragStart={e => { if (placed) return; e.dataTransfer.setData('type', 'org-add'); e.dataTransfer.setData('id', s.id) }}
+                        className={`border rounded-lg px-3 py-2 text-sm transition-all ${placed ? 'border-gray-800 bg-gray-900/40 text-gray-600 opacity-60' : 'border-gray-700 bg-gray-900 text-gray-200 cursor-grab active:cursor-grabbing hover:border-gray-500'}`}
+                      >
+                        <p className="font-medium leading-tight">{s.emoji ? `${s.emoji} ` : ''}{s.name}{placed && <span className="text-[10px] ml-1">· on chart</span>}</p>
+                        {s.position && <p className="text-xs text-gray-500 mt-0.5">{s.position}</p>}
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+
+              {/* Right: the chart */}
+              <div className="flex-1 min-w-0 overflow-x-auto">
+                {!root ? (
+                  <div
+                    onDragOver={e => { e.preventDefault(); setDragOverOrgId('root') }}
+                    onDragLeave={() => setDragOverOrgId(null)}
+                    onDrop={onDropTarget(null)}
+                    className={`rounded-xl border-2 border-dashed min-h-[240px] flex items-center justify-center text-center transition-all ${dragOverOrgId === 'root' ? 'border-[#193a29] bg-[#193a29]/10' : 'border-gray-700'}`}
+                  >
+                    <p className="text-sm text-gray-500 px-6">Drag the top person here to start the org chart.<br /><span className="text-xs text-gray-600">Then drop others onto a card to place them underneath.</span></p>
+                  </div>
+                ) : (
+                  <div className="org-tree py-4">
+                    <ul>{renderNode(root.staff_id)}</ul>
+                  </div>
+                )}
               </div>
             </div>
           )
