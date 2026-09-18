@@ -122,6 +122,7 @@ export default function StaffingApp() {
   const [orgUnassignedOnly, setOrgUnassignedOnly] = useState(true)
   const [dragOverOrgId, setDragOverOrgId] = useState<string | null>(null)
   const [collapsedOrg, setCollapsedOrg] = useState<Record<string, boolean>>({})
+  const [orgShowConsultants, setOrgShowConsultants] = useState(true)
   const [pendingOrgRemove, setPendingOrgRemove] = useState<string | null>(null)
   const [milestoneDrafts, setMilestoneDrafts] = useState<Record<string, { title: string; priority: string; due_date: string }>>({})
   const [hideEmptyMilestoneProjects, setHideEmptyMilestoneProjects] = useState(false)
@@ -3390,6 +3391,13 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
           const root = orgChart.find(n => !n.parent_staff_id)
           const childrenOf = (sid: string) => orgChart.filter(n => n.parent_staff_id === sid).map(n => n.staff_id)
           const parentOf = (sid: string) => orgChart.find(n => n.staff_id === sid)?.parent_staff_id ?? null
+          const isConsultant = (sid: string) => staff.find(s => s.id === sid)?.position === 'GenAI Consultant'
+          const orgColor = (sid: string) => {
+            if (root && sid === root.staff_id) return 'border-amber-500/60 bg-amber-500/15'      // org leader
+            if (isConsultant(sid)) return 'border-violet-500/50 bg-violet-500/15'                 // consultants
+            if (root && parentOf(sid) === root.staff_id) return 'border-emerald-500/50 bg-emerald-500/15' // direct reports
+            return 'border-gray-700 bg-gray-900'                                                  // everyone else
+          }
           const isAncestorOrSelf = (ancestor: string, node: string) => {
             let cur: string | null = node
             while (cur) { if (cur === ancestor) return true; cur = parentOf(cur) }
@@ -3415,7 +3423,8 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
 
           const renderNode = (staffId: string) => {
             const s = staff.find(x => x.id === staffId)
-            const kids = childrenOf(staffId)
+            const allKids = childrenOf(staffId)
+            const kids = orgShowConsultants ? allKids : allKids.filter(k => !isConsultant(k))
             const over = dragOverOrgId === staffId
             const collapsed = !!collapsedOrg[staffId]
             return (
@@ -3426,12 +3435,12 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                   onDragOver={e => { e.preventDefault(); setDragOverOrgId(staffId) }}
                   onDragLeave={() => setDragOverOrgId(null)}
                   onDrop={onDropTarget(staffId)}
-                  className={`org-node inline-block text-left rounded-lg border px-3 py-2 cursor-grab active:cursor-grabbing transition-all ${over ? 'border-[#193a29] bg-[#193a29]/20 scale-105' : 'border-gray-700 bg-gray-900'}`}
+                  className={`org-node inline-block text-left rounded-lg border px-3 py-2 cursor-grab active:cursor-grabbing transition-all ${over ? 'border-[#193a29] bg-[#193a29]/30 scale-105' : orgColor(staffId)}`}
                 >
                   <div className="flex items-center gap-2">
                     <span className="text-sm font-medium text-gray-100 whitespace-nowrap">{s?.emoji ? `${s.emoji} ` : ''}{s?.name ?? 'Unknown'}</span>
                     <button
-                      onClick={() => { if (kids.length > 0) setPendingOrgRemove(staffId); else removeFromOrg(staffId) }}
+                      onClick={() => { if (allKids.length > 0) setPendingOrgRemove(staffId); else removeFromOrg(staffId) }}
                       title="Remove from chart"
                       className="text-gray-500 hover:text-red-400 leading-none text-xs"
                     >✕</button>
@@ -3481,9 +3490,18 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
               {/* Right: the chart */}
               <div className="flex-1 min-w-0 overflow-x-auto">
                 {root && (
-                  <div className="flex justify-end gap-2 mb-3">
-                    <button onClick={() => exportOrgChart('download')} className="text-xs px-3 py-1.5 rounded-lg border border-gray-700 text-gray-400 hover:text-gray-200 transition-colors">Download PNG</button>
-                    <button onClick={() => exportOrgChart('print')} className="text-xs px-3 py-1.5 rounded-lg border border-gray-700 text-gray-400 hover:text-gray-200 transition-colors">Print</button>
+                  <div className="flex justify-between items-center gap-4 mb-3 flex-wrap">
+                    <div className="flex items-center gap-4 flex-wrap text-[11px] text-gray-500">
+                      <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-amber-500/70 border border-amber-500" /> Org leader</span>
+                      <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-emerald-500/70 border border-emerald-500" /> Direct reports</span>
+                      <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-violet-500/70 border border-violet-500" /> Consultants</span>
+                      <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-gray-700 border border-gray-600" /> Everyone else</span>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      {toggleSwitch(orgShowConsultants, () => setOrgShowConsultants(v => !v), 'Show consultants')}
+                      <button onClick={() => exportOrgChart('download')} className="text-xs px-3 py-1.5 rounded-lg border border-gray-700 text-gray-400 hover:text-gray-200 transition-colors">Download PNG</button>
+                      <button onClick={() => exportOrgChart('print')} className="text-xs px-3 py-1.5 rounded-lg border border-gray-700 text-gray-400 hover:text-gray-200 transition-colors">Print</button>
+                    </div>
                   </div>
                 )}
                 {!root ? (
