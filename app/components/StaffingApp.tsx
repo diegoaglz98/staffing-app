@@ -124,6 +124,7 @@ export default function StaffingApp() {
   const [collapsedOrg, setCollapsedOrg] = useState<Record<string, boolean>>({})
   const [orgShowConsultants, setOrgShowConsultants] = useState(true)
   const [orgColorsOn, setOrgColorsOn] = useState(true)
+  const [orgZoom, setOrgZoom] = useState(1)
   const orgScrollRef = useRef<HTMLDivElement>(null)
   const orgScrollDir = useRef(0)
   const orgScrollTimer = useRef<number | null>(null)
@@ -3556,6 +3557,11 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                         onClick={() => setCollapsedOrg({})}
                         className="text-xs px-3 py-1.5 rounded-lg border border-gray-700 text-gray-400 hover:text-gray-200 transition-colors"
                       >Expand all</button>
+                      <div className="flex items-center border border-gray-700 rounded-lg overflow-hidden">
+                        <button onClick={() => setOrgZoom(z => Math.max(0.4, Math.round((z - 0.1) * 10) / 10))} className="px-2.5 py-1 text-gray-400 hover:text-white hover:bg-gray-800 transition-colors leading-none" title="Zoom out">−</button>
+                        <button onClick={() => setOrgZoom(1)} className="px-2 py-1 text-xs text-gray-400 hover:text-white tabular-nums leading-none" title="Reset zoom">{Math.round(orgZoom * 100)}%</button>
+                        <button onClick={() => setOrgZoom(z => Math.min(2, Math.round((z + 0.1) * 10) / 10))} className="px-2.5 py-1 text-gray-400 hover:text-white hover:bg-gray-800 transition-colors leading-none" title="Zoom in">+</button>
+                      </div>
                       <button onClick={() => exportOrgChart('download')} className="text-xs px-3 py-1.5 rounded-lg border border-gray-700 text-gray-400 hover:text-gray-200 transition-colors">Download PNG</button>
                       <button onClick={() => exportOrgChart('print')} className="text-xs px-3 py-1.5 rounded-lg border border-gray-700 text-gray-400 hover:text-gray-200 transition-colors">Print</button>
                     </div>
@@ -3571,8 +3577,10 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                     <p className="text-sm text-gray-500 px-6">Drag the top person here to start the org chart.<br /><span className="text-xs text-gray-600">Then drop others onto a card to place them underneath.</span></p>
                   </div>
                 ) : (
-                  <div id="org-chart-capture" className="org-tree py-4 pr-4">
-                    <ul>{renderNode(root.staff_id)}</ul>
+                  <div style={{ zoom: orgZoom }}>
+                    <div id="org-chart-capture" className="org-tree py-4 pr-4">
+                      <ul>{renderNode(root.staff_id)}</ul>
+                    </div>
                   </div>
                 )}
               </div>
