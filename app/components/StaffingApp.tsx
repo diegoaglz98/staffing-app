@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { supabase } from '@/lib/supabase'
 import { Document, Packer, Paragraph, Table, TableRow, TableCell, TextRun, HeadingLevel, WidthType, BorderStyle } from 'docx'
 
@@ -124,6 +124,37 @@ export default function StaffingApp() {
   const [collapsedOrg, setCollapsedOrg] = useState<Record<string, boolean>>({})
   const [orgShowConsultants, setOrgShowConsultants] = useState(true)
   const [orgColorsOn, setOrgColorsOn] = useState(true)
+  const orgScrollRef = useRef<HTMLDivElement>(null)
+  const orgScrollDir = useRef(0)
+  const orgScrollTimer = useRef<number | null>(null)
+  function stopOrgAutoScroll() {
+    orgScrollDir.current = 0
+    if (orgScrollTimer.current != null) { clearInterval(orgScrollTimer.current); orgScrollTimer.current = null }
+  }
+  function orgAutoScroll(e: React.DragEvent) {
+    const el = orgScrollRef.current
+    if (!el) return
+    const rect = el.getBoundingClientRect()
+    const threshold = 90
+    let dir = 0
+    if (e.clientX < rect.left + threshold) dir = -1
+    else if (e.clientX > rect.right - threshold) dir = 1
+    orgScrollDir.current = dir
+    if (dir !== 0 && orgScrollTimer.current == null) {
+      orgScrollTimer.current = window.setInterval(() => {
+        const c = orgScrollRef.current
+        if (c && orgScrollDir.current) c.scrollLeft += orgScrollDir.current * 20
+      }, 16)
+    } else if (dir === 0) {
+      stopOrgAutoScroll()
+    }
+  }
+  useEffect(() => {
+    const onEnd = () => stopOrgAutoScroll()
+    window.addEventListener('dragend', onEnd)
+    window.addEventListener('drop', onEnd)
+    return () => { window.removeEventListener('dragend', onEnd); window.removeEventListener('drop', onEnd) }
+  }, [])
   const [pendingOrgRemove, setPendingOrgRemove] = useState<string | null>(null)
   const [milestoneDrafts, setMilestoneDrafts] = useState<Record<string, { title: string; priority: string; due_date: string }>>({})
   const [hideEmptyMilestoneProjects, setHideEmptyMilestoneProjects] = useState(false)
@@ -3497,7 +3528,13 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
               </div>
 
               {/* Right: the chart */}
-              <div className="flex-1 min-w-0 overflow-x-auto">
+              <div
+                ref={orgScrollRef}
+                className="flex-1 min-w-0 overflow-x-auto"
+                onDragOver={orgAutoScroll}
+                onDragLeave={stopOrgAutoScroll}
+                onDrop={stopOrgAutoScroll}
+              >
                 {root && (
                   <div className="flex justify-between items-center gap-4 mb-3 flex-wrap">
                     <div className="flex items-center gap-4 flex-wrap text-[11px] text-gray-500">
@@ -3511,6 +3548,14 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                     <div className="flex items-center gap-3">
                       {toggleSwitch(orgColorsOn, () => setOrgColorsOn(v => !v), 'Colors')}
                       {toggleSwitch(orgShowConsultants, () => setOrgShowConsultants(v => !v), 'Show consultants')}
+                      <button
+                        onClick={() => { const c: Record<string, boolean> = {}; orgChart.forEach(n => { if (orgChart.some(x => x.parent_staff_id === n.staff_id)) c[n.staff_id] = true }); setCollapsedOrg(c) }}
+                        className="text-xs px-3 py-1.5 rounded-lg border border-gray-700 text-gray-400 hover:text-gray-200 transition-colors"
+                      >Collapse all</button>
+                      <button
+                        onClick={() => setCollapsedOrg({})}
+                        className="text-xs px-3 py-1.5 rounded-lg border border-gray-700 text-gray-400 hover:text-gray-200 transition-colors"
+                      >Expand all</button>
                       <button onClick={() => exportOrgChart('download')} className="text-xs px-3 py-1.5 rounded-lg border border-gray-700 text-gray-400 hover:text-gray-200 transition-colors">Download PNG</button>
                       <button onClick={() => exportOrgChart('print')} className="text-xs px-3 py-1.5 rounded-lg border border-gray-700 text-gray-400 hover:text-gray-200 transition-colors">Print</button>
                     </div>
