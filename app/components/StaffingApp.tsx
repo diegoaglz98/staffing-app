@@ -3393,6 +3393,12 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
           const childrenOf = (sid: string) => orgChart.filter(n => n.parent_staff_id === sid).map(n => n.staff_id)
           const parentOf = (sid: string) => orgChart.find(n => n.staff_id === sid)?.parent_staff_id ?? null
           const isConsultant = (sid: string) => staff.find(s => s.id === sid)?.position === 'GenAI Consultant'
+          const descendantCount = (sid: string): number => {
+            let count = 0
+            const stack = [...childrenOf(sid)]
+            while (stack.length) { const c = stack.pop()!; count++; stack.push(...childrenOf(c)) }
+            return count
+          }
           const orgColor = (sid: string) => {
             if (!orgColorsOn) return 'border-gray-700 bg-gray-900'                                // colors off → all neutral
             if (root && sid === root.staff_id) return 'border-amber-500/60 bg-amber-500/15'      // org leader
@@ -3441,6 +3447,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                 >
                   <div className="flex items-center gap-2">
                     <span className="text-sm font-medium text-gray-100 whitespace-nowrap">{s?.emoji ? `${s.emoji} ` : ''}{s?.name ?? 'Unknown'}</span>
+                    {allKids.length > 0 && <span className="text-[10px] text-gray-500" title={`${descendantCount(staffId)} people below`}>({descendantCount(staffId)})</span>}
                     <button
                       onClick={() => { if (allKids.length > 0) setPendingOrgRemove(staffId); else removeFromOrg(staffId) }}
                       title="Remove from chart"
