@@ -52,8 +52,8 @@ html.light {
 .org-tree li:only-child::after, .org-tree li:only-child::before { display: none; }
 .org-tree li:only-child { padding-top: 0; }
 .org-tree li:first-child::before, .org-tree li:last-child::after { border: 0 none; }
-.org-tree li:last-child::before { border-right: 1px solid rgba(125, 130, 140, 0.45); border-radius: 0 10px 0 0; }
-.org-tree li:first-child::after { border-radius: 10px 0 0 0; }
+.org-tree li:last-child::before { border-right: 1px solid rgba(125, 130, 140, 0.45); border-radius: 0 6px 0 0; }
+.org-tree li:first-child::after { border-radius: 6px 0 0 0; }
 .org-tree ul ul::before {
   content: ''; position: absolute; top: 0; left: 50%;
   border-left: 1px solid rgba(125, 130, 140, 0.45); width: 0; height: 22px;

@@ -23,11 +23,6 @@ const PROJECT_EMOJIS = ['📁', '🚀', '🎯', '🔥', '⭐', '🧪', '🤖', '
 // The person who owns this tool — always cc'd on update requests
 const REQUESTER_SLACK_MENTION = '<@U020EEUSPPT>'
 
-// Avatar colors for org-chart initials (varied, hashed by name)
-const AVATAR_COLORS = ['#e05a8a', '#4f9be0', '#e0685a', '#4faf8f', '#a06be0', '#e0a24f', '#5a8ae0', '#7ab04f', '#d15fb8', '#3fa7c4']
-const avatarColor = (key: string) => AVATAR_COLORS[Math.abs([...key].reduce((a, c) => a + c.charCodeAt(0), 0)) % AVATAR_COLORS.length]
-const initialsOf = (name: string) => name.split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0]).join('').toUpperCase()
-
 type Staff = {
   id: string
   name: string
@@ -3494,7 +3489,6 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
             const kids = visibleKids(staffId)
             const over = dragOverOrgId === staffId
             const collapsed = !!collapsedOrg[staffId]
-            const desc = descendantCount(staffId)
             return (
               <div
                 draggable
@@ -3502,49 +3496,39 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                 onDragOver={e => { e.preventDefault(); setDragOverOrgId(staffId) }}
                 onDragLeave={() => setDragOverOrgId(null)}
                 onDrop={onDropTarget(staffId)}
-                className={`org-node group relative inline-flex items-center gap-3 text-left rounded-xl border shadow-sm w-[250px] pl-2.5 pr-3 py-2.5 cursor-grab active:cursor-grabbing transition-all ${over ? 'border-[#193a29] ring-2 ring-[#193a29] bg-[#193a29]/20 scale-[1.03]' : orgColor(staffId)}`}
+                className={`org-node inline-block text-left rounded-lg border px-3 py-2 cursor-grab active:cursor-grabbing transition-all ${over ? 'border-[#193a29] bg-[#193a29]/30 scale-105' : orgColor(staffId)}`}
               >
-                {/* Avatar */}
-                <div
-                  className="shrink-0 w-9 h-9 rounded-full flex items-center justify-center text-white text-xs font-semibold"
-                  style={{ backgroundColor: s?.emoji ? 'transparent' : avatarColor(s?.name ?? staffId) }}
-                >
-                  {s?.emoji ? <span className="text-xl leading-none">{s.emoji}</span> : initialsOf(s?.name ?? '?')}
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-medium text-gray-100 whitespace-nowrap">{s?.emoji ? `${s.emoji} ` : ''}{s?.name ?? 'Unknown'}</span>
+                  {allKids.length > 0 && <span className="text-[10px] text-gray-500" title={`${descendantCount(staffId)} people below`}>({descendantCount(staffId)})</span>}
+                  <button
+                    onClick={() => { if (allKids.length > 0) setPendingOrgRemove(staffId); else removeFromOrg(staffId) }}
+                    title="Remove from chart"
+                    className="text-gray-500 hover:text-red-400 leading-none text-xs"
+                  >✕</button>
                 </div>
-                {/* Name + title */}
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-semibold text-gray-100 truncate leading-tight" title={s?.name}>{s?.name ?? 'Unknown'}</p>
-                  {s?.position && <p className="text-[11px] text-gray-500 truncate leading-tight">{s.position}</p>}
-                  {orgShowProjects && (() => {
-                    const projs = assignments
-                      .filter(a => a.staff_id === staffId)
-                      .map(a => projects.find(pr => pr.id === a.project_id)?.name)
-                      .filter((n): n is string => !!n)
-                      .sort((a, b) => a.localeCompare(b))
-                    return projs.length > 0 ? (
-                      <div className="flex flex-wrap gap-1 mt-1">
-                        {projs.map((n, i) => <span key={i} className="text-[10px] px-1.5 py-0.5 rounded-full bg-gray-800 text-gray-300 whitespace-nowrap">{n}</span>)}
-                      </div>
-                    ) : <p className="text-[10px] text-gray-600 mt-1 italic">No projects</p>
-                  })()}
-                </div>
-                {/* Count badge doubles as collapse toggle */}
-                {allKids.length > 0 && (
+                {s?.position && <p className="text-[11px] text-gray-500 whitespace-nowrap">{s.position}</p>}
+                {orgShowProjects && (() => {
+                  const projs = assignments
+                    .filter(a => a.staff_id === staffId)
+                    .map(a => projects.find(pr => pr.id === a.project_id)?.name)
+                    .filter((n): n is string => !!n)
+                    .sort((a, b) => a.localeCompare(b))
+                  return projs.length > 0 ? (
+                    <div className="flex flex-wrap gap-1 mt-1.5 max-w-[220px]">
+                      {projs.map((n, i) => <span key={i} className="text-[10px] px-1.5 py-0.5 rounded-full bg-gray-800 text-gray-300 whitespace-nowrap">{n}</span>)}
+                    </div>
+                  ) : <p className="text-[10px] text-gray-600 mt-1.5 italic">No projects</p>
+                })()}
+                {kids.length > 0 && (
                   <button
                     onClick={() => setCollapsedOrg(prev => ({ ...prev, [staffId]: !prev[staffId] }))}
-                    title={`${desc} below — click to ${collapsed ? 'expand' : 'collapse'}`}
-                    className="shrink-0 min-w-[26px] h-[22px] px-1.5 rounded-full text-white text-[11px] font-semibold flex items-center justify-center transition-colors hover:brightness-125"
-                    style={{ backgroundColor: '#193a29' }}
+                    title={collapsed ? 'Expand' : 'Collapse'}
+                    className="mt-1 text-[10px] text-gray-500 hover:text-gray-200 transition-colors"
                   >
-                    {collapsed ? `+${desc}` : desc}
+                    {collapsed ? `▸ ${kids.length} report${kids.length === 1 ? '' : 's'}` : '▾ collapse'}
                   </button>
                 )}
-                {/* Remove (appears on hover) */}
-                <button
-                  onClick={() => { if (allKids.length > 0) setPendingOrgRemove(staffId); else removeFromOrg(staffId) }}
-                  title="Remove from chart"
-                  className="absolute -top-2 -right-2 w-5 h-5 rounded-full bg-gray-800 border border-gray-600 text-gray-400 hover:text-red-400 hover:border-red-400 text-xs leading-none flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
-                >✕</button>
               </div>
             )
           }
