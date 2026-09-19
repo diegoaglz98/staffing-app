@@ -125,6 +125,7 @@ export default function StaffingApp() {
   const [orgShowConsultants, setOrgShowConsultants] = useState(true)
   const [orgColorsOn, setOrgColorsOn] = useState(true)
   const [orgZoom, setOrgZoom] = useState(1)
+  const [orgShowProjects, setOrgShowProjects] = useState(false)
   const orgScrollRef = useRef<HTMLDivElement>(null)
   const orgScrollDir = useRef(0)
   const orgScrollTimer = useRef<number | null>(null)
@@ -3487,6 +3488,18 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                     >✕</button>
                   </div>
                   {s?.position && <p className="text-[11px] text-gray-500 whitespace-nowrap">{s.position}</p>}
+                  {orgShowProjects && (() => {
+                    const projs = assignments
+                      .filter(a => a.staff_id === staffId)
+                      .map(a => projects.find(pr => pr.id === a.project_id)?.name)
+                      .filter((n): n is string => !!n)
+                      .sort((a, b) => a.localeCompare(b))
+                    return projs.length > 0 ? (
+                      <div className="flex flex-wrap gap-1 mt-1.5 max-w-[220px]">
+                        {projs.map((n, i) => <span key={i} className="text-[10px] px-1.5 py-0.5 rounded-full bg-gray-800 text-gray-300 whitespace-nowrap">{n}</span>)}
+                      </div>
+                    ) : <p className="text-[10px] text-gray-600 mt-1.5 italic">No projects</p>
+                  })()}
                   {kids.length > 0 && (
                     <button
                       onClick={() => setCollapsedOrg(prev => ({ ...prev, [staffId]: !prev[staffId] }))}
@@ -3549,6 +3562,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                     <div className="flex items-center gap-3">
                       {toggleSwitch(orgColorsOn, () => setOrgColorsOn(v => !v), 'Colors')}
                       {toggleSwitch(orgShowConsultants, () => setOrgShowConsultants(v => !v), 'Show consultants')}
+                      {toggleSwitch(orgShowProjects, () => setOrgShowProjects(v => !v), 'Show projects')}
                       <button
                         onClick={() => { const c: Record<string, boolean> = {}; orgChart.forEach(n => { if (orgChart.some(x => x.parent_staff_id === n.staff_id)) c[n.staff_id] = true }); setCollapsedOrg(c) }}
                         className="text-xs px-3 py-1.5 rounded-lg border border-gray-700 text-gray-400 hover:text-gray-200 transition-colors"
