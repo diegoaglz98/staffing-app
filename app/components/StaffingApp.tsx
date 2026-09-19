@@ -868,7 +868,17 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
     if (!el) return
     const { toPng } = await import('html-to-image')
     const bg = document.documentElement.classList.contains('light') ? '#ffffff' : '#030712'
-    const dataUrl = await toPng(el, { backgroundColor: bg, pixelRatio: 2, cacheBust: true })
+    // Scale wide charts down so the exported image isn't enormous
+    const maxWidth = 2400
+    const k = Math.min(1, maxWidth / (el.scrollWidth || maxWidth))
+    const dataUrl = await toPng(el, {
+      backgroundColor: bg,
+      pixelRatio: 1.5,
+      cacheBust: true,
+      width: Math.ceil(el.scrollWidth * k),
+      height: Math.ceil(el.scrollHeight * k),
+      style: { transform: `scale(${k})`, transformOrigin: 'top left' },
+    })
     if (mode === 'download') {
       const a = document.createElement('a')
       a.href = dataUrl
