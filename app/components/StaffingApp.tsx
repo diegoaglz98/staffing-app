@@ -126,6 +126,7 @@ export default function StaffingApp() {
   const [orgColorsOn, setOrgColorsOn] = useState(true)
   const [orgZoom, setOrgZoom] = useState(1)
   const [orgShowProjects, setOrgShowProjects] = useState(false)
+  const [orgLayout, setOrgLayout] = useState<'horizontal' | 'vertical'>('horizontal')
   const orgScrollRef = useRef<HTMLDivElement>(null)
   const orgScrollDir = useRef(0)
   const orgScrollTimer = useRef<number | null>(null)
@@ -3478,56 +3479,77 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
             if (ra !== rb) return ra - rb
             return (staff.find(s => s.id === a)?.name ?? '').localeCompare(staff.find(s => s.id === b)?.name ?? '')
           })
-          const renderNode = (staffId: string) => {
+          const visibleKids = (staffId: string) => {
+            const all = sortKids(childrenOf(staffId))
+            return orgShowConsultants ? all : all.filter(k => !isConsultant(k))
+          }
+          const cardInner = (staffId: string) => {
             const s = staff.find(x => x.id === staffId)
-            const allKids = sortKids(childrenOf(staffId))
-            const kids = orgShowConsultants ? allKids : allKids.filter(k => !isConsultant(k))
+            const allKids = childrenOf(staffId)
+            const kids = visibleKids(staffId)
             const over = dragOverOrgId === staffId
             const collapsed = !!collapsedOrg[staffId]
             return (
-              <li key={staffId}>
-                <div
-                  draggable
-                  onDragStart={e => { e.dataTransfer.setData('type', 'org-move'); e.dataTransfer.setData('id', staffId) }}
-                  onDragOver={e => { e.preventDefault(); setDragOverOrgId(staffId) }}
-                  onDragLeave={() => setDragOverOrgId(null)}
-                  onDrop={onDropTarget(staffId)}
-                  className={`org-node inline-block text-left rounded-lg border px-3 py-2 cursor-grab active:cursor-grabbing transition-all ${over ? 'border-[#193a29] bg-[#193a29]/30 scale-105' : orgColor(staffId)}`}
-                >
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-medium text-gray-100 whitespace-nowrap">{s?.emoji ? `${s.emoji} ` : ''}{s?.name ?? 'Unknown'}</span>
-                    {allKids.length > 0 && <span className="text-[10px] text-gray-500" title={`${descendantCount(staffId)} people below`}>({descendantCount(staffId)})</span>}
-                    <button
-                      onClick={() => { if (allKids.length > 0) setPendingOrgRemove(staffId); else removeFromOrg(staffId) }}
-                      title="Remove from chart"
-                      className="text-gray-500 hover:text-red-400 leading-none text-xs"
-                    >✕</button>
-                  </div>
-                  {s?.position && <p className="text-[11px] text-gray-500 whitespace-nowrap">{s.position}</p>}
-                  {orgShowProjects && (() => {
-                    const projs = assignments
-                      .filter(a => a.staff_id === staffId)
-                      .map(a => projects.find(pr => pr.id === a.project_id)?.name)
-                      .filter((n): n is string => !!n)
-                      .sort((a, b) => a.localeCompare(b))
-                    return projs.length > 0 ? (
-                      <div className="flex flex-wrap gap-1 mt-1.5 max-w-[220px]">
-                        {projs.map((n, i) => <span key={i} className="text-[10px] px-1.5 py-0.5 rounded-full bg-gray-800 text-gray-300 whitespace-nowrap">{n}</span>)}
-                      </div>
-                    ) : <p className="text-[10px] text-gray-600 mt-1.5 italic">No projects</p>
-                  })()}
-                  {kids.length > 0 && (
-                    <button
-                      onClick={() => setCollapsedOrg(prev => ({ ...prev, [staffId]: !prev[staffId] }))}
-                      title={collapsed ? 'Expand' : 'Collapse'}
-                      className="mt-1 text-[10px] text-gray-500 hover:text-gray-200 transition-colors"
-                    >
-                      {collapsed ? `▸ ${kids.length} report${kids.length === 1 ? '' : 's'}` : '▾ collapse'}
-                    </button>
-                  )}
+              <div
+                draggable
+                onDragStart={e => { e.dataTransfer.setData('type', 'org-move'); e.dataTransfer.setData('id', staffId) }}
+                onDragOver={e => { e.preventDefault(); setDragOverOrgId(staffId) }}
+                onDragLeave={() => setDragOverOrgId(null)}
+                onDrop={onDropTarget(staffId)}
+                className={`org-node inline-block text-left rounded-lg border px-3 py-2 cursor-grab active:cursor-grabbing transition-all ${over ? 'border-[#193a29] bg-[#193a29]/30 scale-105' : orgColor(staffId)}`}
+              >
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-medium text-gray-100 whitespace-nowrap">{s?.emoji ? `${s.emoji} ` : ''}{s?.name ?? 'Unknown'}</span>
+                  {allKids.length > 0 && <span className="text-[10px] text-gray-500" title={`${descendantCount(staffId)} people below`}>({descendantCount(staffId)})</span>}
+                  <button
+                    onClick={() => { if (allKids.length > 0) setPendingOrgRemove(staffId); else removeFromOrg(staffId) }}
+                    title="Remove from chart"
+                    className="text-gray-500 hover:text-red-400 leading-none text-xs"
+                  >✕</button>
                 </div>
+                {s?.position && <p className="text-[11px] text-gray-500 whitespace-nowrap">{s.position}</p>}
+                {orgShowProjects && (() => {
+                  const projs = assignments
+                    .filter(a => a.staff_id === staffId)
+                    .map(a => projects.find(pr => pr.id === a.project_id)?.name)
+                    .filter((n): n is string => !!n)
+                    .sort((a, b) => a.localeCompare(b))
+                  return projs.length > 0 ? (
+                    <div className="flex flex-wrap gap-1 mt-1.5 max-w-[220px]">
+                      {projs.map((n, i) => <span key={i} className="text-[10px] px-1.5 py-0.5 rounded-full bg-gray-800 text-gray-300 whitespace-nowrap">{n}</span>)}
+                    </div>
+                  ) : <p className="text-[10px] text-gray-600 mt-1.5 italic">No projects</p>
+                })()}
+                {kids.length > 0 && (
+                  <button
+                    onClick={() => setCollapsedOrg(prev => ({ ...prev, [staffId]: !prev[staffId] }))}
+                    title={collapsed ? 'Expand' : 'Collapse'}
+                    className="mt-1 text-[10px] text-gray-500 hover:text-gray-200 transition-colors"
+                  >
+                    {collapsed ? `▸ ${kids.length} report${kids.length === 1 ? '' : 's'}` : '▾ collapse'}
+                  </button>
+                )}
+              </div>
+            )
+          }
+          const renderNode = (staffId: string) => {
+            const kids = visibleKids(staffId)
+            const collapsed = !!collapsedOrg[staffId]
+            return (
+              <li key={staffId}>
+                {cardInner(staffId)}
                 {kids.length > 0 && !collapsed && <ul>{kids.map(renderNode)}</ul>}
               </li>
+            )
+          }
+          const renderNodeV = (staffId: string) => {
+            const kids = visibleKids(staffId)
+            const collapsed = !!collapsedOrg[staffId]
+            return (
+              <div key={staffId} className="org-vrow">
+                {cardInner(staffId)}
+                {kids.length > 0 && !collapsed && <div className="org-vchildren">{kids.map(renderNodeV)}</div>}
+              </div>
             )
           }
 
@@ -3579,6 +3601,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                       {toggleSwitch(orgColorsOn, () => setOrgColorsOn(v => !v), 'Colors')}
                       {toggleSwitch(orgShowConsultants, () => setOrgShowConsultants(v => !v), 'Show consultants')}
                       {toggleSwitch(orgShowProjects, () => setOrgShowProjects(v => !v), 'Show projects')}
+                      {toggleSwitch(orgLayout === 'vertical', () => setOrgLayout(m => m === 'vertical' ? 'horizontal' : 'vertical'), 'Vertical')}
                       <button
                         onClick={() => { const c: Record<string, boolean> = {}; orgChart.forEach(n => { if (orgChart.some(x => x.parent_staff_id === n.staff_id)) c[n.staff_id] = true }); setCollapsedOrg(c) }}
                         className="text-xs px-3 py-1.5 rounded-lg border border-gray-700 text-gray-400 hover:text-gray-200 transition-colors"
@@ -3608,9 +3631,15 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                   </div>
                 ) : (
                   <div style={{ zoom: orgZoom }}>
-                    <div id="org-chart-capture" className="org-tree py-4 pr-4">
-                      <ul>{renderNode(root.staff_id)}</ul>
-                    </div>
+                    {orgLayout === 'vertical' ? (
+                      <div id="org-chart-capture" className="org-vtree py-2 pl-2 pr-4">
+                        {renderNodeV(root.staff_id)}
+                      </div>
+                    ) : (
+                      <div id="org-chart-capture" className="org-tree py-4 pr-4">
+                        <ul>{renderNode(root.staff_id)}</ul>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
