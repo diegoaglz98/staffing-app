@@ -3472,9 +3472,15 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
             }
           }
 
+          const sortKids = (ids: string[]) => [...ids].sort((a, b) => {
+            const ra = isConsultant(a) ? 0 : 1
+            const rb = isConsultant(b) ? 0 : 1
+            if (ra !== rb) return ra - rb
+            return (staff.find(s => s.id === a)?.name ?? '').localeCompare(staff.find(s => s.id === b)?.name ?? '')
+          })
           const renderNode = (staffId: string) => {
             const s = staff.find(x => x.id === staffId)
-            const allKids = childrenOf(staffId)
+            const allKids = sortKids(childrenOf(staffId))
             const kids = orgShowConsultants ? allKids : allKids.filter(k => !isConsultant(k))
             const over = dragOverOrgId === staffId
             const collapsed = !!collapsedOrg[staffId]
