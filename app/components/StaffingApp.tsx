@@ -1156,6 +1156,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
   ]
 
   function roleColor(role: string) {
+    if (role === 'Lead') return 'bg-blue-500/10 text-blue-400'
     const hash = role.split('').reduce((acc, c) => acc + c.charCodeAt(0), 0)
     return roleColors[hash % roleColors.length]
   }
