@@ -2363,9 +2363,9 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                           }).map(a => {
                             const member = staff.find(s => s.id === a.staff_id)
                             const nonSupProjectCount = new Set(
-                              assignments.filter(x => x.staff_id === a.staff_id && x.assignment_role !== 'Supervisor').map(x => x.project_id)
+                              assignments.filter(x => x.staff_id === a.staff_id && x.assignment_role !== 'Supervisor' && x.assignment_role !== 'Lead').map(x => x.project_id)
                             ).size
-                            const overAllocated = a.assignment_role !== 'Supervisor' && nonSupProjectCount >= 2
+                            const overAllocated = a.assignment_role !== 'Supervisor' && a.assignment_role !== 'Lead' && nonSupProjectCount >= 2
                             return (
                               <div
                                 key={a.id}
