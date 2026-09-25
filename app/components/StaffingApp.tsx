@@ -1599,6 +1599,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                                   onChange={e => setInlineAssignment({ ...inlineAssignment, assignment_role: e.target.value })}
                                 >
                                   <option value="">Role</option>
+                                  <option>Lead</option>
                                   <option>Supervisor</option>
                                   <option>STO</option>
                                   <option>Ops Support</option>
@@ -1745,7 +1746,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                     .sort((a, b) => a.name.localeCompare(b.name))
                     .map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                 </select>
-                {toggleSwitch(groupBySupervisor, () => setGroupBySupervisor(v => !v), 'Group by supervisor')}
+                {toggleSwitch(groupBySupervisor, () => setGroupBySupervisor(v => !v), 'Group by lead')}
                 {(() => {
                   const n = inactiveAssignmentIds().length
                   return n > 0 ? (
@@ -1793,6 +1794,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                   onChange={e => setNewAssignment({ ...newAssignment, assignment_role: e.target.value })}
                 >
                   <option value="">Role</option>
+                  <option>Lead</option>
                   <option>Supervisor</option>
                   <option>STO</option>
                   <option>Ops Support</option>
@@ -1894,6 +1896,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                     autoFocus
                   >
                     <option value="">No role</option>
+                    <option>Lead</option>
                     <option>Supervisor</option>
                     <option>STO</option>
                     <option>Ops Support</option>
@@ -1949,6 +1952,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                       autoFocus
                     >
                       <option value="">No role</option>
+                      <option>Lead</option>
                       <option>Supervisor</option>
                       <option>STO</option>
                       <option>Ops Support</option>
@@ -1977,39 +1981,33 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
             <div className="flex-1 min-w-0">
             {groupBySupervisor ? (() => {
               const visibleProjects = [...projects].filter(p => visibleStatuses[p.status] && p.name.toLowerCase().includes(assignmentSearch.trim().toLowerCase()))
-              const groupsMap = new Map<string, { key: string; name: string; items: { project: Project; members: Assignment[]; viaSTO: boolean }[] }>()
+              const groupsMap = new Map<string, { key: string; name: string; items: { project: Project; members: Assignment[]; viaRole: string | null }[] }>()
               const ensure = (key: string, name: string) => {
                 if (!groupsMap.has(key)) groupsMap.set(key, { key, name, items: [] })
                 return groupsMap.get(key)!
               }
               visibleProjects.forEach(p => {
                 const projAssignments = assignments.filter(a => a.project_id === p.id)
-                const sups = projAssignments.filter(a => a.assignment_role === 'Supervisor')
-                if (sups.length > 0) {
-                  const members = projAssignments.filter(a => a.assignment_role !== 'Supervisor')
-                  sups.forEach(sup => {
-                    const st = staff.find(s => s.id === sup.staff_id)
-                    ensure(sup.staff_id, st?.name ?? 'Unknown').items.push({ project: p, members, viaSTO: false })
+                // Grouping tier: Lead → Supervisor → STO
+                const tierRole = projAssignments.some(a => a.assignment_role === 'Lead') ? 'Lead'
+                  : projAssignments.some(a => a.assignment_role === 'Supervisor') ? 'Supervisor'
+                  : projAssignments.some(a => a.assignment_role === 'STO') ? 'STO'
+                  : null
+                if (tierRole) {
+                  const headers = projAssignments.filter(a => a.assignment_role === tierRole)
+                  headers.forEach(h => {
+                    const st = staff.find(s => s.id === h.staff_id)
+                    const members = projAssignments.filter(a => a.id !== h.id && a.assignment_role !== tierRole)
+                    ensure(h.staff_id, st?.name ?? 'Unknown').items.push({ project: p, members, viaRole: tierRole === 'Lead' ? null : tierRole })
                   })
                 } else {
-                  // No supervisor → fall back to the STO(s) as the acting supervisor
-                  const stos = projAssignments.filter(a => a.assignment_role === 'STO')
-                  if (stos.length > 0) {
-                    stos.forEach(sto => {
-                      const st = staff.find(s => s.id === sto.staff_id)
-                      const members = projAssignments.filter(a => a.assignment_role !== 'Supervisor' && a.id !== sto.id)
-                      ensure(sto.staff_id, st?.name ?? 'Unknown').items.push({ project: p, members, viaSTO: true })
-                    })
-                  } else {
-                    const members = projAssignments.filter(a => a.assignment_role !== 'Supervisor')
-                    ensure('__none__', 'No supervisor').items.push({ project: p, members, viaSTO: false })
-                  }
+                  ensure('__none__', 'No lead / supervisor / STO').items.push({ project: p, members: projAssignments, viaRole: null })
                 }
               })
               let groups = Array.from(groupsMap.values())
               if (supervisorFilter) groups = groups.filter(g => g.key === supervisorFilter)
               groups.sort((a, b) => a.key === '__none__' ? 1 : b.key === '__none__' ? -1 : a.name.localeCompare(b.name))
-              if (groups.length === 0) return <p className="text-gray-600 text-sm">No supervisors to show.</p>
+              if (groups.length === 0) return <p className="text-gray-600 text-sm">No leads to show.</p>
               return (
                 <div className="space-y-3">
                   {groups.map(g => {
@@ -2018,7 +2016,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                       <div key={g.key} className="border border-gray-800 rounded-xl p-5 bg-gray-900/40">
                         <div className="flex items-center justify-between mb-4">
                           {g.key === '__none__' ? (
-                            <h3 className="font-semibold text-gray-100">⚠️ No supervisor</h3>
+                            <h3 className="font-semibold text-gray-100">⚠️ No lead / supervisor / STO</h3>
                           ) : (
                             <h3 className="font-semibold text-gray-100 flex items-center gap-2">
                               <span className="relative">
@@ -2087,7 +2085,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                               <div className="flex items-center gap-2 mb-2">
                                 <p className="text-sm font-medium text-gray-200 flex items-center gap-2">
                                   {it.project.emoji || '📁'} {it.project.name}
-                                  {it.viaSTO && <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-amber-500/10 text-amber-400" title="No supervisor — STO shown as acting supervisor">STO acting as supervisor</span>}
+                                  {it.viaRole && <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-amber-500/10 text-amber-400" title={`No lead — ${it.viaRole} shown as acting lead`}>{it.viaRole} acting as lead</span>}
                                 </p>
                                 <button
                                   onClick={() => { setAddingToProjectId(addingToProjectId === it.project.id ? null : it.project.id); setQuickAdd({ staff_id: '', assignment_role: '' }) }}
@@ -2116,6 +2114,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                                     onChange={e => setQuickAdd({ ...quickAdd, assignment_role: e.target.value })}
                                   >
                                     <option value="">Role</option>
+                                    <option>Lead</option>
                                     <option>Supervisor</option>
                                     <option>STO</option>
                                     <option>Ops Support</option>
@@ -2137,7 +2136,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                               ) : (
                                 <div className="space-y-1.5">
                                   {[...it.members].sort((a, b) => {
-                                    const order = ['STO', 'Ops Support']
+                                    const order = ['Lead', 'Supervisor', 'STO', 'Ops Support']
                                     return (order.indexOf(a.assignment_role ?? '') === -1 ? 99 : order.indexOf(a.assignment_role ?? '')) -
                                            (order.indexOf(b.assignment_role ?? '') === -1 ? 99 : order.indexOf(b.assignment_role ?? ''))
                                   }).map(a => {
@@ -2325,6 +2324,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                             onChange={e => setQuickAdd({ ...quickAdd, assignment_role: e.target.value })}
                           >
                             <option value="">Role</option>
+                            <option>Lead</option>
                             <option>Supervisor</option>
                             <option>STO</option>
                             <option>Ops Support</option>
@@ -2356,7 +2356,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                       ) : (
                         <div className="space-y-2">
                           {[...projectAssignments].sort((a, b) => {
-                            const order = ['Supervisor', 'STO', 'Ops Support']
+                            const order = ['Lead', 'Supervisor', 'STO', 'Ops Support']
                             return (order.indexOf(a.assignment_role ?? '') === -1 ? 99 : order.indexOf(a.assignment_role ?? '')) -
                                    (order.indexOf(b.assignment_role ?? '') === -1 ? 99 : order.indexOf(b.assignment_role ?? ''))
                           }).map(a => {
@@ -2395,6 +2395,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                                     style={{ backgroundImage: 'none' }}
                                   >
                                     <option value="" className="bg-gray-900 text-gray-100">No role</option>
+                                    <option value="Lead" className="bg-gray-900 text-gray-100">Lead</option>
                                     <option value="Supervisor" className="bg-gray-900 text-gray-100">Supervisor</option>
                                     <option value="STO" className="bg-gray-900 text-gray-100">STO</option>
                                     <option value="Ops Support" className="bg-gray-900 text-gray-100">Ops Support</option>
@@ -2953,6 +2954,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                       </select>
                       <select className={selectClass} value={scenarioAssign.assignment_role} onChange={e => setScenarioAssign({ ...scenarioAssign, assignment_role: e.target.value })}>
                         <option value="">Role</option>
+                        <option>Lead</option>
                         <option>Supervisor</option>
                         <option>STO</option>
                         <option>Ops Support</option>
@@ -3027,6 +3029,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                                 onChange={e => setScenarioQuickAdd({ ...scenarioQuickAdd, assignment_role: e.target.value })}
                               >
                                 <option value="">Role</option>
+                                <option>Lead</option>
                                 <option>Supervisor</option>
                                 <option>STO</option>
                                 <option>Ops Support</option>
@@ -3047,7 +3050,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                           ) : (
                             <div className="space-y-2">
                               {[...pa].sort((a, b) => {
-                                const order = ['Supervisor', 'STO', 'Ops Support']
+                                const order = ['Lead', 'Supervisor', 'STO', 'Ops Support']
                                 return (order.indexOf(a.assignment_role ?? '') === -1 ? 99 : order.indexOf(a.assignment_role ?? '')) -
                                        (order.indexOf(b.assignment_role ?? '') === -1 ? 99 : order.indexOf(b.assignment_role ?? ''))
                               }).map(sa => {
@@ -3070,6 +3073,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                                         style={{ backgroundImage: 'none' }}
                                       >
                                         <option value="" className="bg-gray-900 text-gray-100">No role</option>
+                                        <option value="Lead" className="bg-gray-900 text-gray-100">Lead</option>
                                         <option value="Supervisor" className="bg-gray-900 text-gray-100">Supervisor</option>
                                         <option value="STO" className="bg-gray-900 text-gray-100">STO</option>
                                         <option value="Ops Support" className="bg-gray-900 text-gray-100">Ops Support</option>
@@ -3859,6 +3863,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
             </p>
             <select className={selectClass + ' w-full mb-4'} value={dropRole} onChange={e => setDropRole(e.target.value)} autoFocus>
               <option value="">No role</option>
+              <option>Lead</option>
               <option>Supervisor</option>
               <option>STO</option>
               <option>Ops Support</option>
