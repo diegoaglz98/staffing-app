@@ -169,7 +169,7 @@ export default function StaffingApp() {
   const [confirmEmptyUpdate, setConfirmEmptyUpdate] = useState<Project | null>(null)
   const [leadIdPrompt, setLeadIdPrompt] = useState<{ id: string; name: string }[] | null>(null)
   const [leadIdInputs, setLeadIdInputs] = useState<Record<string, string>>({})
-  const [leadPreview, setLeadPreview] = useState<string | null>(null)
+  const [leadPreview, setLeadPreview] = useState<{ leads: { id: string; name: string; projects: string[] }[]; override: Record<string, string> } | null>(null)
   const [leadStatus, setLeadStatus] = useState<'idle' | 'sending' | 'sent' | 'error' | 'empty'>('idle')
   const [leadPermalink, setLeadPermalink] = useState<string | null>(null)
   const [pendingSlackIds, setPendingSlackIds] = useState<{ project: Project; people: { id: string; name: string; role: string }[] } | null>(null)
@@ -1045,33 +1045,43 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
   }
 
   // --- Confirm assignments with leads ---
+  // Each active project's owner = Lead → else Supervisor → else STO (acting as lead)
   function leadsForConfirmation() {
-    const activeIds = new Set(projects.filter(p => p.status === 'active').map(p => p.id))
+    const activeProjects = projects.filter(p => p.status === 'active')
     const map = new Map<string, { id: string; name: string; projects: string[] }>()
-    assignments
-      .filter(a => a.assignment_role === 'Lead' && activeIds.has(a.project_id))
-      .forEach(a => {
-        const s = staff.find(x => x.id === a.staff_id)
-        const projName = projects.find(p => p.id === a.project_id)?.name
-        if (!s || !projName) return
+    activeProjects.forEach(p => {
+      const pa = assignments.filter(a => a.project_id === p.id)
+      const tierRole = pa.some(a => a.assignment_role === 'Lead') ? 'Lead'
+        : pa.some(a => a.assignment_role === 'Supervisor') ? 'Supervisor'
+        : pa.some(a => a.assignment_role === 'STO') ? 'STO'
+        : null
+      if (!tierRole) return
+      pa.filter(a => a.assignment_role === tierRole).forEach(h => {
+        const s = staff.find(x => x.id === h.staff_id)
+        if (!s) return
         if (!map.has(s.id)) map.set(s.id, { id: s.id, name: s.name, projects: [] })
-        map.get(s.id)!.projects.push(projName)
+        map.get(s.id)!.projects.push(p.name)
       })
+    })
     return Array.from(map.values())
       .map(l => ({ ...l, projects: [...new Set(l.projects)].sort((a, b) => a.localeCompare(b)) }))
       .sort((a, b) => a.name.localeCompare(b.name))
   }
-  function buildLeadText(leads: { id: string; name: string; projects: string[] }[], override?: Record<string, string>) {
+  type LeadEntry = { id: string; name: string; projects: string[] }
+  function buildLeadText(leads: LeadEntry[], override: Record<string, string>, mode: 'preview' | 'send') {
     const lines: string[] = ['Hello team — please confirm these are all the active queues your team is working on!', '']
     leads.forEach(l => {
-      const sid = override?.[l.id] ?? staff.find(s => s.id === l.id)?.slack_user_id
-      lines.push(`${sid ? `<@${sid}>` : `*${l.name}*`}:`)
+      const sid = override[l.id] ?? staff.find(s => s.id === l.id)?.slack_user_id
+      const label = mode === 'send'
+        ? (sid ? `<@${sid}>` : `*${l.name}*`)
+        : `${l.name}${sid ? '' : '  (no Slack ID)'}`
+      lines.push(`${label}:`)
       l.projects.forEach(p => lines.push(`  • ${p}`))
       lines.push('')
     })
     lines.push('If it looks accurate then please confirm! If a project or assignment is missing please comment on the thread.')
     lines.push('')
-    lines.push(`cc: ${REQUESTER_SLACK_MENTION}`)
+    lines.push(`cc: ${mode === 'send' ? REQUESTER_SLACK_MENTION : 'you'}`)
     return lines.join('\n')
   }
   function handleConfirmLeads() {
@@ -1082,7 +1092,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
       setLeadIdInputs({})
       setLeadIdPrompt(missing.map(l => ({ id: l.id, name: l.name })))
     } else {
-      setLeadPreview(buildLeadText(leads))
+      setLeadPreview({ leads, override: {} })
     }
   }
   async function submitLeadIds(skip: boolean) {
@@ -1099,7 +1109,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
     }
     setLeadIdPrompt(null)
     setLeadIdInputs({})
-    setLeadPreview(buildLeadText(leadsForConfirmation(), override))
+    setLeadPreview({ leads: leadsForConfirmation(), override })
   }
   async function sendLeadConfirmation() {
     if (!leadPreview) return
@@ -1108,7 +1118,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
       const res = await fetch('/api/slack/confirm-leads', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: leadPreview }),
+        body: JSON.stringify({ text: buildLeadText(leadPreview.leads, leadPreview.override, 'send') }),
       })
       const data = await res.json().catch(() => ({}))
       if (res.ok && data.ok) {
@@ -3823,8 +3833,8 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-6" onClick={() => setLeadPreview(null)}>
           <div className="bg-gray-900 border border-gray-700 rounded-xl p-6 w-[560px] max-w-full shadow-xl" onClick={e => e.stopPropagation()}>
             <p className="text-sm font-semibold text-gray-100 mb-1">Preview — Confirm assignments with leads</p>
-            <p className="text-xs text-gray-500 mb-3">This will post to <span className="text-gray-300">#code_leads_plus</span>. Review before sending.</p>
-            <pre className="text-xs text-gray-200 bg-gray-800/60 border border-gray-700 rounded-lg p-3 max-h-[50vh] overflow-y-auto whitespace-pre-wrap">{leadPreview}</pre>
+            <p className="text-xs text-gray-500 mb-3">This will post to <span className="text-gray-300">#code_leads_plus</span>. Each person is @-mentioned in Slack (names shown here). Review before sending.</p>
+            <pre className="text-xs text-gray-200 bg-gray-800/60 border border-gray-700 rounded-lg p-3 max-h-[50vh] overflow-y-auto whitespace-pre-wrap">{buildLeadText(leadPreview.leads, leadPreview.override, 'preview')}</pre>
             <div className="flex gap-2 justify-end mt-4">
               <button className={btnCancel} onClick={() => setLeadPreview(null)}>Cancel</button>
               <button className={btnPrimary} style={{ backgroundColor: '#193a29' }} onClick={sendLeadConfirmation}>Send to #code_leads_plus</button>
