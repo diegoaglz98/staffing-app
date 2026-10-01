@@ -167,6 +167,11 @@ export default function StaffingApp() {
   const [slackPermalinks, setSlackPermalinks] = useState<Record<string, string>>({})
   const [bulkSlack, setBulkSlack] = useState<{ done: number; total: number } | null>(null)
   const [confirmEmptyUpdate, setConfirmEmptyUpdate] = useState<Project | null>(null)
+  const [leadIdPrompt, setLeadIdPrompt] = useState<{ id: string; name: string }[] | null>(null)
+  const [leadIdInputs, setLeadIdInputs] = useState<Record<string, string>>({})
+  const [leadPreview, setLeadPreview] = useState<string | null>(null)
+  const [leadStatus, setLeadStatus] = useState<'idle' | 'sending' | 'sent' | 'error' | 'empty'>('idle')
+  const [leadPermalink, setLeadPermalink] = useState<string | null>(null)
   const [pendingSlackIds, setPendingSlackIds] = useState<{ project: Project; people: { id: string; name: string; role: string }[] } | null>(null)
   const [slackIdInputs, setSlackIdInputs] = useState<Record<string, string>>({})
   const [overviewStatus, setOverviewStatus] = useState<'idle' | 'sending' | 'sent' | 'error' | 'empty'>('idle')
@@ -1039,6 +1044,83 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
     }
   }
 
+  // --- Confirm assignments with leads ---
+  function leadsForConfirmation() {
+    const activeIds = new Set(projects.filter(p => p.status === 'active').map(p => p.id))
+    const map = new Map<string, { id: string; name: string; projects: string[] }>()
+    assignments
+      .filter(a => a.assignment_role === 'Lead' && activeIds.has(a.project_id))
+      .forEach(a => {
+        const s = staff.find(x => x.id === a.staff_id)
+        const projName = projects.find(p => p.id === a.project_id)?.name
+        if (!s || !projName) return
+        if (!map.has(s.id)) map.set(s.id, { id: s.id, name: s.name, projects: [] })
+        map.get(s.id)!.projects.push(projName)
+      })
+    return Array.from(map.values())
+      .map(l => ({ ...l, projects: [...new Set(l.projects)].sort((a, b) => a.localeCompare(b)) }))
+      .sort((a, b) => a.name.localeCompare(b.name))
+  }
+  function buildLeadText(leads: { id: string; name: string; projects: string[] }[], override?: Record<string, string>) {
+    const lines: string[] = ['Hello team — please confirm these are all the active queues your team is working on!', '']
+    leads.forEach(l => {
+      const sid = override?.[l.id] ?? staff.find(s => s.id === l.id)?.slack_user_id
+      lines.push(`${sid ? `<@${sid}>` : `*${l.name}*`}:`)
+      l.projects.forEach(p => lines.push(`  • ${p}`))
+      lines.push('')
+    })
+    lines.push('If it looks accurate then please confirm! If a project or assignment is missing please comment on the thread.')
+    return lines.join('\n')
+  }
+  function handleConfirmLeads() {
+    const leads = leadsForConfirmation()
+    if (leads.length === 0) { setLeadStatus('empty'); return }
+    const missing = leads.filter(l => !staff.find(s => s.id === l.id)?.slack_user_id)
+    if (missing.length > 0) {
+      setLeadIdInputs({})
+      setLeadIdPrompt(missing.map(l => ({ id: l.id, name: l.name })))
+    } else {
+      setLeadPreview(buildLeadText(leads))
+    }
+  }
+  async function submitLeadIds(skip: boolean) {
+    const override: Record<string, string> = {}
+    if (!skip && leadIdPrompt) {
+      for (const l of leadIdPrompt) {
+        const v = (leadIdInputs[l.id] ?? '').trim()
+        if (v) {
+          override[l.id] = v
+          const { data } = await supabase.from('staff').update({ slack_user_id: v }).eq('id', l.id).select().single()
+          if (data) setStaff(prev => prev.map(s => s.id === l.id ? data : s))
+        }
+      }
+    }
+    setLeadIdPrompt(null)
+    setLeadIdInputs({})
+    setLeadPreview(buildLeadText(leadsForConfirmation(), override))
+  }
+  async function sendLeadConfirmation() {
+    if (!leadPreview) return
+    setLeadStatus('sending')
+    try {
+      const res = await fetch('/api/slack/confirm-leads', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: leadPreview }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (res.ok && data.ok) {
+        setLeadStatus('sent')
+        setLeadPermalink(data.permalink ?? null)
+        setLeadPreview(null)
+      } else {
+        setLeadStatus('error')
+      }
+    } catch {
+      setLeadStatus('error')
+    }
+  }
+
   function startEditMilestone(m: Milestone) {
     setEditMilestone({ title: m.title, due_date: m.due_date ?? '' })
     setEditingMilestoneId(m.id)
@@ -1748,6 +1830,24 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                     .map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                 </select>
                 {toggleSwitch(groupBySupervisor, () => setGroupBySupervisor(v => !v), 'Group by lead')}
+                <button
+                  onClick={handleConfirmLeads}
+                  disabled={leadStatus === 'sending'}
+                  className={`text-xs px-3 py-1.5 rounded-lg border transition-colors whitespace-nowrap ${
+                    leadStatus === 'sent' ? 'border-emerald-500/40 text-emerald-400' :
+                    leadStatus === 'error' || leadStatus === 'empty' ? 'border-red-500/40 text-red-400' :
+                    'border-gray-700 text-gray-300 hover:text-white hover:border-gray-500'
+                  }`}
+                >
+                  {leadStatus === 'sending' ? 'Posting…' :
+                   leadStatus === 'sent' ? '✓ Sent to #code_leads_plus' :
+                   leadStatus === 'error' ? '⚠ Failed — retry' :
+                   leadStatus === 'empty' ? 'No leads on active projects' :
+                   '✅ Confirm assignments with leads'}
+                </button>
+                {leadStatus === 'sent' && leadPermalink && (
+                  <a href={leadPermalink} target="_blank" rel="noopener noreferrer" className="text-xs text-sky-400 hover:text-sky-300 whitespace-nowrap">View ↗</a>
+                )}
                 {(() => {
                   const n = inactiveAssignmentIds().length
                   return n > 0 ? (
@@ -3680,6 +3780,52 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
               <button className={btnCancel} onClick={() => { setPendingSlackIds(null); setSlackIdInputs({}) }}>Cancel</button>
               <button className={btnEdit} onClick={() => { const p = pendingSlackIds.project; setPendingSlackIds(null); setSlackIdInputs({}); requestMilestoneUpdate(p) }}>Skip &amp; send</button>
               <button className={btnPrimary} style={{ backgroundColor: '#193a29' }} onClick={submitSlackIdsAndRequest}>Save &amp; request</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {leadIdPrompt && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => { setLeadIdPrompt(null); setLeadIdInputs({}) }}>
+          <div className="bg-gray-900 border border-gray-700 rounded-xl p-6 w-96 shadow-xl" onClick={e => e.stopPropagation()}>
+            <p className="text-sm font-semibold text-gray-100 mb-1">Add lead Slack ID{leadIdPrompt.length > 1 ? 's' : ''}</p>
+            <p className="text-xs text-gray-500 mb-4">
+              {leadIdPrompt.length > 1 ? 'Some leads' : 'This lead'} {leadIdPrompt.length > 1 ? "don't" : "doesn't"} have a Slack ID yet. Add {leadIdPrompt.length > 1 ? 'them' : 'it'} to tag them in the confirmation (Slack profile → ⋮ → Copy member ID). Saved to their staff profile.
+            </p>
+            <div className="space-y-2 mb-4">
+              {leadIdPrompt.map((l, i) => (
+                <div key={l.id} className="flex items-center gap-2">
+                  <span className="text-xs text-gray-300 w-36 truncate">{l.name}</span>
+                  <input
+                    type="text"
+                    autoFocus={i === 0}
+                    className={inputSmClass + ' flex-1'}
+                    placeholder="U0123ABCD"
+                    value={leadIdInputs[l.id] ?? ''}
+                    onChange={e => setLeadIdInputs(prev => ({ ...prev, [l.id]: e.target.value }))}
+                    onKeyDown={e => e.key === 'Enter' && submitLeadIds(false)}
+                  />
+                </div>
+              ))}
+            </div>
+            <div className="flex gap-2 justify-end">
+              <button className={btnCancel} onClick={() => { setLeadIdPrompt(null); setLeadIdInputs({}) }}>Cancel</button>
+              <button className={btnEdit} onClick={() => submitLeadIds(true)}>Skip &amp; preview</button>
+              <button className={btnPrimary} style={{ backgroundColor: '#193a29' }} onClick={() => submitLeadIds(false)}>Save &amp; preview</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {leadPreview !== null && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-6" onClick={() => setLeadPreview(null)}>
+          <div className="bg-gray-900 border border-gray-700 rounded-xl p-6 w-[560px] max-w-full shadow-xl" onClick={e => e.stopPropagation()}>
+            <p className="text-sm font-semibold text-gray-100 mb-1">Preview — Confirm assignments with leads</p>
+            <p className="text-xs text-gray-500 mb-3">This will post to <span className="text-gray-300">#code_leads_plus</span>. Review before sending.</p>
+            <pre className="text-xs text-gray-200 bg-gray-800/60 border border-gray-700 rounded-lg p-3 max-h-[50vh] overflow-y-auto whitespace-pre-wrap">{leadPreview}</pre>
+            <div className="flex gap-2 justify-end mt-4">
+              <button className={btnCancel} onClick={() => setLeadPreview(null)}>Cancel</button>
+              <button className={btnPrimary} style={{ backgroundColor: '#193a29' }} onClick={sendLeadConfirmation}>Send to #code_leads_plus</button>
             </div>
           </div>
         </div>
