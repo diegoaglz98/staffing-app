@@ -2086,7 +2086,6 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                               <div className="flex items-center gap-2 mb-2">
                                 <p className="text-sm font-medium text-gray-200 flex items-center gap-2">
                                   {it.project.emoji || '📁'} {it.project.name}
-                                  {it.viaRole && <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-amber-500/10 text-amber-400" title={`No lead — ${it.viaRole} shown as acting lead`}>{it.viaRole} acting as lead</span>}
                                 </p>
                                 <button
                                   onClick={() => { setAddingToProjectId(addingToProjectId === it.project.id ? null : it.project.id); setQuickAdd({ staff_id: '', assignment_role: '' }) }}
