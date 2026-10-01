@@ -1070,6 +1070,8 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
       lines.push('')
     })
     lines.push('If it looks accurate then please confirm! If a project or assignment is missing please comment on the thread.')
+    lines.push('')
+    lines.push(`cc: ${REQUESTER_SLACK_MENTION}`)
     return lines.join('\n')
   }
   function handleConfirmLeads() {
