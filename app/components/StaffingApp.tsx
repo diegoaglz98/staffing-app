@@ -170,6 +170,7 @@ export default function StaffingApp() {
   const [leadIdPrompt, setLeadIdPrompt] = useState<{ id: string; name: string }[] | null>(null)
   const [leadIdInputs, setLeadIdInputs] = useState<Record<string, string>>({})
   const [leadPreview, setLeadPreview] = useState<{ leads: { id: string; name: string; projects: string[] }[]; override: Record<string, string> } | null>(null)
+  const [projectCsvPrompt, setProjectCsvPrompt] = useState(false)
   const [leadStatus, setLeadStatus] = useState<'idle' | 'sending' | 'sent' | 'error' | 'empty'>('idle')
   const [leadPermalink, setLeadPermalink] = useState<string | null>(null)
   const [pendingSlackIds, setPendingSlackIds] = useState<{ project: Project; people: { id: string; name: string; role: string }[] } | null>(null)
@@ -508,6 +509,66 @@ export default function StaffingApp() {
       }
     }
     e.target.value = ''
+  }
+
+  function csvCell(v: unknown): string {
+    if (v === null || v === undefined) return ''
+    const s = String(v)
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
+  }
+  function downloadCSV(filename: string, rows: (string | number | boolean | null)[][]) {
+    const csv = rows.map(r => r.map(csvCell).join(',')).join('\n')
+    const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = filename
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+  function exportProjectsCSV(includeCompleted: boolean) {
+    const header = [
+      'id', 'name', 'customer_codename', 'status', 'start_date', 'end_date',
+      'flagged', 'emoji', 'is_pilot', 'is_internal', 'weekly_target', 'staff_assigned',
+    ]
+    const rows: (string | number | boolean | null)[][] = [header]
+    ;[...projects]
+      .filter(p => includeCompleted || p.status !== 'completed')
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .forEach(p => {
+        const staffAssigned = assignments
+          .filter(a => a.project_id === p.id)
+          .map(a => {
+            const s = staff.find(x => x.id === a.staff_id)
+            if (!s) return null
+            return a.assignment_role ? `${s.name} (${a.assignment_role})` : s.name
+          })
+          .filter(Boolean)
+          .sort((a, b) => a!.localeCompare(b!))
+          .join('; ')
+        rows.push([
+          p.id, p.name, p.customer_codename, p.status, p.start_date, p.end_date,
+          p.flagged, p.emoji, p.is_pilot, p.is_internal, p.weekly_target, staffAssigned,
+        ])
+      })
+    downloadCSV(`projects-${new Date().toISOString().split('T')[0]}.csv`, rows)
+    setProjectCsvPrompt(false)
+  }
+  function exportStaffCSV() {
+    const header = [
+      'id', 'name', 'position', 'ooo', 'ooo_return_date', 'flexed',
+      'onboarding', 'flex_notes', 'emoji', 'slack_user_id',
+    ]
+    const rows: (string | number | boolean | null)[][] = [header]
+    ;[...staff]
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .forEach(s => {
+        rows.push([
+          s.id, s.name, s.position, s.ooo, s.ooo_return_date, s.flexed,
+          s.onboarding, s.flex_notes, s.emoji, s.slack_user_id,
+        ])
+      })
+    downloadCSV(`staff-${new Date().toISOString().split('T')[0]}.csv`, rows)
   }
 
   function exportAssignmentsHTML() {
@@ -1403,17 +1464,25 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
               </div>
             </div>
 
-            <div className="mb-4 relative">
-              <input
-                className={inputClass + ' w-full pl-9'}
-                placeholder="Search project names…"
-                value={projectSearch}
-                onChange={e => setProjectSearch(e.target.value)}
-              />
-              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-sm pointer-events-none">🔍</span>
-              {projectSearch && (
-                <button onClick={() => setProjectSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300 text-sm">✕</button>
-              )}
+            <div className="mb-4 flex items-center gap-2">
+              <div className="relative flex-1">
+                <input
+                  className={inputClass + ' w-full pl-9'}
+                  placeholder="Search project names…"
+                  value={projectSearch}
+                  onChange={e => setProjectSearch(e.target.value)}
+                />
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-sm pointer-events-none">🔍</span>
+                {projectSearch && (
+                  <button onClick={() => setProjectSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300 text-sm">✕</button>
+                )}
+              </div>
+              <button
+                onClick={() => setProjectCsvPrompt(true)}
+                className="text-xs px-3 py-2 rounded-lg border border-gray-700 text-gray-400 hover:text-gray-200 transition-colors whitespace-nowrap"
+              >
+                ⬇ Export CSV
+              </button>
             </div>
 
             {projects.length === 0 ? (
@@ -1566,6 +1635,12 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                     Import CSV
                     <input type="file" accept=".csv" className="hidden" onChange={importStaffCSV} />
                   </label>
+                  <button
+                    onClick={exportStaffCSV}
+                    className="text-xs text-gray-400 hover:text-gray-200 transition-colors border border-gray-700 rounded-lg px-3 py-1.5"
+                  >
+                    ⬇ Export CSV
+                  </button>
                 </div>
               </div>
               <div className="flex flex-wrap gap-2">
@@ -3838,6 +3913,20 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
             <div className="flex gap-2 justify-end mt-4">
               <button className={btnCancel} onClick={() => setLeadPreview(null)}>Cancel</button>
               <button className={btnPrimary} style={{ backgroundColor: '#193a29' }} onClick={sendLeadConfirmation}>Send to #code_leads_plus</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {projectCsvPrompt && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-6" onClick={() => setProjectCsvPrompt(false)}>
+          <div className="bg-gray-900 border border-gray-700 rounded-xl p-6 w-96 max-w-full shadow-xl" onClick={e => e.stopPropagation()}>
+            <p className="text-sm font-semibold text-gray-100 mb-2">Export projects to CSV</p>
+            <p className="text-xs text-gray-500 mb-5">Include completed projects in the export?</p>
+            <div className="flex flex-col gap-2">
+              <button className={btnPrimary} style={{ backgroundColor: '#193a29' }} onClick={() => exportProjectsCSV(true)}>Include completed</button>
+              <button className="text-sm font-medium px-4 py-2 rounded-lg border border-gray-700 text-gray-300 hover:text-gray-100 hover:border-gray-600 transition-colors" onClick={() => exportProjectsCSV(false)}>Exclude completed</button>
+              <button className={btnCancel + ' mt-1'} onClick={() => setProjectCsvPrompt(false)}>Cancel</button>
             </div>
           </div>
         </div>
