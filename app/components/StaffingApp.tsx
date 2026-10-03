@@ -199,6 +199,8 @@ export default function StaffingApp() {
 
   const [editingProjectId, setEditingProjectId] = useState<string | null>(null)
   const [editProject, setEditProject] = useState({ name: '', customer_codename: '', status: 'active', duration_weeks: '', is_pilot: false, is_internal: false })
+  const [renameProjectId, setRenameProjectId] = useState<string | null>(null)
+  const [renameValue, setRenameValue] = useState('')
 
   const [editingStaffId, setEditingStaffId] = useState<string | null>(null)
   const [editStaff, setEditStaff] = useState({ name: '', position: '', ooo: false, ooo_return_date: '', flex_notes: '', slack_user_id: '' })
@@ -341,6 +343,14 @@ export default function StaffingApp() {
     setEditingProjectId(p.id)
   }
 
+  async function saveProjectName(id: string) {
+    const name = renameValue.trim()
+    setRenameProjectId(null)
+    const current = projects.find(p => p.id === id)
+    if (!name || !current || current.name === name) return
+    const { data } = await supabase.from('projects').update({ name }).eq('id', id).select().single()
+    if (data) setProjects(projects.map(p => p.id === id ? data : p))
+  }
   async function saveProject(id: string) {
     if (!editProject.name.trim()) return
     const start = projects.find(p => p.id === id)?.start_date ?? fmt(new Date())
@@ -1326,6 +1336,36 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
   const btnSave = 'text-emerald-400 hover:text-emerald-300 text-sm font-medium transition-colors'
   const btnCancel = 'text-gray-600 hover:text-gray-400 text-sm font-medium transition-colors'
 
+  // Inline rename of a project name (used in the Assignments tab, both views)
+  function renderProjectName(p: Project, textClass: string) {
+    if (renameProjectId === p.id) {
+      return (
+        <input
+          autoFocus
+          className={inputSmClass}
+          style={{ minWidth: 180, width: 'auto' }}
+          value={renameValue}
+          onChange={e => setRenameValue(e.target.value)}
+          onClick={e => e.stopPropagation()}
+          onKeyDown={e => {
+            if (e.key === 'Enter') saveProjectName(p.id)
+            else if (e.key === 'Escape') setRenameProjectId(null)
+          }}
+          onBlur={() => saveProjectName(p.id)}
+        />
+      )
+    }
+    return (
+      <span
+        className={textClass + ' cursor-text hover:underline decoration-dotted decoration-gray-600 underline-offset-2'}
+        title="Click to rename"
+        onClick={() => { setRenameProjectId(p.id); setRenameValue(p.name) }}
+      >
+        {p.name}
+      </span>
+    )
+  }
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-950 flex items-center justify-center text-gray-400 text-sm">
@@ -2272,7 +2312,8 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                             >
                               <div className="flex items-center gap-2 mb-2">
                                 <p className="text-sm font-medium text-gray-200 flex items-center gap-2">
-                                  {it.project.emoji || '📁'} {it.project.name}
+                                  <span>{it.project.emoji || '📁'}</span>
+                                  {renderProjectName(it.project, 'text-sm font-medium text-gray-200')}
                                 </p>
                                 <button
                                   onClick={() => { setAddingToProjectId(addingToProjectId === it.project.id ? null : it.project.id); setQuickAdd({ staff_id: '', assignment_role: '' }) }}
@@ -2446,7 +2487,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                               </>
                             )}
                           </div>
-                          <h3 className="font-semibold text-gray-100">{p.name}</h3>
+                          {renderProjectName(p, 'font-semibold text-gray-100')}
                           <button
                             onClick={() => { setAddingToProjectId(addingToProjectId === p.id ? null : p.id); setQuickAdd({ staff_id: '', assignment_role: '' }) }}
                             title="Add a person to this project"
