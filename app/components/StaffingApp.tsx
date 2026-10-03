@@ -87,7 +87,6 @@ const STATUS_OPTIONS: { value: string; label: string }[] = [
   { value: 'active', label: 'Active' },
   { value: 'starting-soon', label: 'Starting Soon' },
   { value: 'paused', label: 'Paused' },
-  { value: 'on-hold', label: 'On Hold' },
   { value: 'completed', label: 'Completed' },
 ]
 const STATUS_ORDER = STATUS_OPTIONS.map(s => s.value)
@@ -218,7 +217,7 @@ export default function StaffingApp() {
   const [excludePilots, setExcludePilots] = useState(false)
   const [excludeInternal, setExcludeInternal] = useState(false)
   const [visibleStatuses, setVisibleStatuses] = useState<Record<string, boolean>>({
-    'active': true, 'starting-soon': true, 'paused': true, 'on-hold': false, 'completed': false,
+    'active': true, 'starting-soon': true, 'paused': true, 'completed': false,
   })
   const [statusFilterOpen, setStatusFilterOpen] = useState(false)
   const [addingToProjectId, setAddingToProjectId] = useState<string | null>(null)
@@ -290,7 +289,15 @@ export default function StaffingApp() {
       const [p, s, a, sc, sa, ms, oc] = await Promise.race([queries, timeout])
       // Core tables must load; scenario tables are optional (may not exist yet)
       if (p.error || s.error || a.error) throw (p.error || s.error || a.error)
-      if (p.data) setProjects(p.data)
+      if (p.data) {
+        // "On Hold" was retired in favour of "Paused" — migrate any lingering rows
+        const onHold = p.data.filter((pr: Project) => pr.status === 'on-hold')
+        if (onHold.length > 0) {
+          await supabase.from('projects').update({ status: 'paused' }).in('id', onHold.map((pr: Project) => pr.id))
+          p.data.forEach((pr: Project) => { if (pr.status === 'on-hold') pr.status = 'paused' })
+        }
+        setProjects(p.data)
+      }
       if (s.data) {
         // Auto-clear OOO for anyone whose return date has arrived (date <= today)
         const today = fmt(new Date())
@@ -389,7 +396,7 @@ export default function StaffingApp() {
     }
   }
 
-  const INACTIVE_STATUSES = ['paused', 'on-hold', 'completed']
+  const INACTIVE_STATUSES = ['paused', 'completed']
   function inactiveAssignmentIds() {
     const inactiveProjectIds = new Set(projects.filter(p => INACTIVE_STATUSES.includes(p.status)).map(p => p.id))
     return assignments.filter(a => inactiveProjectIds.has(a.project_id)).map(a => a.id)
@@ -1480,7 +1487,6 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                 >
                   <option value="active">Active</option>
                   <option value="starting-soon">Starting Soon</option>
-                  <option value="on-hold">On Hold</option>
                   <option value="paused">Paused</option>
                   <option value="completed">Completed</option>
                 </select>
@@ -1586,7 +1592,6 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                               <select className={selectSmClass} value={editProject.status} onChange={e => setEditProject({ ...editProject, status: e.target.value })}>
                                 <option value="active">Active</option>
                                 <option value="starting-soon">Starting Soon</option>
-                                <option value="on-hold">On Hold</option>
                                 <option value="paused">Paused</option>
                                 <option value="completed">Completed</option>
                               </select>
@@ -4051,7 +4056,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
           <div className="bg-gray-900 border border-gray-700 rounded-xl p-6 w-96 shadow-xl" onClick={e => e.stopPropagation()}>
             <p className="text-sm font-semibold text-gray-100 mb-2">Clear staffing from inactive projects?</p>
             <p className="text-xs text-gray-400 mb-5">
-              This removes <span className="text-red-400 font-medium">{inactiveAssignmentIds().length}</span> assignment{inactiveAssignmentIds().length === 1 ? '' : 's'} from all <span className="text-gray-200">paused, on-hold, and completed</span> projects, freeing up that staff. This can&apos;t be undone.
+              This removes <span className="text-red-400 font-medium">{inactiveAssignmentIds().length}</span> assignment{inactiveAssignmentIds().length === 1 ? '' : 's'} from all <span className="text-gray-200">paused and completed</span> projects, freeing up that staff. This can&apos;t be undone.
             </p>
             <div className="flex gap-2 justify-end">
               <button className={btnCancel} onClick={() => setConfirmClearInactive(false)}>Cancel</button>
