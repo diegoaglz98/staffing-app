@@ -227,6 +227,7 @@ export default function StaffingApp() {
   const [groupBySupervisor, setGroupBySupervisor] = useState(false)
   const [editingStaffAssignmentId, setEditingStaffAssignmentId] = useState<string | null>(null)
   const [confirmClearInactive, setConfirmClearInactive] = useState(false)
+  const [clearMsPrompt, setClearMsPrompt] = useState(false)
   const [confirmClearAll, setConfirmClearAll] = useState(false)
   const [logoSpins, setLogoSpins] = useState(0)
   const [emojiPickerProjectId, setEmojiPickerProjectId] = useState<string | null>(null)
@@ -912,6 +913,21 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
     const { data } = await supabase.from('projects').update({ weekly_target: n }).eq('id', id).select().single()
     if (data) setProjects(prev => prev.map(p => p.id === id ? data : p))
     setWeeklyDrafts(prev => { const c = { ...prev }; delete c[id]; return c })
+  }
+  // Clear all milestones and/or production-plan targets from active projects
+  async function clearMilestonesAndTargets(opts: { milestones: boolean; targets: boolean }) {
+    const activeIds = projects.filter(p => p.status === 'active').map(p => p.id)
+    setClearMsPrompt(false)
+    if (activeIds.length === 0) return
+    if (opts.milestones) {
+      await supabase.from('milestones').delete().in('project_id', activeIds)
+      setMilestones(prev => prev.filter(m => !activeIds.includes(m.project_id)))
+    }
+    if (opts.targets) {
+      await supabase.from('projects').update({ weekly_target: null }).in('id', activeIds)
+      setProjects(prev => prev.map(p => activeIds.includes(p.id) ? { ...p, weekly_target: null } : p))
+      setWeeklyDrafts({})
+    }
   }
   async function addToOrg(staffId: string, parentStaffId: string | null) {
     if (orgChart.some(n => n.staff_id === staffId)) return
@@ -3482,6 +3498,13 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                   >
                     Download as PDF
                   </button>
+                  <button
+                    onClick={() => setClearMsPrompt(true)}
+                    className="text-xs px-3 py-1.5 rounded-lg border border-gray-700 text-gray-400 hover:text-red-400 hover:border-red-500/40 transition-colors"
+                    title="Clear all milestones and/or production-plan targets from active projects"
+                  >
+                    🗑 Clear…
+                  </button>
                   <div className="pl-1">{toggleSwitch(showCompletedMilestones, () => setShowCompletedMilestones(v => !v), 'Show completed')}</div>
                   <div className="pl-1">{toggleSwitch(hideEmptyMilestoneProjects, () => setHideEmptyMilestoneProjects(v => !v), 'With milestones only')}</div>
                 </div>
@@ -4050,6 +4073,28 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
           </div>
         </div>
       )}
+
+      {clearMsPrompt && (() => {
+        const activeIds = new Set(projects.filter(p => p.status === 'active').map(p => p.id))
+        const msCount = milestones.filter(m => activeIds.has(m.project_id)).length
+        const tgtCount = projects.filter(p => activeIds.has(p.id) && p.weekly_target != null).length
+        return (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-6" onClick={() => setClearMsPrompt(false)}>
+            <div className="bg-gray-900 border border-gray-700 rounded-xl p-6 w-96 max-w-full shadow-xl" onClick={e => e.stopPropagation()}>
+              <p className="text-sm font-semibold text-gray-100 mb-2">Clear milestones &amp; targets</p>
+              <p className="text-xs text-gray-400 mb-5">
+                Across active projects: <span className="text-gray-200 font-medium">{msCount}</span> milestone{msCount === 1 ? '' : 's'} and <span className="text-gray-200 font-medium">{tgtCount}</span> production-plan target{tgtCount === 1 ? '' : 's'}. This can&apos;t be undone.
+              </p>
+              <div className="flex flex-col gap-2">
+                <button className="text-sm font-medium px-4 py-2 rounded-lg border border-gray-700 text-gray-300 hover:text-gray-100 hover:border-gray-600 transition-colors" disabled={msCount === 0} onClick={() => clearMilestonesAndTargets({ milestones: true, targets: false })}>Clear milestones only</button>
+                <button className="text-sm font-medium px-4 py-2 rounded-lg border border-gray-700 text-gray-300 hover:text-gray-100 hover:border-gray-600 transition-colors" disabled={tgtCount === 0} onClick={() => clearMilestonesAndTargets({ milestones: false, targets: true })}>Clear targets only</button>
+                <button className={btnPrimary} style={{ backgroundColor: '#7f1d1d' }} disabled={msCount === 0 && tgtCount === 0} onClick={() => clearMilestonesAndTargets({ milestones: true, targets: true })}>Clear both</button>
+                <button className={btnCancel + ' mt-1'} onClick={() => setClearMsPrompt(false)}>Cancel</button>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
 
       {confirmClearInactive && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setConfirmClearInactive(false)}>
