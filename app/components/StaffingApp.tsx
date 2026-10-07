@@ -164,7 +164,6 @@ export default function StaffingApp() {
   const [weeklyDrafts, setWeeklyDrafts] = useState<Record<string, string>>({})
   const [slackReqStatus, setSlackReqStatus] = useState<Record<string, 'sending' | 'sent' | 'error'>>({})
   const [slackPermalinks, setSlackPermalinks] = useState<Record<string, string>>({})
-  const [bulkSlack, setBulkSlack] = useState<{ done: number; total: number } | null>(null)
   const [confirmEmptyUpdate, setConfirmEmptyUpdate] = useState<Project | null>(null)
   const [leadIdPrompt, setLeadIdPrompt] = useState<{ id: string; name: string }[] | null>(null)
   const [leadIdInputs, setLeadIdInputs] = useState<Record<string, string>>({})
@@ -176,6 +175,8 @@ export default function StaffingApp() {
   const [slackIdInputs, setSlackIdInputs] = useState<Record<string, string>>({})
   const [overviewStatus, setOverviewStatus] = useState<'idle' | 'sending' | 'sent' | 'error' | 'empty'>('idle')
   const [overviewPermalink, setOverviewPermalink] = useState<string | null>(null)
+  const [overviewOpen, setOverviewOpen] = useState(false)
+  const [overviewIdInputs, setOverviewIdInputs] = useState<Record<string, string>>({})
   const [addingMilestoneProjectId, setAddingMilestoneProjectId] = useState<string | null>(null)
   const [editingMilestoneId, setEditingMilestoneId] = useState<string | null>(null)
   const [editMilestone, setEditMilestone] = useState({ title: '', due_date: '' })
@@ -1075,9 +1076,12 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
     requestMilestoneUpdate(p, override)
   }
 
-  async function giveTeamOverview() {
+  // Build the overview draft. `mode` controls whether unresolved STOs show as
+  // their name (preview) or a raw mention (send). Also returns the STOs missing a Slack ID.
+  function buildOverview(mode: 'preview' | 'send', override: Record<string, string> = {}) {
     const active = [...projects].filter(p => p.status === 'active').sort((a, b) => a.name.localeCompare(b.name))
     const sections: string[] = []
+    const missingMap = new Map<string, { id: string; name: string }>()
     for (const p of active) {
       const openMs = [...milestones.filter(m => m.project_id === p.id && !m.done)]
         .sort((a, b) => priorityRank(a.priority) - priorityRank(b.priority) || a.created_at.localeCompare(b.created_at))
@@ -1087,7 +1091,11 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
         .filter(a => a.project_id === p.id && a.assignment_role === 'STO')
         .map(a => staff.find(s => s.id === a.staff_id))
         .filter((s): s is Staff => !!s)
-        .map(s => s.slack_user_id ? `<@${s.slack_user_id}>` : s.name)
+        .map(s => {
+          const sid = override[s.id] ?? s.slack_user_id
+          if (!sid) { missingMap.set(s.id, { id: s.id, name: s.name }); return s.name }
+          return mode === 'send' ? `<@${sid}>` : s.name
+        })
         .join(', ')
       let sec = `*${p.emoji || '📁'} ${p.name}*${stoTag ? `  (STO: ${stoTag})` : ''}`
       if (openMs.length > 0) {
@@ -1098,9 +1106,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
       sec += `\n  _Production plan this week: ${hasPP ? `${p.weekly_target} task${p.weekly_target === 1 ? '' : 's'}` : 'not set'}_`
       sections.push(sec)
     }
-
-    if (sections.length === 0) { setOverviewStatus('empty'); return }
-
+    if (sections.length === 0) return null
     const text = [
       ':mega: *Code Pod — Milestones & Production Plan overview*',
       '',
@@ -1108,14 +1114,38 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
       '',
       "Please give everyone visibility: share a quick update on your milestones and how you're pacing toward this week's production plan. STOs are tagged above — flag if you're off track. Any questions? Drop them in this thread. :point_down:",
     ].join('\n')
+    return { text, missing: Array.from(missingMap.values()) }
+  }
 
+  function giveTeamOverview() {
+    const built = buildOverview('preview')
+    if (!built) { setOverviewStatus('empty'); return }
+    setOverviewIdInputs({})
+    setOverviewStatus('idle')
+    setOverviewOpen(true)
+  }
+
+  async function sendOverview() {
+    // Persist any Slack IDs the user filled in, then post with real mentions
+    const override: Record<string, string> = {}
+    for (const [id, raw] of Object.entries(overviewIdInputs)) {
+      const val = raw.trim()
+      if (val) {
+        override[id] = val
+        const { data } = await supabase.from('staff').update({ slack_user_id: val }).eq('id', id).select().single()
+        if (data) setStaff(prev => prev.map(s => s.id === id ? data : s))
+      }
+    }
+    const built = buildOverview('send', override)
+    if (!built) { setOverviewOpen(false); setOverviewStatus('empty'); return }
+    setOverviewOpen(false)
     setOverviewStatus('sending')
     setOverviewPermalink(null)
     try {
       const res = await fetch('/api/slack/overview', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text }),
+        body: JSON.stringify({ text: built.text }),
       })
       const data = await res.json().catch(() => ({}))
       if (res.ok && data.ok) {
@@ -1126,15 +1156,6 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
       }
     } catch {
       setOverviewStatus('error')
-    }
-  }
-
-  async function requestUpdatesForAllActive() {
-    const active = [...projects].filter(p => p.status === 'active').sort((a, b) => a.name.localeCompare(b.name))
-    setBulkSlack({ done: 0, total: active.length })
-    for (const p of active) {
-      await requestMilestoneUpdate(p)
-      setBulkSlack(prev => (prev ? { ...prev, done: prev.done + 1 } : prev))
     }
   }
 
@@ -3475,18 +3496,6 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                      '📣 Give milestones & PP update to the whole team'}
                   </button>
                   <button
-                    onClick={requestUpdatesForAllActive}
-                    disabled={!!bulkSlack && bulkSlack.done < bulkSlack.total}
-                    className="text-xs px-3 py-1.5 rounded-lg border border-gray-700 text-gray-300 hover:text-white hover:border-gray-500 transition-colors"
-                    title="Post an update-request thread in #code_pod for every active project"
-                  >
-                    {bulkSlack && bulkSlack.done < bulkSlack.total
-                      ? `Requesting… ${bulkSlack.done}/${bulkSlack.total}`
-                      : bulkSlack && bulkSlack.done === bulkSlack.total
-                      ? `✓ Requested ${bulkSlack.total} active`
-                      : '💬 Request updates (all active)'}
-                  </button>
-                  <button
                     onClick={exportMilestonesHTML}
                     className="text-xs px-3 py-1.5 rounded-lg border border-gray-700 text-gray-400 hover:text-gray-200 transition-colors"
                   >
@@ -3908,6 +3917,45 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
         })()}
       </div>
       </div>{/* end spin wrapper */}
+
+      {overviewOpen && (() => {
+        const original = buildOverview('preview')
+        const missing = original?.missing ?? []
+        const live = buildOverview('preview', overviewIdInputs)
+        return (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-6" onClick={() => setOverviewOpen(false)}>
+            <div className="bg-gray-900 border border-gray-700 rounded-xl p-6 w-[560px] max-w-full shadow-xl" onClick={e => e.stopPropagation()}>
+              <p className="text-sm font-semibold text-gray-100 mb-1">Preview — Milestones &amp; PP overview</p>
+              <p className="text-xs text-gray-500 mb-3">This will post to <span className="text-gray-300">#code_pod</span>. STOs are @-mentioned in Slack (names shown here). Review before sending.</p>
+              <pre className="text-xs text-gray-200 bg-gray-800/60 border border-gray-700 rounded-lg p-3 max-h-[40vh] overflow-y-auto whitespace-pre-wrap">{live?.text}</pre>
+              {missing.length > 0 && (
+                <div className="mt-4">
+                  <p className="text-xs text-gray-400 mb-2">
+                    {missing.length > 1 ? 'These STOs have' : 'This STO has'} no Slack ID yet — add to tag them (Slack profile → ⋮ → Copy member ID). Saved to their staff profile. Leave blank to post their name instead.
+                  </p>
+                  <div className="space-y-2">
+                    {missing.map(person => (
+                      <div key={person.id} className="flex items-center gap-2">
+                        <span className="text-xs text-gray-300 w-36 truncate">{person.name}</span>
+                        <input
+                          className={inputSmClass + ' flex-1'}
+                          placeholder="U012ABC… (Slack member ID)"
+                          value={overviewIdInputs[person.id] ?? ''}
+                          onChange={e => setOverviewIdInputs(prev => ({ ...prev, [person.id]: e.target.value }))}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              <div className="flex gap-2 justify-end mt-5">
+                <button className={btnCancel} onClick={() => setOverviewOpen(false)}>Cancel</button>
+                <button className={btnPrimary} style={{ backgroundColor: '#193a29' }} onClick={sendOverview}>Post to #code_pod</button>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
 
       {pendingSlackIds && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => { setPendingSlackIds(null); setSlackIdInputs({}) }}>
