@@ -16,6 +16,12 @@ type Project = {
   is_pilot: boolean
   is_internal: boolean
   weekly_target: number | null
+  project_type: string | null
+}
+
+type ProjectType = {
+  id: string
+  name: string
 }
 
 const PROJECT_EMOJIS = ['📁', '🚀', '🎯', '🔥', '⭐', '🧪', '🤖', '🛡️', '📊', '💡', '⚙️', '🧠', '🌐', '📈', '🏆', '🐛', '🔒', '📝', '🎨', '⚡', '🧩', '📦', '🔧', '🩺', '💬', '🎓', '🗂️', '✅', '🔬', '🛰️', '📡', '💻', '📱', '☁️', '🔑', '🧵', '📐', '🕹️', '🎬', '🎧', '📷', '🏗️', '🚦', '🧭', '⏱️', '📅', '💰', '🏦', '⚖️', '🩹', '🧬', '🔭', '🌟', '💎', '🎲', '🃏', '🐙', '🦾', '👾', '🦉']
@@ -117,6 +123,9 @@ export default function StaffingApp() {
   const [scenarios, setScenarios] = useState<Scenario[]>([])
   const [scenarioAssignments, setScenarioAssignments] = useState<ScenarioAssignment[]>([])
   const [milestones, setMilestones] = useState<Milestone[]>([])
+  const [projectTypes, setProjectTypes] = useState<ProjectType[]>([])
+  const [manageTypesOpen, setManageTypesOpen] = useState(false)
+  const [newTypeName, setNewTypeName] = useState('')
   const [orgChart, setOrgChart] = useState<OrgNode[]>([])
   const [orgUnassignedOnly, setOrgUnassignedOnly] = useState(true)
   const [dragOverOrgId, setDragOverOrgId] = useState<string | null>(null)
@@ -193,7 +202,7 @@ export default function StaffingApp() {
   const [loading, setLoading] = useState(true)
   const [theme, setTheme] = useState<'dark' | 'light' | 'system'>('dark')
 
-  const [newProject, setNewProject] = useState({ name: '', customer_codename: '', status: 'active', duration_weeks: '', is_pilot: false, is_internal: false })
+  const [newProject, setNewProject] = useState({ name: '', customer_codename: '', status: 'active', duration_weeks: '', is_pilot: false, is_internal: false, project_type: '' })
   const [newStaff, setNewStaff] = useState({ name: '', position: '', ooo: false, ooo_return_date: '' })
   const [newAssignment, setNewAssignment] = useState({ project_id: '', staff_id: '', assignment_role: '' })
 
@@ -287,8 +296,9 @@ export default function StaffingApp() {
         supabase.from('scenario_assignments').select('*'),
         supabase.from('milestones').select('*').order('created_at', { ascending: true }),
         supabase.from('org_chart').select('*'),
+        supabase.from('project_types').select('*').order('name', { ascending: true }),
       ])
-      const [p, s, a, sc, sa, ms, oc] = await Promise.race([queries, timeout])
+      const [p, s, a, sc, sa, ms, oc, pt] = await Promise.race([queries, timeout])
       // Core tables must load; scenario tables are optional (may not exist yet)
       if (p.error || s.error || a.error) throw (p.error || s.error || a.error)
       if (p.data) {
@@ -315,6 +325,7 @@ export default function StaffingApp() {
       if (sa.data) setScenarioAssignments(sa.data)
       if (ms.data) setMilestones(ms.data)
       if (oc.data) setOrgChart(oc.data)
+      if (pt.data) setProjectTypes(pt.data)
     } catch {
       setLoadError(true)
     } finally {
@@ -337,10 +348,11 @@ export default function StaffingApp() {
       end_date: newProject.duration_weeks ? fmt(end) : null,
       is_pilot: newProject.is_pilot,
       is_internal: newProject.is_internal,
+      ...(newProject.project_type ? { project_type: newProject.project_type } : {}),
     }]).select().single()
     if (data) {
       setProjects([data, ...projects])
-      setNewProject({ name: '', customer_codename: '', status: 'active', duration_weeks: '', is_pilot: false, is_internal: false })
+      setNewProject({ name: '', customer_codename: '', status: 'active', duration_weeks: '', is_pilot: false, is_internal: false, project_type: '' })
     }
   }
 
@@ -433,6 +445,70 @@ export default function StaffingApp() {
   async function updateProjectInternal(id: string, is_internal: boolean) {
     const { data } = await supabase.from('projects').update({ is_internal }).eq('id', id).select().single()
     if (data) setProjects(projects.map(p => p.id === id ? data : p))
+  }
+
+  // --- Project types (managed dropdown list, like Sheets data validation) ---
+  // Options = saved list + any value already on a project (so nothing goes missing)
+  function projectTypeOptions() {
+    const names = new Set(projectTypes.map(t => t.name))
+    projects.forEach(p => { if (p.project_type) names.add(p.project_type) })
+    return [...names].sort((a, b) => a.localeCompare(b))
+  }
+  async function updateProjectType(id: string, project_type: string | null) {
+    const { data } = await supabase.from('projects').update({ project_type }).eq('id', id).select().single()
+    if (data) setProjects(prev => prev.map(p => p.id === id ? data : p))
+  }
+  // Creates the type if new (case-insensitive match reuses the existing one); returns the canonical name
+  async function addProjectType(raw: string): Promise<string | null> {
+    const name = raw.trim()
+    if (!name) return null
+    const existing = projectTypeOptions().find(n => n.toLowerCase() === name.toLowerCase())
+    if (existing) {
+      if (!projectTypes.some(t => t.name === existing)) {
+        const { data } = await supabase.from('project_types').insert([{ name: existing }]).select().single()
+        if (data) setProjectTypes(prev => [...prev, data])
+      }
+      return existing
+    }
+    const { data, error } = await supabase.from('project_types').insert([{ name }]).select().single()
+    if (error) { alert(`Couldn't save project type: ${error.message}`); return null }
+    if (data) setProjectTypes(prev => [...prev, data])
+    return name
+  }
+  async function renameProjectType(oldName: string, raw: string) {
+    const name = raw.trim()
+    if (!name || name === oldName) return
+    const t = projectTypes.find(x => x.name === oldName)
+    if (t) {
+      const { data } = await supabase.from('project_types').update({ name }).eq('id', t.id).select().single()
+      if (data) setProjectTypes(prev => prev.map(x => x.id === t.id ? data : x))
+    } else {
+      const { data } = await supabase.from('project_types').insert([{ name }]).select().single()
+      if (data) setProjectTypes(prev => [...prev, data])
+    }
+    await supabase.from('projects').update({ project_type: name }).eq('project_type', oldName)
+    setProjects(prev => prev.map(p => p.project_type === oldName ? { ...p, project_type: name } : p))
+  }
+  async function deleteProjectType(name: string) {
+    const inUse = projects.filter(p => p.project_type === name).length
+    if (inUse > 0 && !confirm(`"${name}" is set on ${inUse} project${inUse === 1 ? '' : 's'}. Delete it and clear it from ${inUse === 1 ? 'that project' : 'those projects'}?`)) return
+    await supabase.from('project_types').delete().eq('name', name)
+    setProjectTypes(prev => prev.filter(t => t.name !== name))
+    if (inUse > 0) {
+      await supabase.from('projects').update({ project_type: null }).eq('project_type', name)
+      setProjects(prev => prev.map(p => p.project_type === name ? { ...p, project_type: null } : p))
+    }
+  }
+  // Handles the dropdown's special "add new" / "manage" entries
+  async function handleProjectTypeSelect(value: string, apply: (v: string | null) => void) {
+    if (value === '__add__') {
+      const name = await addProjectType(prompt('New project type:') ?? '')
+      if (name) apply(name)
+    } else if (value === '__manage__') {
+      setManageTypesOpen(true)
+    } else {
+      apply(value || null)
+    }
   }
 
   async function updateProjectEmoji(id: string, emoji: string | null) {
@@ -548,7 +624,7 @@ export default function StaffingApp() {
   function exportProjectsCSV(includeCompleted: boolean) {
     const header = [
       'id', 'name', 'customer_codename', 'status', 'start_date', 'end_date',
-      'flagged', 'emoji', 'is_pilot', 'is_internal', 'weekly_target', 'staff_assigned',
+      'flagged', 'emoji', 'is_pilot', 'is_internal', 'project_type', 'weekly_target', 'staff_assigned',
     ]
     const rows: (string | number | boolean | null)[][] = [header]
     ;[...projects]
@@ -567,7 +643,7 @@ export default function StaffingApp() {
           .join('; ')
         rows.push([
           p.id, p.name, p.customer_codename, p.status, p.start_date, p.end_date,
-          p.flagged, p.emoji, p.is_pilot, p.is_internal, p.weekly_target, staffAssigned,
+          p.flagged, p.emoji, p.is_pilot, p.is_internal, p.project_type, p.weekly_target, staffAssigned,
         ])
       })
     downloadCSV(`projects-${new Date().toISOString().split('T')[0]}.csv`, rows)
@@ -1288,6 +1364,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
       let valB: string | number = ''
       if (col === 'name')     { valA = a.name; valB = b.name }
       else if (col === 'customer') { valA = a.customer_codename ?? ''; valB = b.customer_codename ?? '' }
+      else if (col === 'type')     { valA = a.project_type ?? '\uffff'; valB = b.project_type ?? '\uffff' }
       else if (col === 'status')   { valA = statusRank(a.status); valB = statusRank(b.status) }
       else if (col === 'start')    { valA = a.start_date ?? ''; valB = b.start_date ?? '' }
       else if (col === 'end')      { valA = a.end_date ?? ''; valB = b.end_date ?? '' }
@@ -1379,6 +1456,26 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
   const btnEdit = 'text-gray-500 hover:text-gray-200 text-sm font-medium transition-colors'
   const btnSave = 'text-emerald-400 hover:text-emerald-300 text-sm font-medium transition-colors'
   const btnCancel = 'text-gray-600 hover:text-gray-400 text-sm font-medium transition-colors'
+
+  // Project Type dropdown cell — pick, add a new value, or manage the list
+  function projectTypeSelect(p: Project) {
+    return (
+      <select
+        value={p.project_type ?? ''}
+        onChange={e => handleProjectTypeSelect(e.target.value, v => updateProjectType(p.id, v))}
+        title="Project type"
+        className={`text-xs px-2 py-1 rounded-md border bg-gray-900 cursor-pointer focus:outline-none focus:ring-1 focus:ring-gray-500 max-w-[160px] ${
+          p.project_type ? 'border-gray-700 text-gray-200' : 'border-dashed border-gray-700 text-gray-600'
+        }`}
+      >
+        <option value="">— None —</option>
+        {projectTypeOptions().map(t => <option key={t} value={t}>{t}</option>)}
+        <option disabled>──────────</option>
+        <option value="__add__">＋ Add new type…</option>
+        <option value="__manage__">⚙ Manage types…</option>
+      </select>
+    )
+  }
 
   // Inline rename of a project name (used in the Assignments tab, both views)
   function renderProjectName(p: Project, textClass: string) {
@@ -1535,6 +1632,17 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                   onChange={e => setNewProject({ ...newProject, duration_weeks: e.target.value })}
                   style={{ width: 220 }}
                 />
+                <select
+                  className={selectClass}
+                  value={newProject.project_type}
+                  onChange={e => handleProjectTypeSelect(e.target.value, v => setNewProject(np => ({ ...np, project_type: v ?? '' })))}
+                >
+                  <option value="">Project type…</option>
+                  {projectTypeOptions().map(t => <option key={t} value={t}>{t}</option>)}
+                  <option disabled>──────────</option>
+                  <option value="__add__">＋ Add new type…</option>
+                  <option value="__manage__">⚙ Manage types…</option>
+                </select>
                 <label className="flex items-center gap-2 text-sm text-gray-400 cursor-pointer select-none">
                   <input type="checkbox" checked={newProject.is_pilot} onChange={e => setNewProject({ ...newProject, is_pilot: e.target.checked })} className="accent-[#193a29] w-4 h-4" />
                   Pilot
@@ -1581,6 +1689,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                     {[
                       { key: 'name', label: 'Name' },
                       { key: 'customer', label: 'Customer' },
+                      { key: 'type', label: 'Project Type' },
                       { key: 'status', label: 'Status' },
                       { key: 'start', label: 'Start' },
                       { key: 'end', label: 'End' },
@@ -1625,6 +1734,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                           <>
                             <td className="py-2 pr-2"><input className={inputSmClass} value={editProject.name} onChange={e => setEditProject({ ...editProject, name: e.target.value })} /></td>
                             <td className="py-2 pr-2"><input className={inputSmClass} value={editProject.customer_codename} onChange={e => setEditProject({ ...editProject, customer_codename: e.target.value })} /></td>
+                            <td className="py-2 pr-2">{projectTypeSelect(p)}</td>
                             <td className="py-2 pr-2">
                               <select className={selectSmClass} value={editProject.status} onChange={e => setEditProject({ ...editProject, status: e.target.value })}>
                                 <option value="active">Active</option>
@@ -1648,6 +1758,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                           <>
                             <td className="py-3.5 font-medium text-gray-100">{p.name}</td>
                             <td className="py-3.5 text-gray-500">{p.customer_codename ?? '—'}</td>
+                            <td className="py-3.5 pr-3">{projectTypeSelect(p)}</td>
                             <td className="py-3.5">
                               <select
                                 value={p.status}
@@ -2919,6 +3030,20 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
             }, {} as Record<string, number>)
           const maxCustomer = Math.max(...Object.values(customerCounts), 1)
 
+          // Active projects aggregated by project type
+          const activeForType = projects.filter(p => p.status === 'active')
+          const typeAgg = new Map<string, { projects: number; people: number }>()
+          activeForType.forEach(p => {
+            const key = p.project_type || 'No type'
+            const cur = typeAgg.get(key) ?? { projects: 0, people: 0 }
+            cur.projects += 1
+            cur.people += assignments.filter(a => a.project_id === p.id).length
+            typeAgg.set(key, cur)
+          })
+          const typeRows = [...typeAgg.entries()]
+            .sort((a, b) => a[0] === 'No type' ? 1 : b[0] === 'No type' ? -1 : b[1].projects - a[1].projects || a[0].localeCompare(b[0]))
+          const maxType = Math.max(...typeRows.map(([, v]) => v.projects), 1)
+
           const headcounts = projects.filter(p => p.status === 'active').map(p => {
             const pa = assignments.filter(a => a.project_id === p.id)
             return {
@@ -3003,6 +3128,35 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                     ))}
                   </div>
                 </div>
+              </div>
+
+              {/* Active projects by type */}
+              <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
+                <div className="flex items-center justify-between mb-4">
+                  <p className="text-xs text-gray-500 uppercase tracking-wider">Active Projects by Type</p>
+                  <span className="text-xs text-gray-500">{activeForType.length} active · {typeRows.filter(([k]) => k !== 'No type').length} type{typeRows.filter(([k]) => k !== 'No type').length === 1 ? '' : 's'}</span>
+                </div>
+                {typeRows.length === 0 ? (
+                  <p className="text-gray-600 text-sm">No active projects.</p>
+                ) : (
+                  <div className="space-y-3">
+                    {typeRows.map(([label, v]) => (
+                      <div key={label}>
+                        <div className="flex justify-between text-xs mb-1">
+                          <span className={label === 'No type' ? 'text-gray-500 italic' : 'text-gray-300'}>{label}</span>
+                          <div className="flex items-center gap-3">
+                            <span className="text-gray-600">{v.people} {v.people === 1 ? 'person' : 'people'}</span>
+                            <span className="text-gray-400">{v.projects} project{v.projects === 1 ? '' : 's'}</span>
+                            <span className="text-gray-600 w-10 text-right">{Math.round((v.projects / activeForType.length) * 100)}%</span>
+                          </div>
+                        </div>
+                        <div className="w-full bg-gray-800 rounded-full h-2">
+                          <div className={`h-2 rounded-full ${label === 'No type' ? 'bg-gray-600' : 'bg-sky-500'}`} style={{ width: `${(v.projects / maxType) * 100}%` }} />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
               {/* Staffing status distribution (active projects) */}
@@ -4117,6 +4271,49 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
             <div className="flex gap-2 justify-end">
               <button className={btnCancel} onClick={() => setConfirmClearAll(false)}>Cancel</button>
               <button className={btnPrimary} style={{ backgroundColor: '#193a29' }} onClick={clearAllAssignments}>Clear all</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {manageTypesOpen && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-6" onClick={() => setManageTypesOpen(false)}>
+          <div className="bg-gray-900 border border-gray-700 rounded-xl p-6 w-[420px] max-w-full shadow-xl" onClick={e => e.stopPropagation()}>
+            <p className="text-sm font-semibold text-gray-100 mb-1">Project types</p>
+            <p className="text-xs text-gray-500 mb-4">The values available in the Project Type dropdown. Rename inline (Enter to save) — projects using a type update with it.</p>
+            <div className="space-y-2 max-h-[45vh] overflow-y-auto mb-4">
+              {projectTypeOptions().length === 0 && <p className="text-xs text-gray-600">No types yet — add one below.</p>}
+              {projectTypeOptions().map(t => {
+                const used = projects.filter(p => p.project_type === t).length
+                return (
+                  <div key={t} className="flex items-center gap-2">
+                    <input
+                      className={inputSmClass + ' flex-1'}
+                      defaultValue={t}
+                      onBlur={e => renameProjectType(t, e.target.value)}
+                      onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
+                    />
+                    <span className="text-xs text-gray-500 w-20 text-right whitespace-nowrap">{used} project{used === 1 ? '' : 's'}</span>
+                    <button className={btnDanger} onClick={() => deleteProjectType(t)} title="Delete type">×</button>
+                  </div>
+                )
+              })}
+            </div>
+            <div className="flex gap-2 pt-3 border-t border-gray-800">
+              <input
+                className={inputSmClass + ' flex-1'}
+                placeholder="New type, e.g. RLHF, Evals, SFT…"
+                value={newTypeName}
+                onChange={e => setNewTypeName(e.target.value)}
+                onKeyDown={async e => { if (e.key === 'Enter' && newTypeName.trim()) { await addProjectType(newTypeName); setNewTypeName('') } }}
+              />
+              <button
+                className="text-xs px-3 py-1 rounded bg-gray-700 text-gray-200 hover:text-white transition-colors"
+                onClick={async () => { if (newTypeName.trim()) { await addProjectType(newTypeName); setNewTypeName('') } }}
+              >Add</button>
+            </div>
+            <div className="flex justify-end mt-4">
+              <button className={btnCancel} onClick={() => setManageTypesOpen(false)}>Done</button>
             </div>
           </div>
         </div>
