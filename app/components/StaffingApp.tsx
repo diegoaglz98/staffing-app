@@ -1202,7 +1202,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
       '',
       sections.join('\n\n'),
       '',
-      "Please give everyone visibility: share a quick update on your milestones and how you're pacing toward this week's production plan. STOs are tagged above — flag if you're off track. Any questions? Drop them in this thread. :point_down:",
+      'Any questions? Drop them in this thread. :point_down:',
       ...(ccLine ? ['', `cc: ${ccLine}`] : []),
     ].join('\n')
     return { text, missing: Array.from(missingMap.values()) }
