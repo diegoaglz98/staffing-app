@@ -170,6 +170,7 @@ export default function StaffingApp() {
   const [milestoneDrafts, setMilestoneDrafts] = useState<Record<string, { title: string; priority: string; due_date: string }>>({})
   const [hideEmptyMilestoneProjects, setHideEmptyMilestoneProjects] = useState(false)
   const [showCompletedMilestones, setShowCompletedMilestones] = useState(false)
+  const [msSummaryView, setMsSummaryView] = useState(false)
   const [weeklyDrafts, setWeeklyDrafts] = useState<Record<string, string>>({})
   const [slackReqStatus, setSlackReqStatus] = useState<Record<string, 'sending' | 'sent' | 'error'>>({})
   const [slackPermalinks, setSlackPermalinks] = useState<Record<string, string>>({})
@@ -3648,6 +3649,23 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
             P1: allMs.filter(m => !m.done && m.priority === 'P1').length,
             P2: allMs.filter(m => !m.done && m.priority === 'P2').length,
           }
+          // Production-plan stepper (shared by card view and summarized table)
+          const ppStepper = (p: Project) => (
+            <div className="inline-flex items-center border border-gray-700 rounded-lg overflow-hidden">
+              <button onClick={() => stepWeeklyTarget(p, -1)} className="px-2.5 py-1 text-gray-400 hover:text-white hover:bg-gray-800 transition-colors leading-none">−</button>
+              <input
+                type="number"
+                min="0"
+                className="no-spin w-14 bg-transparent text-center text-sm text-gray-100 focus:outline-none py-1"
+                placeholder="—"
+                value={weeklyDrafts[p.id] ?? (p.weekly_target != null ? String(p.weekly_target) : '')}
+                onChange={e => setWeeklyDrafts(prev => ({ ...prev, [p.id]: e.target.value }))}
+                onBlur={e => updateWeeklyTarget(p.id, e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
+              />
+              <button onClick={() => stepWeeklyTarget(p, 1)} className="px-2.5 py-1 text-gray-400 hover:text-white hover:bg-gray-800 transition-colors leading-none">+</button>
+            </div>
+          )
           return (
             <div className="flex gap-6 items-start">
               {/* Left: per-project milestone checklists */}
@@ -3691,10 +3709,47 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                   >
                     🗑 Clear…
                   </button>
-                  <div className="pl-1">{toggleSwitch(showCompletedMilestones, () => setShowCompletedMilestones(v => !v), 'Show completed')}</div>
-                  <div className="pl-1">{toggleSwitch(hideEmptyMilestoneProjects, () => setHideEmptyMilestoneProjects(v => !v), 'With milestones only')}</div>
+                  <div className="pl-1">{toggleSwitch(msSummaryView, () => setMsSummaryView(v => !v), 'Summarized view')}</div>
+                  {!msSummaryView && <div className="pl-1">{toggleSwitch(showCompletedMilestones, () => setShowCompletedMilestones(v => !v), 'Show completed')}</div>}
+                  {!msSummaryView && <div className="pl-1">{toggleSwitch(hideEmptyMilestoneProjects, () => setHideEmptyMilestoneProjects(v => !v), 'With milestones only')}</div>}
                 </div>
-                {(() => {
+                {msSummaryView ? (
+                  activeProjects.length === 0 ? (
+                    <p className="text-gray-600 text-sm">No active projects.</p>
+                  ) : (
+                    <div className="border border-gray-800 rounded-xl bg-gray-900/40 overflow-hidden">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="text-left text-gray-500 border-b border-gray-800">
+                            <th className="py-3 pl-5 pr-3 font-medium text-xs uppercase tracking-wider w-10">#</th>
+                            <th className="py-3 pr-3 font-medium text-xs uppercase tracking-wider">Project</th>
+                            <th className="py-3 pr-5 font-medium text-xs uppercase tracking-wider text-right">Production plan (this week)</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {activeProjects.map((p, i) => (
+                            <tr key={p.id} className="border-b border-gray-800/60 last:border-0 hover:bg-gray-800/20">
+                              <td className="py-2.5 pl-5 pr-3 text-gray-600 text-xs">{i + 1}</td>
+                              <td className="py-2.5 pr-3 text-gray-100">{p.emoji || '📁'} {p.name}</td>
+                              <td className="py-2.5 pr-5 text-right">{ppStepper(p)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                        <tfoot>
+                          <tr className="border-t border-gray-800 text-xs">
+                            <td className="py-3 pl-5 pr-3" />
+                            <td className="py-3 pr-3 text-gray-500">
+                              {activeProjects.length} active project{activeProjects.length === 1 ? '' : 's'} · {activeProjects.filter(p => p.weekly_target != null).length} with a plan
+                            </td>
+                            <td className="py-3 pr-5 text-right text-gray-300 font-medium">
+                              Total: {activeProjects.reduce((n, p) => n + (p.weekly_target ?? 0), 0)} tasks
+                            </td>
+                          </tr>
+                        </tfoot>
+                      </table>
+                    </div>
+                  )
+                ) : (() => {
                   const shownProjects = hideEmptyMilestoneProjects
                     ? activeProjects.filter(p => milestones.some(m => m.project_id === p.id))
                     : activeProjects
@@ -3734,20 +3789,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                       </div>
                       <div className="flex items-center gap-2 mb-4">
                         <span className="text-xs text-gray-500">Production plan (this week):</span>
-                        <div className="flex items-center border border-gray-700 rounded-lg overflow-hidden">
-                          <button onClick={() => stepWeeklyTarget(p, -1)} className="px-2.5 py-1 text-gray-400 hover:text-white hover:bg-gray-800 transition-colors leading-none">−</button>
-                          <input
-                            type="number"
-                            min="0"
-                            className="no-spin w-14 bg-transparent text-center text-sm text-gray-100 focus:outline-none py-1"
-                            placeholder="—"
-                            value={weeklyDrafts[p.id] ?? (p.weekly_target != null ? String(p.weekly_target) : '')}
-                            onChange={e => setWeeklyDrafts(prev => ({ ...prev, [p.id]: e.target.value }))}
-                            onBlur={e => updateWeeklyTarget(p.id, e.target.value)}
-                            onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
-                          />
-                          <button onClick={() => stepWeeklyTarget(p, 1)} className="px-2.5 py-1 text-gray-400 hover:text-white hover:bg-gray-800 transition-colors leading-none">+</button>
-                        </div>
+                        {ppStepper(p)}
                         {p.weekly_target != null && <span className="text-xs text-gray-600">task{p.weekly_target === 1 ? '' : 's'} planned</span>}
                       </div>
                       {visibleMs.length > 0 && (
