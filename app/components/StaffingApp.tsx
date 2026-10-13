@@ -1157,7 +1157,15 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
   function buildOverview(mode: 'preview' | 'send', override: Record<string, string> = {}) {
     const active = [...projects].filter(p => p.status === 'active').sort((a, b) => a.name.localeCompare(b.name))
     const sections: string[] = []
-    const missingMap = new Map<string, { id: string; name: string }>()
+    const missingMap = new Map<string, { id: string; name: string; role: string }>()
+    // Mention (send) or name (preview); people without a Slack ID fall back to their name
+    const tag = (s: Staff, role: string) => {
+      const sid = override[s.id] ?? s.slack_user_id
+      if (!sid) { if (!missingMap.has(s.id)) missingMap.set(s.id, { id: s.id, name: s.name, role }); return s.name }
+      return mode === 'send' ? `<@${sid}>` : s.name
+    }
+    // Supervisors & leads on the projects included in the message → cc'd at the bottom
+    const ccStaff = new Map<string, { staff: Staff; role: string }>()
     for (const p of active) {
       const openMs = [...milestones.filter(m => m.project_id === p.id && !m.done)]
         .sort((a, b) => priorityRank(a.priority) - priorityRank(b.priority) || a.created_at.localeCompare(b.created_at))
@@ -1167,12 +1175,14 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
         .filter(a => a.project_id === p.id && a.assignment_role === 'STO')
         .map(a => staff.find(s => s.id === a.staff_id))
         .filter((s): s is Staff => !!s)
-        .map(s => {
-          const sid = override[s.id] ?? s.slack_user_id
-          if (!sid) { missingMap.set(s.id, { id: s.id, name: s.name }); return s.name }
-          return mode === 'send' ? `<@${sid}>` : s.name
-        })
+        .map(s => tag(s, 'STO'))
         .join(', ')
+      assignments
+        .filter(a => a.project_id === p.id && (a.assignment_role === 'Lead' || a.assignment_role === 'Supervisor'))
+        .forEach(a => {
+          const s = staff.find(x => x.id === a.staff_id)
+          if (s && !ccStaff.has(s.id)) ccStaff.set(s.id, { staff: s, role: a.assignment_role as string })
+        })
       let sec = `*${p.emoji || '📁'} ${p.name}*${stoTag ? `  (STO: ${stoTag})` : ''}`
       if (openMs.length > 0) {
         sec += '\n' + openMs.map(m => `  • ${m.priority} — ${m.title}${m.due_date ? ` (due ${m.due_date})` : ''}`).join('\n')
@@ -1183,12 +1193,17 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
       sections.push(sec)
     }
     if (sections.length === 0) return null
+    const ccLine = [...ccStaff.values()]
+      .sort((a, b) => a.staff.name.localeCompare(b.staff.name))
+      .map(({ staff: s, role }) => tag(s, role))
+      .join(', ')
     const text = [
       ':mega: *Code Pod — Milestones & Production Plan overview*',
       '',
       sections.join('\n\n'),
       '',
       "Please give everyone visibility: share a quick update on your milestones and how you're pacing toward this week's production plan. STOs are tagged above — flag if you're off track. Any questions? Drop them in this thread. :point_down:",
+      ...(ccLine ? ['', `cc: ${ccLine}`] : []),
     ].join('\n')
     return { text, missing: Array.from(missingMap.values()) }
   }
@@ -4080,17 +4095,17 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
           <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-6" onClick={() => setOverviewOpen(false)}>
             <div className="bg-gray-900 border border-gray-700 rounded-xl p-6 w-[560px] max-w-full shadow-xl" onClick={e => e.stopPropagation()}>
               <p className="text-sm font-semibold text-gray-100 mb-1">Preview — Milestones &amp; PP overview</p>
-              <p className="text-xs text-gray-500 mb-3">This will post to <span className="text-gray-300">#code_pod</span>. STOs are @-mentioned in Slack (names shown here). Review before sending.</p>
+              <p className="text-xs text-gray-500 mb-3">This will post to <span className="text-gray-300">#code_pod</span>. STOs, plus supervisors &amp; leads in the cc, are @-mentioned in Slack (names shown here). Review before sending.</p>
               <pre className="text-xs text-gray-200 bg-gray-800/60 border border-gray-700 rounded-lg p-3 max-h-[40vh] overflow-y-auto whitespace-pre-wrap">{live?.text}</pre>
               {missing.length > 0 && (
                 <div className="mt-4">
                   <p className="text-xs text-gray-400 mb-2">
-                    {missing.length > 1 ? 'These STOs have' : 'This STO has'} no Slack ID yet — add to tag them (Slack profile → ⋮ → Copy member ID). Saved to their staff profile. Leave blank to post their name instead.
+                    {missing.length > 1 ? 'These people have' : 'This person has'} no Slack ID yet — add to tag them (Slack profile → ⋮ → Copy member ID). Saved to their staff profile. Leave blank to post their name instead.
                   </p>
                   <div className="space-y-2">
                     {missing.map(person => (
                       <div key={person.id} className="flex items-center gap-2">
-                        <span className="text-xs text-gray-300 w-36 truncate">{person.name}</span>
+                        <span className="text-xs text-gray-300 w-36 truncate">{person.name} <span className="text-gray-600">({person.role})</span></span>
                         <input
                           className={inputSmClass + ' flex-1'}
                           placeholder="U012ABC… (Slack member ID)"
