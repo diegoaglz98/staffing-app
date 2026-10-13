@@ -1179,7 +1179,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
       } else {
         sec += '\n  • _No open milestones_'
       }
-      sec += `\n  _Production plan this week: ${hasPP ? `${p.weekly_target} task${p.weekly_target === 1 ? '' : 's'}` : 'not set'}_`
+      sec += `\n  _Production plan this week: ${hasPP ? `${p.weekly_target} task${p.weekly_target === 1 ? '' : 's'}` : 'not defined'}_`
       sections.push(sec)
     }
     if (sections.length === 0) return null
