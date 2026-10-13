@@ -1197,7 +1197,11 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
       .sort((a, b) => a.staff.name.localeCompare(b.staff.name))
       .map(({ staff: s, role }) => tag(s, role))
       .join(', ')
+    // Weeks start on Tuesday → most recent Tuesday on or before today
+    const weekStart = new Date()
+    weekStart.setDate(weekStart.getDate() - ((weekStart.getDay() - 2 + 7) % 7))
     const text = [
+      `*Week of ${weekStart.getMonth() + 1}/${weekStart.getDate()}*`,
       ':mega: *Code Pod — Milestones & Production Plan overview*',
       '',
       sections.join('\n\n'),
