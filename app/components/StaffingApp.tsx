@@ -1193,10 +1193,14 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
       sections.push(sec)
     }
     if (sections.length === 0) return null
-    const ccLine = [...ccStaff.values()]
-      .sort((a, b) => a.staff.name.localeCompare(b.staff.name))
-      .map(({ staff: s, role }) => tag(s, role))
-      .join(', ')
+    // Always cc the requester (skip them in the list if they're also a lead/supervisor)
+    const ccLine = [
+      ...[...ccStaff.values()]
+        .filter(({ staff: s }) => `<@${s.slack_user_id}>` !== REQUESTER_SLACK_MENTION)
+        .sort((a, b) => a.staff.name.localeCompare(b.staff.name))
+        .map(({ staff: s, role }) => tag(s, role)),
+      mode === 'send' ? REQUESTER_SLACK_MENTION : 'you',
+    ].join(', ')
     // Weeks start on Tuesday → most recent Tuesday on or before today
     const weekStart = new Date()
     weekStart.setDate(weekStart.getDate() - ((weekStart.getDay() - 2 + 7) % 7))
