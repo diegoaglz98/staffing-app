@@ -179,6 +179,7 @@ export default function StaffingApp() {
   const [cmMenu, setCmMenu] = useState<null | 'export' | 'clear' | 'slack'>(null)
   const [cmShowAssign, setCmShowAssign] = useState(false)
   const [cmHighlight, setCmHighlight] = useState<string | null>(null)
+  const [cmGroupCollapsed, setCmGroupCollapsed] = useState<Record<string, boolean>>({})
   const [weeklyDrafts, setWeeklyDrafts] = useState<Record<string, string>>({})
   const [slackReqStatus, setSlackReqStatus] = useState<Record<string, 'sending' | 'sent' | 'error'>>({})
   const [slackPermalinks, setSlackPermalinks] = useState<Record<string, string>>({})
@@ -4180,8 +4181,9 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
               }
             },
           })
-          const assignmentRow = (a: Assignment) => {
+          const assignmentRow = (a: Assignment, groupOwnerId?: string) => {
             const member = staff.find(s => s.id === a.staff_id)
+            const isGroupOwner = !!groupOwnerId && a.staff_id === groupOwnerId
             const nonSupCount = new Set(assignments.filter(x => x.staff_id === a.staff_id && x.assignment_role !== 'Supervisor' && x.assignment_role !== 'Lead').map(x => x.project_id)).size
             const overAllocated = a.assignment_role !== 'Supervisor' && a.assignment_role !== 'Lead' && nonSupCount >= 2
             return (
@@ -4190,10 +4192,11 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                 draggable
                 onDragStart={e => { e.dataTransfer.setData('type', 'assignment'); e.dataTransfer.setData('id', a.id); setDraggedAssignmentId(a.id); setDraggedStaffId(null) }}
                 onDragEnd={() => setDraggedAssignmentId(null)}
-                className={`flex items-center justify-between gap-2 bg-gray-800/50 rounded-lg px-3 py-2 text-sm cursor-grab active:cursor-grabbing transition-opacity ${draggedAssignmentId === a.id ? 'opacity-40' : ''}`}
+                className={`flex items-center justify-between gap-2 rounded-lg px-3 py-2 text-sm cursor-grab active:cursor-grabbing transition-opacity ${isGroupOwner ? 'bg-gray-800/20 border border-gray-700/70' : 'bg-gray-800/50'} ${draggedAssignmentId === a.id ? 'opacity-40' : ''}`}
               >
                 <div className="flex items-center gap-2 flex-wrap min-w-0">
                   <span className="font-medium text-gray-200 truncate">{member?.name ?? 'Unknown'}</span>
+                  {isGroupOwner && <span className="text-[10px] uppercase tracking-wider text-gray-500">group lead</span>}
                   <select
                     value={a.assignment_role ?? ''}
                     onChange={e => updateAssignmentRole(a.id, e.target.value)}
@@ -4246,8 +4249,9 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
           )
 
           // ---- The project card: header · PP & Slack strip · Team | Milestones ----
-          const card = (p: Project) => {
+          const card = (p: Project, groupOwnerId?: string) => {
             const i = infoMap.get(p.id) ?? info(p)
+            const coOwners = groupOwnerId ? i.owners.filter(o => o.id !== groupOwnerId) : i.owners
             const collapsed = !!cmCollapsed[p.id]
             const isOver = dragOverProjectId === p.id
             const done = i.ms.length - i.open.length
@@ -4294,8 +4298,10 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                     {ppStepper(p)}
                   </div>
                   <div className="flex items-center gap-2">{requestUpdateBtn(p)}</div>
-                  {i.owners.length > 0 && (
-                    <span className="text-xs text-gray-500">{i.tierRole === 'Lead' ? 'Lead' : `${i.tierRole} (acting lead)`}: <span className="text-gray-300">{i.owners.map(o => o.name).join(', ')}</span></span>
+                  {coOwners.length > 0 && (
+                    <span className="text-xs text-gray-500">
+                      {groupOwnerId ? 'Also led by' : i.tierRole === 'Lead' ? 'Lead' : `${i.tierRole} (acting lead)`}: <span className="text-gray-300">{coOwners.map(o => o.name).join(', ')}</span>
+                    </span>
                   )}
                   {i.ms.length > 0 && (
                     <div className="flex items-center gap-2 ml-auto" title={`${done} of ${i.ms.length} milestones done`}>
@@ -4328,7 +4334,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                           {isOver ? 'Drop to assign' : 'No staff yet — drag someone here from the pools'}
                         </p>
                       ) : (
-                        <div className="space-y-1.5">{[...i.pa].sort((a, b) => roleRank(a.assignment_role) - roleRank(b.assignment_role)).map(assignmentRow)}</div>
+                        <div className="space-y-1.5">{[...i.pa].sort((a, b) => roleRank(a.assignment_role) - roleRank(b.assignment_role)).map(a => assignmentRow(a, groupOwnerId))}</div>
                       )}
                     </div>
                     {/* Milestones */}
@@ -4390,7 +4396,9 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                   {rowsFor.map(g => (
                     <Fragment key={g.key}>
                       {g.title && (
-                        <tr className="bg-gray-800/30"><td colSpan={9} className="py-2 pl-4 text-xs font-semibold text-gray-300">{g.title}</td></tr>
+                        <tr className="border-y border-gray-800" style={{ background: `linear-gradient(90deg, ${accentOf(g.key)}1a, transparent 70%)` }}>
+                          <td colSpan={9} className="py-2.5 pl-3 pr-4" style={{ boxShadow: `inset 4px 0 0 ${accentOf(g.key)}` }}>{g.title}</td>
+                        </tr>
                       )}
                       {g.projects.map((p, idx) => tableRow(p, idx))}
                     </Fragment>
@@ -4411,11 +4419,106 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
             </div>
           )
 
-          const groupTitle = (g: { key: string; name: string; projects: Project[] }) => (
-            g.key === '__none__'
-              ? <span>⚠️ No lead / supervisor / STO <span className="text-gray-500 font-normal">· {g.projects.length}</span></span>
-              : <span className="flex items-center gap-2">{leadEmojiPicker(g.key)} {g.name} <span className="text-gray-500 font-normal">· {g.projects.length} project{g.projects.length === 1 ? '' : 's'}</span></span>
+          // ---- Lead groups: accent colour, role label and roll-up stats ----
+          type CmGroup = { key: string; name: string; projects: Project[] }
+          const ACCENTS = ['#3b82f6', '#8b5cf6', '#10b981', '#f59e0b', '#ec4899', '#06b6d4', '#ef4444', '#84cc16', '#f97316', '#14b8a6']
+          const accentOf = (key: string) => {
+            if (key === '__none__') return '#f59e0b'
+            let h = 0
+            for (const c of key) h = (h * 31 + c.charCodeAt(0)) >>> 0
+            return ACCENTS[h % ACCENTS.length]
+          }
+          const groupStats = (g: CmGroup) => {
+            const infos = g.projects.map(p => infoMap.get(p.id) ?? info(p))
+            const people = new Set(infos.flatMap(x => x.pa.map(a => a.staff_id)))
+            if (g.key !== '__none__') people.delete(g.key)
+            const leadCount = infos.filter(x => x.tierRole === 'Lead').length
+            const actingRoles = [...new Set(infos.filter(x => x.tierRole && x.tierRole !== 'Lead').map(x => x.tierRole as string))]
+            const roleLabel = g.key === '__none__' ? null
+              : leadCount === infos.length ? 'Lead'
+              : leadCount === 0 ? `${actingRoles.join(' / ')} · acting lead`
+              : `Lead · acting lead on ${infos.length - leadCount}`
+            return {
+              people: people.size,
+              pp: g.projects.reduce((n, p) => n + (p.weekly_target ?? 0), 0),
+              open: infos.reduce((n, x) => n + x.open.length, 0),
+              attention: infos.filter(x => x.attention).length,
+              health: (['red', 'amber', 'green', 'idle'] as const).map(h => ({ h, n: infos.filter(x => x.health === h).length })),
+              roleLabel,
+              actingOnly: leadCount === 0,
+            }
+          }
+          const statPill = (label: React.ReactNode, title?: string) => (
+            <span title={title} className="text-[11px] px-2 py-0.5 rounded-full bg-gray-800/80 text-gray-300 whitespace-nowrap">{label}</span>
           )
+          const groupHeader = (g: CmGroup, opts: { collapsible: boolean }) => {
+            const st = groupStats(g)
+            const accent = accentOf(g.key)
+            const collapsed = !!cmGroupCollapsed[g.key]
+            const lead = staff.find(x => x.id === g.key)
+            return (
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex items-center gap-3 min-w-0">
+                  {opts.collapsible && (
+                    <button
+                      onClick={() => setCmGroupCollapsed(prev => ({ ...prev, [g.key]: !collapsed }))}
+                      title={collapsed ? 'Expand group' : 'Collapse group'}
+                      className="w-6 h-6 flex items-center justify-center rounded-md text-gray-500 hover:text-gray-200 hover:bg-gray-800 transition-colors text-xs"
+                    >{collapsed ? '▸' : '▾'}</button>
+                  )}
+                  {g.key === '__none__' ? (
+                    <span className="w-9 h-9 rounded-full flex items-center justify-center text-lg" style={{ backgroundColor: `${accent}22` }}>⚠️</span>
+                  ) : (
+                    <span className="w-9 h-9 rounded-full flex items-center justify-center" style={{ backgroundColor: `${accent}22`, boxShadow: `inset 0 0 0 1px ${accent}55` }}>{leadEmojiPicker(g.key)}</span>
+                  )}
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-base font-semibold text-gray-100">{g.key === '__none__' ? 'No lead, supervisor or STO' : g.name}</span>
+                      {st.roleLabel && (
+                        <span className="text-[11px] font-medium px-2 py-0.5 rounded-full" style={{ backgroundColor: `${accent}1f`, color: accent }}>{st.roleLabel}</span>
+                      )}
+                    </div>
+                    <p className="text-xs text-gray-500 mt-0.5">
+                      {g.key === '__none__'
+                        ? 'These projects have nobody to group under — assign a Lead (or Supervisor / STO).'
+                        : <>{lead?.position ?? 'No position'}{st.actingOnly ? ' · no Lead assigned on these projects' : ''}</>}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  {statPill(`${g.projects.length} project${g.projects.length === 1 ? '' : 's'}`)}
+                  {statPill(`👥 ${st.people}`, 'People on these projects (excluding the lead)')}
+                  {statPill(`PP ${st.pp}`, 'Production plan this week, summed')}
+                  {statPill(`✅ ${st.open} open`, 'Open milestones')}
+                  {st.attention > 0 && <span className="text-[11px] px-2 py-0.5 rounded-full bg-red-500/10 text-red-400 whitespace-nowrap">⚠ {st.attention} need attention</span>}
+                  <div className="flex h-1.5 w-16 rounded-full overflow-hidden bg-gray-800 ml-1" title="Health mix">
+                    {st.health.map(({ h, n }) => n > 0 ? (
+                      <div key={h} className={h === 'red' ? 'bg-red-500' : h === 'amber' ? 'bg-amber-400' : h === 'green' ? 'bg-emerald-500' : 'bg-gray-600'} style={{ width: `${(n / g.projects.length) * 100}%` }} />
+                    ) : null)}
+                  </div>
+                </div>
+              </div>
+            )
+          }
+          const groupSection = (g: CmGroup) => {
+            const accent = accentOf(g.key)
+            const collapsed = !!cmGroupCollapsed[g.key]
+            const none = g.key === '__none__'
+            return (
+              <section
+                key={g.key}
+                className={`rounded-2xl border overflow-hidden ${none ? 'border-dashed border-amber-500/40 bg-amber-500/[0.03]' : 'border-gray-800 bg-gray-900/20'}`}
+                style={{ borderLeft: `4px solid ${accent}` }}
+              >
+                <div className={`px-4 py-3 ${collapsed ? '' : 'border-b border-gray-800/80'}`} style={{ background: `linear-gradient(90deg, ${accent}14, transparent 60%)` }}>
+                  {groupHeader(g, { collapsible: true })}
+                </div>
+                {!collapsed && (
+                  <div className="p-3 space-y-3">{g.projects.map(p => card(p, none ? undefined : g.key))}</div>
+                )}
+              </section>
+            )
+          }
 
           const chip = (k: typeof cmFilter, label: string) => {
             const n = countFor(k)
@@ -4487,8 +4590,8 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                   </div>
                   {cmView === 'cards' && (
                     <>
-                      <button onClick={() => setCmCollapsed({})} className="text-xs px-2.5 py-1.5 rounded-lg border border-gray-700 text-gray-400 hover:text-gray-200 transition-colors">Expand all</button>
-                      <button onClick={() => setCmCollapsed(Object.fromEntries(shown.map(p => [p.id, true])))} className="text-xs px-2.5 py-1.5 rounded-lg border border-gray-700 text-gray-400 hover:text-gray-200 transition-colors">Collapse all</button>
+                      <button onClick={() => { setCmCollapsed({}); setCmGroupCollapsed({}) }} className="text-xs px-2.5 py-1.5 rounded-lg border border-gray-700 text-gray-400 hover:text-gray-200 transition-colors">Expand all</button>
+                      <button onClick={() => groupBySupervisor ? setCmGroupCollapsed(Object.fromEntries(groups.map(g => [g.key, true]))) : setCmCollapsed(Object.fromEntries(shown.map(p => [p.id, true])))} className="text-xs px-2.5 py-1.5 rounded-lg border border-gray-700 text-gray-400 hover:text-gray-200 transition-colors">Collapse all</button>
                     </>
                   )}
                 </div>
@@ -4581,19 +4684,14 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                       {(cmFilter !== 'all' || cmSearch) && <button onClick={() => { setCmFilter('all'); setCmSearch('') }} className="text-xs text-sky-400 hover:text-sky-300 mt-2">Clear filters</button>}
                     </div>
                   ) : cmView === 'table' ? (
-                    table(groupBySupervisor ? groups.map(g => ({ key: g.key, title: groupTitle(g), projects: g.projects })) : [{ key: 'all', title: null, projects: shown }])
+                    table(groupBySupervisor ? groups.map(g => ({ key: g.key, title: groupHeader(g, { collapsible: false }), projects: g.projects })) : [{ key: 'all', title: null, projects: shown }])
                   ) : groupBySupervisor ? (
-                    <div className="space-y-6">
+                    <div className="space-y-5">
                       {groups.length === 0 && <p className="text-gray-600 text-sm">No leads to show.</p>}
-                      {groups.map(g => (
-                        <div key={g.key}>
-                          <h3 className="font-semibold text-gray-100 mb-3 flex items-center gap-2">{groupTitle(g)}</h3>
-                          <div className="space-y-3">{g.projects.map(card)}</div>
-                        </div>
-                      ))}
+                      {groups.map(groupSection)}
                     </div>
                   ) : (
-                    <div className="space-y-3">{shown.map(card)}</div>
+                    <div className="space-y-3">{shown.map(p => card(p))}</div>
                   )}
                 </div>
 
