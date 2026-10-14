@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, Fragment } from 'react'
 import { supabase } from '@/lib/supabase'
 import { Document, Packer, Paragraph, Table, TableRow, TableCell, TextRun, HeadingLevel, WidthType, BorderStyle } from 'docx'
 
@@ -116,7 +116,7 @@ function parseCSVLine(line: string): string[] {
 }
 
 export default function StaffingApp() {
-  const [tab, setTab] = useState<'projects' | 'staff' | 'assignments' | 'dashboard' | 'scenarios' | 'milestones' | 'orgchart'>('dashboard')
+  const [tab, setTab] = useState<'projects' | 'staff' | 'assignments' | 'dashboard' | 'scenarios' | 'milestones' | 'orgchart' | 'consolidated'>('dashboard')
   const [projects, setProjects] = useState<Project[]>([])
   const [staff, setStaff] = useState<Staff[]>([])
   const [assignments, setAssignments] = useState<Assignment[]>([])
@@ -171,6 +171,14 @@ export default function StaffingApp() {
   const [hideEmptyMilestoneProjects, setHideEmptyMilestoneProjects] = useState(false)
   const [showCompletedMilestones, setShowCompletedMilestones] = useState(false)
   const [msSummaryView, setMsSummaryView] = useState(false)
+  // Consolidated Manager
+  const [cmView, setCmView] = useState<'cards' | 'table'>('cards')
+  const [cmFilter, setCmFilter] = useState<'all' | 'attention' | 'flagged' | 'understaffed' | 'nopp' | 'overdue' | 'p0' | 'noteam'>('all')
+  const [cmSearch, setCmSearch] = useState('')
+  const [cmCollapsed, setCmCollapsed] = useState<Record<string, boolean>>({})
+  const [cmMenu, setCmMenu] = useState<null | 'export' | 'clear' | 'slack'>(null)
+  const [cmShowAssign, setCmShowAssign] = useState(false)
+  const [cmHighlight, setCmHighlight] = useState<string | null>(null)
   const [weeklyDrafts, setWeeklyDrafts] = useState<Record<string, string>>({})
   const [slackReqStatus, setSlackReqStatus] = useState<Record<string, 'sending' | 'sent' | 'error'>>({})
   const [slackPermalinks, setSlackPermalinks] = useState<Record<string, string>>({})
@@ -1501,6 +1509,378 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
     )
   }
 
+  // Production-plan stepper (Milestones tab + Consolidated Manager)
+  function ppStepper(p: Project) {
+    return (
+            <div className="inline-flex items-center border border-gray-700 rounded-lg overflow-hidden">
+              <button onClick={() => stepWeeklyTarget(p, -1)} className="px-2.5 py-1 text-gray-400 hover:text-white hover:bg-gray-800 transition-colors leading-none">−</button>
+              <input
+                type="number"
+                min="0"
+                className="no-spin w-14 bg-transparent text-center text-sm text-gray-100 focus:outline-none py-1"
+                placeholder="—"
+                value={weeklyDrafts[p.id] ?? (p.weekly_target != null ? String(p.weekly_target) : '')}
+                onChange={e => setWeeklyDrafts(prev => ({ ...prev, [p.id]: e.target.value }))}
+                onBlur={e => updateWeeklyTarget(p.id, e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
+              />
+              <button onClick={() => stepWeeklyTarget(p, 1)} className="px-2.5 py-1 text-gray-400 hover:text-white hover:bg-gray-800 transition-colors leading-none">+</button>
+            </div>
+          )
+  }
+
+  // Milestone checklist + "add milestone" row for one project (Milestones tab + Consolidated Manager)
+  function renderMilestoneList(p: Project) {
+    const today = fmt(new Date())
+    const ms = [...milestones.filter(m => m.project_id === p.id)].sort((a, b) =>
+      (a.done === b.done ? 0 : a.done ? 1 : -1) || priorityRank(a.priority) - priorityRank(b.priority) || a.created_at.localeCompare(b.created_at)
+    )
+    const visibleMs = showCompletedMilestones ? ms : ms.filter(m => !m.done)
+    const draft = getMilestoneDraft(p.id)
+    return (
+      <>
+                      {visibleMs.length > 0 && (
+                        <div className="space-y-1.5 mb-3">
+                          {visibleMs.map(m => {
+                            const overdue = !m.done && m.due_date && m.due_date < today
+                            return (
+                              <div key={m.id} className="flex items-center gap-3 bg-gray-800/40 rounded-lg px-3 py-2 text-sm">
+                                {editingMilestoneId === m.id ? (
+                                  <>
+                                    <input
+                                      className={inputSmClass + ' flex-1'}
+                                      value={editMilestone.title}
+                                      placeholder="Milestone name"
+                                      autoFocus
+                                      onChange={e => setEditMilestone({ ...editMilestone, title: e.target.value })}
+                                      onKeyDown={e => e.key === 'Enter' && saveMilestone(m.id)}
+                                    />
+                                    <input type="date" className={inputSmClass + ' shrink-0'} style={{ width: 150 }} value={editMilestone.due_date} onChange={e => setEditMilestone({ ...editMilestone, due_date: e.target.value })} />
+                                    <button className={btnSave} onClick={() => saveMilestone(m.id)}>Save</button>
+                                    <button className={btnCancel} onClick={() => setEditingMilestoneId(null)}>Cancel</button>
+                                  </>
+                                ) : (
+                                  <>
+                                    <input type="checkbox" checked={m.done} onChange={e => toggleMilestone(m.id, e.target.checked)} className="accent-[#193a29] w-4 h-4 shrink-0" />
+                                    <span
+                                      onClick={() => startEditMilestone(m)}
+                                      title="Click to edit"
+                                      className={`flex-1 cursor-pointer hover:underline decoration-dotted underline-offset-4 ${m.done ? 'line-through text-gray-600' : 'text-gray-200'}`}
+                                    >{m.title}</span>
+                                    {m.due_date && <span className={`text-xs ${overdue ? 'text-red-400 font-medium' : 'text-gray-500'}`}>{overdue ? '⚠ ' : ''}{m.due_date}</span>}
+                                    <select
+                                      value={m.priority}
+                                      onChange={e => updateMilestonePriority(m.id, e.target.value)}
+                                      title="Priority"
+                                      className={`text-xs font-medium px-2 py-0.5 pr-5 rounded-full cursor-pointer appearance-none focus:outline-none focus:ring-1 focus:ring-gray-500 ${priorityColor(m.priority)}`}
+                                      style={{ backgroundImage: 'none' }}
+                                    >
+                                      {PRIORITIES.map(pr => <option key={pr} value={pr} className="bg-gray-900 text-gray-100">{priorityLabel(pr)}</option>)}
+                                    </select>
+                                    <button className={btnEdit} onClick={() => startEditMilestone(m)}>Edit</button>
+                                    <button className={btnDanger} onClick={() => deleteMilestone(m.id)}>×</button>
+                                  </>
+                                )}
+                              </div>
+                            )
+                          })}
+                        </div>
+                      )}
+                      {addingMilestoneProjectId === p.id ? (
+                        <div className="flex flex-wrap gap-2">
+                          <input
+                            className={inputSmClass + ' flex-1 min-w-[180px]'}
+                            placeholder="New milestone…"
+                            value={draft.title}
+                            autoFocus
+                            onChange={e => setMilestoneDraft(p.id, { title: e.target.value })}
+                            onKeyDown={e => e.key === 'Enter' && addMilestone(p.id)}
+                          />
+                          <select className={selectSmClass + ' w-20'} value={draft.priority} onChange={e => setMilestoneDraft(p.id, { priority: e.target.value })}>
+                            {PRIORITIES.map(pr => <option key={pr} value={pr}>{priorityLabel(pr)}</option>)}
+                          </select>
+                          <input type="date" className={inputSmClass + ' w-40'} value={draft.due_date} onChange={e => setMilestoneDraft(p.id, { due_date: e.target.value })} />
+                          <button className="text-xs px-3 py-1 rounded bg-gray-700 text-gray-300 hover:text-white transition-colors" onClick={() => addMilestone(p.id)}>Add</button>
+                          <button className={btnCancel} onClick={() => setAddingMilestoneProjectId(null)}>Cancel</button>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => setAddingMilestoneProjectId(p.id)}
+                          className="text-xs text-gray-500 hover:text-gray-300 transition-colors"
+                        >
+                          + Add new milestone
+                        </button>
+                      )}
+      </>
+    )
+  }
+
+  // Drag-and-drop staff pools: Unassigned / Flexed / OOO / Onboarding (Assignments + Consolidated Manager)
+  function renderStaffPools(widthClass = 'w-52') {
+              const assignedIds = new Set(assignments.map(a => a.staff_id))
+              const unassigned = [...staff].filter(s => !assignedIds.has(s.id) && !s.flexed && !s.ooo && !s.onboarding).sort((a, b) => a.name.localeCompare(b.name))
+              const flexed = [...staff].filter(s => s.flexed && !assignedIds.has(s.id)).sort((a, b) => a.name.localeCompare(b.name))
+              const oooStaff = [...staff].filter(s => s.ooo && !assignedIds.has(s.id)).sort((a, b) => a.name.localeCompare(b.name))
+              const onboardingStaff = [...staff].filter(s => s.onboarding && !assignedIds.has(s.id)).sort((a, b) => a.name.localeCompare(b.name))
+
+              const staffTile = (s: Staff, extraClass = '') => (
+                <div
+                  key={s.id}
+                  draggable
+                  onDragStart={e => { e.dataTransfer.setData('type', 'staff'); e.dataTransfer.setData('id', s.id); setDraggedStaffId(s.id); setDraggedAssignmentId(null) }}
+                  onDragEnd={() => setDraggedStaffId(null)}
+                  className={`cursor-grab active:cursor-grabbing select-none border rounded-lg px-3 py-2 text-sm transition-all ${
+                    draggedStaffId === s.id ? 'opacity-40 border-gray-600' : `border-gray-700 bg-gray-900 hover:border-gray-500 ${extraClass}`
+                  }`}
+                >
+                  <p className="font-medium text-gray-200 leading-tight">{s.name}</p>
+                  {s.position && <p className="text-xs text-gray-500 mt-0.5">{s.position}</p>}
+                  {s.ooo && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-500/10 text-amber-400 mt-1 inline-block">OOO</span>}
+                  {s.flexed && s.flex_notes && <p className="text-[10px] text-violet-400 mt-1 leading-snug">📝 {s.flex_notes}</p>}
+                </div>
+              )
+
+              return (
+                <div className={`${widthClass} shrink-0 sticky top-6 flex flex-col gap-5`}>
+
+                  {/* Unassigned drop zone */}
+                  <div
+                    onDragOver={e => { e.preventDefault(); setDragOverUnassigned(true) }}
+                    onDragLeave={() => setDragOverUnassigned(false)}
+                    onDrop={async e => {
+                      e.preventDefault(); setDragOverUnassigned(false)
+                      const type = e.dataTransfer.getData('type')
+                      const id = e.dataTransfer.getData('id')
+                      if (type === 'staff' && id) {
+                        await setStaffZone(id, 'unassigned')
+                        setDraggedStaffId(null)
+                      } else if (type === 'assignment' && id) {
+                        const assignment = assignments.find(a => a.id === id)
+                        if (assignment) {
+                          await setStaffZone(assignment.staff_id, 'unassigned')
+                          await removeAssignment(id)
+                        }
+                        setDraggedAssignmentId(null)
+                      }
+                    }}
+                    className={`rounded-lg p-2 transition-all min-h-[60px] ${dragOverUnassigned ? 'ring-1 ring-gray-500 bg-gray-800/40' : ''}`}
+                  >
+                    <p className="text-xs text-gray-500 uppercase tracking-wider mb-3">Unassigned</p>
+                    {unassigned.length === 0
+                      ? <p className="text-xs text-gray-600">None</p>
+                      : <div className="flex flex-col gap-2">{unassigned.map(s => staffTile(s))}</div>
+                    }
+                  </div>
+
+                  {/* Flexed drop zone */}
+                  <div
+                    onDragOver={e => { e.preventDefault(); setDragOverFlexed(true) }}
+                    onDragLeave={() => setDragOverFlexed(false)}
+                    onDrop={e => {
+                      e.preventDefault(); setDragOverFlexed(false)
+                      const type = e.dataTransfer.getData('type')
+                      const id = e.dataTransfer.getData('id')
+                      if (type === 'staff' && id) {
+                        const member = staff.find(s => s.id === id)
+                        setFlexNote(member?.flex_notes ?? '')
+                        setPendingFlex({ staffId: id, assignmentId: null })
+                        setDraggedStaffId(null)
+                      } else if (type === 'assignment' && id) {
+                        const assignment = assignments.find(a => a.id === id)
+                        if (assignment) {
+                          const member = staff.find(s => s.id === assignment.staff_id)
+                          setFlexNote(member?.flex_notes ?? '')
+                          setPendingFlex({ staffId: assignment.staff_id, assignmentId: id })
+                        }
+                        setDraggedAssignmentId(null)
+                      }
+                    }}
+                    className={`rounded-lg p-2 transition-all min-h-[60px] border border-dashed ${
+                      dragOverFlexed ? 'border-violet-500 bg-violet-500/10' : 'border-gray-700'
+                    }`}
+                  >
+                    <p className="text-xs text-gray-500 uppercase tracking-wider mb-3">Flexed</p>
+                    {flexed.length === 0
+                      ? <p className="text-xs text-gray-600">Drop here to flex</p>
+                      : <div className="flex flex-col gap-2">{flexed.map(s => staffTile(s))}</div>
+                    }
+                  </div>
+
+                  {/* Currently OOO drop zone */}
+                  <div
+                    onDragOver={e => { e.preventDefault(); setDragOverOOO(true) }}
+                    onDragLeave={() => setDragOverOOO(false)}
+                    onDrop={e => {
+                      e.preventDefault(); setDragOverOOO(false)
+                      const type = e.dataTransfer.getData('type')
+                      const id = e.dataTransfer.getData('id')
+                      if (type === 'staff' && id) {
+                        const member = staff.find(s => s.id === id)
+                        setOooDate(member?.ooo_return_date ?? '')
+                        setPendingOOO({ staffId: id, assignmentId: null })
+                        setDraggedStaffId(null)
+                      } else if (type === 'assignment' && id) {
+                        const assignment = assignments.find(a => a.id === id)
+                        if (assignment) {
+                          const member = staff.find(s => s.id === assignment.staff_id)
+                          setOooDate(member?.ooo_return_date ?? '')
+                          setPendingOOO({ staffId: assignment.staff_id, assignmentId: id })
+                        }
+                        setDraggedAssignmentId(null)
+                      }
+                    }}
+                    className={`rounded-lg p-2 transition-all min-h-[60px] border border-dashed ${
+                      dragOverOOO ? 'border-amber-500 bg-amber-500/10' : 'border-gray-700'
+                    }`}
+                  >
+                    <p className="text-xs text-gray-500 uppercase tracking-wider mb-3">Currently OOO</p>
+                    {oooStaff.length === 0
+                      ? <p className="text-xs text-gray-600">Drop here to mark OOO</p>
+                      : <div className="flex flex-col gap-2">{oooStaff.map(s => staffTile(s))}</div>
+                    }
+                  </div>
+
+                  {/* Onboarding drop zone */}
+                  <div
+                    onDragOver={e => { e.preventDefault(); setDragOverOnboarding(true) }}
+                    onDragLeave={() => setDragOverOnboarding(false)}
+                    onDrop={async e => {
+                      e.preventDefault(); setDragOverOnboarding(false)
+                      const type = e.dataTransfer.getData('type')
+                      const id = e.dataTransfer.getData('id')
+                      if (type === 'staff' && id) {
+                        await setStaffZone(id, 'onboarding')
+                        setDraggedStaffId(null)
+                      } else if (type === 'assignment' && id) {
+                        const assignment = assignments.find(a => a.id === id)
+                        if (assignment) {
+                          await setStaffZone(assignment.staff_id, 'onboarding')
+                          await removeAssignment(id)
+                        }
+                        setDraggedAssignmentId(null)
+                      }
+                    }}
+                    className={`rounded-lg p-2 transition-all min-h-[60px] border border-dashed ${
+                      dragOverOnboarding ? 'border-cyan-500 bg-cyan-500/10' : 'border-gray-700'
+                    }`}
+                  >
+                    <p className="text-xs text-gray-500 uppercase tracking-wider mb-3">Onboarding</p>
+                    {onboardingStaff.length === 0
+                      ? <p className="text-xs text-gray-600">Drop here to onboard</p>
+                      : <div className="flex flex-col gap-2">{onboardingStaff.map(s => staffTile(s))}</div>
+                    }
+                  </div>
+
+                </div>
+              )
+  }
+
+  // Role pickers shown after dropping a person / moving an assignment onto a project
+  function renderDropModals() {
+    return (
+      <>
+            {/* Drop role modal */}
+            {pendingDrop && (
+              <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => { setPendingDrop(null); setDropRole('') }}>
+                <div className="bg-gray-900 border border-gray-700 rounded-xl p-6 w-80 shadow-xl" onClick={e => e.stopPropagation()}>
+                  <p className="text-sm font-semibold text-gray-100 mb-1">Assign to project</p>
+                  <p className="text-xs text-gray-500 mb-4">
+                    <span className="text-gray-300">{staff.find(s => s.id === pendingDrop.staffId)?.name}</span>
+                    {' → '}
+                    <span className="text-gray-300">{projects.find(p => p.id === pendingDrop.projectId)?.name}</span>
+                  </p>
+                  <select
+                    className={selectClass + ' w-full mb-4'}
+                    value={dropRole}
+                    onChange={e => setDropRole(e.target.value)}
+                    autoFocus
+                  >
+                    <option value="">No role</option>
+                    <option>Lead</option>
+                    <option>Supervisor</option>
+                    <option>STO</option>
+                    <option>Ops Support</option>
+                  </select>
+                  <div className="flex gap-2 justify-end">
+                    <button className={btnCancel} onClick={() => { setPendingDrop(null); setDropRole('') }}>Cancel</button>
+                    <button
+                      className={btnPrimary}
+                      style={{ backgroundColor: '#193a29' }}
+                      onClick={async () => {
+                        const already = assignments.some(a => a.project_id === pendingDrop.projectId && a.staff_id === pendingDrop.staffId)
+                        if (!already) {
+                          const { data } = await supabase.from('assignments').insert([{
+                            project_id: pendingDrop.projectId,
+                            staff_id: pendingDrop.staffId,
+                            assignment_role: dropRole || null,
+                          }]).select().single()
+                          if (data) setAssignments(prev => [...prev, data])
+                        }
+                        const member = staff.find(s => s.id === pendingDrop.staffId)
+                        if (member?.flexed || member?.onboarding) {
+                          const { data } = await supabase.from('staff').update({ flexed: false, onboarding: false }).eq('id', pendingDrop.staffId).select().single()
+                          if (data) setStaff(prev => prev.map(s => s.id === pendingDrop.staffId ? data : s))
+                        }
+                        setPendingDrop(null)
+                        setDropRole('')
+                      }}
+                    >
+                      Assign
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {pendingMove && (() => {
+              const assignment = assignments.find(a => a.id === pendingMove.assignmentId)
+              const member = staff.find(s => s.id === assignment?.staff_id)
+              return (
+                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => { setPendingMove(null); setDropRole('') }}>
+                  <div className="bg-gray-900 border border-gray-700 rounded-xl p-6 w-80 shadow-xl" onClick={e => e.stopPropagation()}>
+                    <p className="text-sm font-semibold text-gray-100 mb-1">Move to project</p>
+                    <p className="text-xs text-gray-500 mb-4">
+                      <span className="text-gray-300">{member?.name}</span>
+                      {' → '}
+                      <span className="text-gray-300">{projects.find(p => p.id === pendingMove.projectId)?.name}</span>
+                    </p>
+                    <p className="text-xs text-gray-500 mb-2">Confirm role for this assignment:</p>
+                    <select
+                      className={selectClass + ' w-full mb-4'}
+                      value={dropRole}
+                      onChange={e => setDropRole(e.target.value)}
+                      autoFocus
+                    >
+                      <option value="">No role</option>
+                      <option>Lead</option>
+                      <option>Supervisor</option>
+                      <option>STO</option>
+                      <option>Ops Support</option>
+                    </select>
+                    <div className="flex gap-2 justify-end">
+                      <button className={btnCancel} onClick={() => { setPendingMove(null); setDropRole('') }}>Cancel</button>
+                      <button
+                        className={btnPrimary}
+                        style={{ backgroundColor: '#193a29' }}
+                        onClick={async () => {
+                          const { data } = await supabase.from('assignments').update({ project_id: pendingMove.projectId, assignment_role: dropRole || null }).eq('id', pendingMove.assignmentId).select().single()
+                          if (data) setAssignments(prev => prev.map(a => a.id === pendingMove.assignmentId ? data : a))
+                          setPendingMove(null)
+                          setDropRole('')
+                        }}
+                      >
+                        Move
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )
+            })()}
+
+      </>
+    )
+  }
+
   // Inline rename of a project name (used in the Assignments tab, both views)
   function renderProjectName(p: Project, textClass: string) {
     if (renameProjectId === p.id) {
@@ -1591,9 +1971,9 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
         </div>
       </div>
 
-      <div className={`${tab === 'orgchart' ? 'max-w-none' : 'max-w-4xl'} mx-auto px-8 py-8`}>
+      <div className={`${tab === 'orgchart' ? 'max-w-none' : tab === 'consolidated' ? 'max-w-[1720px]' : 'max-w-4xl'} mx-auto px-8 py-8`}>
         {/* Tabs */}
-        <div className="flex gap-1 mb-8 bg-gray-900 rounded-xl p-1 w-fit">
+        <div className="flex flex-wrap gap-1 mb-8 bg-gray-900 rounded-xl p-1 w-fit max-w-full">
           {([
             { key: 'dashboard', label: 'Dashboard' },
             { key: 'projects', label: 'Projects' },
@@ -1602,6 +1982,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
             { key: 'scenarios', label: 'Staffing Scenarios' },
             { key: 'milestones', label: 'Milestones' },
             { key: 'orgchart', label: 'Org Chart' },
+            { key: 'consolidated', label: '✨ Consolidated Manager' },
           ] as const).map(({ key, label }) => (
             <button
               key={key}
@@ -2284,104 +2665,6 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
             {/* Two-column layout */}
             <div className="flex gap-6 items-start">
 
-            {/* Drop role modal */}
-            {pendingDrop && (
-              <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => { setPendingDrop(null); setDropRole('') }}>
-                <div className="bg-gray-900 border border-gray-700 rounded-xl p-6 w-80 shadow-xl" onClick={e => e.stopPropagation()}>
-                  <p className="text-sm font-semibold text-gray-100 mb-1">Assign to project</p>
-                  <p className="text-xs text-gray-500 mb-4">
-                    <span className="text-gray-300">{staff.find(s => s.id === pendingDrop.staffId)?.name}</span>
-                    {' → '}
-                    <span className="text-gray-300">{projects.find(p => p.id === pendingDrop.projectId)?.name}</span>
-                  </p>
-                  <select
-                    className={selectClass + ' w-full mb-4'}
-                    value={dropRole}
-                    onChange={e => setDropRole(e.target.value)}
-                    autoFocus
-                  >
-                    <option value="">No role</option>
-                    <option>Lead</option>
-                    <option>Supervisor</option>
-                    <option>STO</option>
-                    <option>Ops Support</option>
-                  </select>
-                  <div className="flex gap-2 justify-end">
-                    <button className={btnCancel} onClick={() => { setPendingDrop(null); setDropRole('') }}>Cancel</button>
-                    <button
-                      className={btnPrimary}
-                      style={{ backgroundColor: '#193a29' }}
-                      onClick={async () => {
-                        const already = assignments.some(a => a.project_id === pendingDrop.projectId && a.staff_id === pendingDrop.staffId)
-                        if (!already) {
-                          const { data } = await supabase.from('assignments').insert([{
-                            project_id: pendingDrop.projectId,
-                            staff_id: pendingDrop.staffId,
-                            assignment_role: dropRole || null,
-                          }]).select().single()
-                          if (data) setAssignments(prev => [...prev, data])
-                        }
-                        const member = staff.find(s => s.id === pendingDrop.staffId)
-                        if (member?.flexed || member?.onboarding) {
-                          const { data } = await supabase.from('staff').update({ flexed: false, onboarding: false }).eq('id', pendingDrop.staffId).select().single()
-                          if (data) setStaff(prev => prev.map(s => s.id === pendingDrop.staffId ? data : s))
-                        }
-                        setPendingDrop(null)
-                        setDropRole('')
-                      }}
-                    >
-                      Assign
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {pendingMove && (() => {
-              const assignment = assignments.find(a => a.id === pendingMove.assignmentId)
-              const member = staff.find(s => s.id === assignment?.staff_id)
-              return (
-                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => { setPendingMove(null); setDropRole('') }}>
-                  <div className="bg-gray-900 border border-gray-700 rounded-xl p-6 w-80 shadow-xl" onClick={e => e.stopPropagation()}>
-                    <p className="text-sm font-semibold text-gray-100 mb-1">Move to project</p>
-                    <p className="text-xs text-gray-500 mb-4">
-                      <span className="text-gray-300">{member?.name}</span>
-                      {' → '}
-                      <span className="text-gray-300">{projects.find(p => p.id === pendingMove.projectId)?.name}</span>
-                    </p>
-                    <p className="text-xs text-gray-500 mb-2">Confirm role for this assignment:</p>
-                    <select
-                      className={selectClass + ' w-full mb-4'}
-                      value={dropRole}
-                      onChange={e => setDropRole(e.target.value)}
-                      autoFocus
-                    >
-                      <option value="">No role</option>
-                      <option>Lead</option>
-                      <option>Supervisor</option>
-                      <option>STO</option>
-                      <option>Ops Support</option>
-                    </select>
-                    <div className="flex gap-2 justify-end">
-                      <button className={btnCancel} onClick={() => { setPendingMove(null); setDropRole('') }}>Cancel</button>
-                      <button
-                        className={btnPrimary}
-                        style={{ backgroundColor: '#193a29' }}
-                        onClick={async () => {
-                          const { data } = await supabase.from('assignments').update({ project_id: pendingMove.projectId, assignment_role: dropRole || null }).eq('id', pendingMove.assignmentId).select().single()
-                          if (data) setAssignments(prev => prev.map(a => a.id === pendingMove.assignmentId ? data : a))
-                          setPendingMove(null)
-                          setDropRole('')
-                        }}
-                      >
-                        Move
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              )
-            })()}
-
             {/* Left: project list */}
             <div className="flex-1 min-w-0">
             {groupBySupervisor ? (() => {
@@ -2821,164 +3104,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
             </div>{/* end left column */}
 
             {/* Right: unassigned + flexed + OOO panels */}
-            {(() => {
-              const assignedIds = new Set(assignments.map(a => a.staff_id))
-              const unassigned = [...staff].filter(s => !assignedIds.has(s.id) && !s.flexed && !s.ooo && !s.onboarding).sort((a, b) => a.name.localeCompare(b.name))
-              const flexed = [...staff].filter(s => s.flexed && !assignedIds.has(s.id)).sort((a, b) => a.name.localeCompare(b.name))
-              const oooStaff = [...staff].filter(s => s.ooo && !assignedIds.has(s.id)).sort((a, b) => a.name.localeCompare(b.name))
-              const onboardingStaff = [...staff].filter(s => s.onboarding && !assignedIds.has(s.id)).sort((a, b) => a.name.localeCompare(b.name))
-
-              const staffTile = (s: Staff, extraClass = '') => (
-                <div
-                  key={s.id}
-                  draggable
-                  onDragStart={e => { e.dataTransfer.setData('type', 'staff'); e.dataTransfer.setData('id', s.id); setDraggedStaffId(s.id); setDraggedAssignmentId(null) }}
-                  onDragEnd={() => setDraggedStaffId(null)}
-                  className={`cursor-grab active:cursor-grabbing select-none border rounded-lg px-3 py-2 text-sm transition-all ${
-                    draggedStaffId === s.id ? 'opacity-40 border-gray-600' : `border-gray-700 bg-gray-900 hover:border-gray-500 ${extraClass}`
-                  }`}
-                >
-                  <p className="font-medium text-gray-200 leading-tight">{s.name}</p>
-                  {s.position && <p className="text-xs text-gray-500 mt-0.5">{s.position}</p>}
-                  {s.ooo && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-500/10 text-amber-400 mt-1 inline-block">OOO</span>}
-                  {s.flexed && s.flex_notes && <p className="text-[10px] text-violet-400 mt-1 leading-snug">📝 {s.flex_notes}</p>}
-                </div>
-              )
-
-              return (
-                <div className="w-52 shrink-0 sticky top-6 flex flex-col gap-5">
-
-                  {/* Unassigned drop zone */}
-                  <div
-                    onDragOver={e => { e.preventDefault(); setDragOverUnassigned(true) }}
-                    onDragLeave={() => setDragOverUnassigned(false)}
-                    onDrop={async e => {
-                      e.preventDefault(); setDragOverUnassigned(false)
-                      const type = e.dataTransfer.getData('type')
-                      const id = e.dataTransfer.getData('id')
-                      if (type === 'staff' && id) {
-                        await setStaffZone(id, 'unassigned')
-                        setDraggedStaffId(null)
-                      } else if (type === 'assignment' && id) {
-                        const assignment = assignments.find(a => a.id === id)
-                        if (assignment) {
-                          await setStaffZone(assignment.staff_id, 'unassigned')
-                          await removeAssignment(id)
-                        }
-                        setDraggedAssignmentId(null)
-                      }
-                    }}
-                    className={`rounded-lg p-2 transition-all min-h-[60px] ${dragOverUnassigned ? 'ring-1 ring-gray-500 bg-gray-800/40' : ''}`}
-                  >
-                    <p className="text-xs text-gray-500 uppercase tracking-wider mb-3">Unassigned</p>
-                    {unassigned.length === 0
-                      ? <p className="text-xs text-gray-600">None</p>
-                      : <div className="flex flex-col gap-2">{unassigned.map(s => staffTile(s))}</div>
-                    }
-                  </div>
-
-                  {/* Flexed drop zone */}
-                  <div
-                    onDragOver={e => { e.preventDefault(); setDragOverFlexed(true) }}
-                    onDragLeave={() => setDragOverFlexed(false)}
-                    onDrop={e => {
-                      e.preventDefault(); setDragOverFlexed(false)
-                      const type = e.dataTransfer.getData('type')
-                      const id = e.dataTransfer.getData('id')
-                      if (type === 'staff' && id) {
-                        const member = staff.find(s => s.id === id)
-                        setFlexNote(member?.flex_notes ?? '')
-                        setPendingFlex({ staffId: id, assignmentId: null })
-                        setDraggedStaffId(null)
-                      } else if (type === 'assignment' && id) {
-                        const assignment = assignments.find(a => a.id === id)
-                        if (assignment) {
-                          const member = staff.find(s => s.id === assignment.staff_id)
-                          setFlexNote(member?.flex_notes ?? '')
-                          setPendingFlex({ staffId: assignment.staff_id, assignmentId: id })
-                        }
-                        setDraggedAssignmentId(null)
-                      }
-                    }}
-                    className={`rounded-lg p-2 transition-all min-h-[60px] border border-dashed ${
-                      dragOverFlexed ? 'border-violet-500 bg-violet-500/10' : 'border-gray-700'
-                    }`}
-                  >
-                    <p className="text-xs text-gray-500 uppercase tracking-wider mb-3">Flexed</p>
-                    {flexed.length === 0
-                      ? <p className="text-xs text-gray-600">Drop here to flex</p>
-                      : <div className="flex flex-col gap-2">{flexed.map(s => staffTile(s))}</div>
-                    }
-                  </div>
-
-                  {/* Currently OOO drop zone */}
-                  <div
-                    onDragOver={e => { e.preventDefault(); setDragOverOOO(true) }}
-                    onDragLeave={() => setDragOverOOO(false)}
-                    onDrop={e => {
-                      e.preventDefault(); setDragOverOOO(false)
-                      const type = e.dataTransfer.getData('type')
-                      const id = e.dataTransfer.getData('id')
-                      if (type === 'staff' && id) {
-                        const member = staff.find(s => s.id === id)
-                        setOooDate(member?.ooo_return_date ?? '')
-                        setPendingOOO({ staffId: id, assignmentId: null })
-                        setDraggedStaffId(null)
-                      } else if (type === 'assignment' && id) {
-                        const assignment = assignments.find(a => a.id === id)
-                        if (assignment) {
-                          const member = staff.find(s => s.id === assignment.staff_id)
-                          setOooDate(member?.ooo_return_date ?? '')
-                          setPendingOOO({ staffId: assignment.staff_id, assignmentId: id })
-                        }
-                        setDraggedAssignmentId(null)
-                      }
-                    }}
-                    className={`rounded-lg p-2 transition-all min-h-[60px] border border-dashed ${
-                      dragOverOOO ? 'border-amber-500 bg-amber-500/10' : 'border-gray-700'
-                    }`}
-                  >
-                    <p className="text-xs text-gray-500 uppercase tracking-wider mb-3">Currently OOO</p>
-                    {oooStaff.length === 0
-                      ? <p className="text-xs text-gray-600">Drop here to mark OOO</p>
-                      : <div className="flex flex-col gap-2">{oooStaff.map(s => staffTile(s))}</div>
-                    }
-                  </div>
-
-                  {/* Onboarding drop zone */}
-                  <div
-                    onDragOver={e => { e.preventDefault(); setDragOverOnboarding(true) }}
-                    onDragLeave={() => setDragOverOnboarding(false)}
-                    onDrop={async e => {
-                      e.preventDefault(); setDragOverOnboarding(false)
-                      const type = e.dataTransfer.getData('type')
-                      const id = e.dataTransfer.getData('id')
-                      if (type === 'staff' && id) {
-                        await setStaffZone(id, 'onboarding')
-                        setDraggedStaffId(null)
-                      } else if (type === 'assignment' && id) {
-                        const assignment = assignments.find(a => a.id === id)
-                        if (assignment) {
-                          await setStaffZone(assignment.staff_id, 'onboarding')
-                          await removeAssignment(id)
-                        }
-                        setDraggedAssignmentId(null)
-                      }
-                    }}
-                    className={`rounded-lg p-2 transition-all min-h-[60px] border border-dashed ${
-                      dragOverOnboarding ? 'border-cyan-500 bg-cyan-500/10' : 'border-gray-700'
-                    }`}
-                  >
-                    <p className="text-xs text-gray-500 uppercase tracking-wider mb-3">Onboarding</p>
-                    {onboardingStaff.length === 0
-                      ? <p className="text-xs text-gray-600">Drop here to onboard</p>
-                      : <div className="flex flex-col gap-2">{onboardingStaff.map(s => staffTile(s))}</div>
-                    }
-                  </div>
-
-                </div>
-              )
-            })()}
+            {renderStaffPools()}
 
             </div>{/* end two-column layout */}
           </div>
@@ -3649,23 +3775,6 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
             P1: allMs.filter(m => !m.done && m.priority === 'P1').length,
             P2: allMs.filter(m => !m.done && m.priority === 'P2').length,
           }
-          // Production-plan stepper (shared by card view and summarized table)
-          const ppStepper = (p: Project) => (
-            <div className="inline-flex items-center border border-gray-700 rounded-lg overflow-hidden">
-              <button onClick={() => stepWeeklyTarget(p, -1)} className="px-2.5 py-1 text-gray-400 hover:text-white hover:bg-gray-800 transition-colors leading-none">−</button>
-              <input
-                type="number"
-                min="0"
-                className="no-spin w-14 bg-transparent text-center text-sm text-gray-100 focus:outline-none py-1"
-                placeholder="—"
-                value={weeklyDrafts[p.id] ?? (p.weekly_target != null ? String(p.weekly_target) : '')}
-                onChange={e => setWeeklyDrafts(prev => ({ ...prev, [p.id]: e.target.value }))}
-                onBlur={e => updateWeeklyTarget(p.id, e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
-              />
-              <button onClick={() => stepWeeklyTarget(p, 1)} className="px-2.5 py-1 text-gray-400 hover:text-white hover:bg-gray-800 transition-colors leading-none">+</button>
-            </div>
-          )
           return (
             <div className="flex gap-6 items-start">
               {/* Left: per-project milestone checklists */}
@@ -3760,8 +3869,6 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                     (a.done === b.done ? 0 : a.done ? 1 : -1) || priorityRank(a.priority) - priorityRank(b.priority) || a.created_at.localeCompare(b.created_at)
                   )
                   const pDone = ms.filter(m => m.done).length
-                  const visibleMs = showCompletedMilestones ? ms : ms.filter(m => !m.done)
-                  const draft = getMilestoneDraft(p.id)
                   return (
                     <div key={p.id} className="border border-gray-800 rounded-xl p-5 bg-gray-900/40">
                       <div className="flex items-center justify-between mb-4">
@@ -3792,78 +3899,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                         {ppStepper(p)}
                         {p.weekly_target != null && <span className="text-xs text-gray-600">task{p.weekly_target === 1 ? '' : 's'} planned</span>}
                       </div>
-                      {visibleMs.length > 0 && (
-                        <div className="space-y-1.5 mb-3">
-                          {visibleMs.map(m => {
-                            const overdue = !m.done && m.due_date && m.due_date < today
-                            return (
-                              <div key={m.id} className="flex items-center gap-3 bg-gray-800/40 rounded-lg px-3 py-2 text-sm">
-                                {editingMilestoneId === m.id ? (
-                                  <>
-                                    <input
-                                      className={inputSmClass + ' flex-1'}
-                                      value={editMilestone.title}
-                                      placeholder="Milestone name"
-                                      autoFocus
-                                      onChange={e => setEditMilestone({ ...editMilestone, title: e.target.value })}
-                                      onKeyDown={e => e.key === 'Enter' && saveMilestone(m.id)}
-                                    />
-                                    <input type="date" className={inputSmClass + ' shrink-0'} style={{ width: 150 }} value={editMilestone.due_date} onChange={e => setEditMilestone({ ...editMilestone, due_date: e.target.value })} />
-                                    <button className={btnSave} onClick={() => saveMilestone(m.id)}>Save</button>
-                                    <button className={btnCancel} onClick={() => setEditingMilestoneId(null)}>Cancel</button>
-                                  </>
-                                ) : (
-                                  <>
-                                    <input type="checkbox" checked={m.done} onChange={e => toggleMilestone(m.id, e.target.checked)} className="accent-[#193a29] w-4 h-4 shrink-0" />
-                                    <span
-                                      onClick={() => startEditMilestone(m)}
-                                      title="Click to edit"
-                                      className={`flex-1 cursor-pointer hover:underline decoration-dotted underline-offset-4 ${m.done ? 'line-through text-gray-600' : 'text-gray-200'}`}
-                                    >{m.title}</span>
-                                    {m.due_date && <span className={`text-xs ${overdue ? 'text-red-400 font-medium' : 'text-gray-500'}`}>{overdue ? '⚠ ' : ''}{m.due_date}</span>}
-                                    <select
-                                      value={m.priority}
-                                      onChange={e => updateMilestonePriority(m.id, e.target.value)}
-                                      title="Priority"
-                                      className={`text-xs font-medium px-2 py-0.5 pr-5 rounded-full cursor-pointer appearance-none focus:outline-none focus:ring-1 focus:ring-gray-500 ${priorityColor(m.priority)}`}
-                                      style={{ backgroundImage: 'none' }}
-                                    >
-                                      {PRIORITIES.map(pr => <option key={pr} value={pr} className="bg-gray-900 text-gray-100">{priorityLabel(pr)}</option>)}
-                                    </select>
-                                    <button className={btnEdit} onClick={() => startEditMilestone(m)}>Edit</button>
-                                    <button className={btnDanger} onClick={() => deleteMilestone(m.id)}>×</button>
-                                  </>
-                                )}
-                              </div>
-                            )
-                          })}
-                        </div>
-                      )}
-                      {addingMilestoneProjectId === p.id ? (
-                        <div className="flex flex-wrap gap-2">
-                          <input
-                            className={inputSmClass + ' flex-1 min-w-[180px]'}
-                            placeholder="New milestone…"
-                            value={draft.title}
-                            autoFocus
-                            onChange={e => setMilestoneDraft(p.id, { title: e.target.value })}
-                            onKeyDown={e => e.key === 'Enter' && addMilestone(p.id)}
-                          />
-                          <select className={selectSmClass + ' w-20'} value={draft.priority} onChange={e => setMilestoneDraft(p.id, { priority: e.target.value })}>
-                            {PRIORITIES.map(pr => <option key={pr} value={pr}>{priorityLabel(pr)}</option>)}
-                          </select>
-                          <input type="date" className={inputSmClass + ' w-40'} value={draft.due_date} onChange={e => setMilestoneDraft(p.id, { due_date: e.target.value })} />
-                          <button className="text-xs px-3 py-1 rounded bg-gray-700 text-gray-300 hover:text-white transition-colors" onClick={() => addMilestone(p.id)}>Add</button>
-                          <button className={btnCancel} onClick={() => setAddingMilestoneProjectId(null)}>Cancel</button>
-                        </div>
-                      ) : (
-                        <button
-                          onClick={() => setAddingMilestoneProjectId(p.id)}
-                          className="text-xs text-gray-500 hover:text-gray-300 transition-colors"
-                        >
-                          + Add new milestone
-                        </button>
-                      )}
+                      {renderMilestoneList(p)}
                     </div>
                   )
                 })
@@ -3912,6 +3948,722 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                       })}
                     </div>
                   )}
+                </div>
+              </div>
+            </div>
+          )
+        })()}
+
+        {/* Consolidated Manager Tab — Assignments + Milestones in one workspace */}
+        {tab === 'consolidated' && (() => {
+          const today = fmt(new Date())
+          const ROLE_ORDER = ['Lead', 'Supervisor', 'STO', 'Ops Support']
+          const roleRank = (r: string | null) => { const i = ROLE_ORDER.indexOf(r ?? ''); return i === -1 ? 99 : i }
+
+          // ---- Per-project signals (staffing + milestones + PP) ----
+          const info = (p: Project) => {
+            const pa = assignments.filter(a => a.project_id === p.id)
+            const sto = pa.filter(a => a.assignment_role === 'STO').length
+            const ops = pa.filter(a => a.assignment_role === 'Ops Support').length
+            const staffing = sto === 0 || (sto >= 1 && ops === 0) ? 'understaffed' : sto >= 2 || ops > 2 ? 'overstaffed' : 'good'
+            const ms = milestones.filter(m => m.project_id === p.id)
+            const open = ms.filter(m => !m.done)
+            const overdue = open.filter(m => m.due_date && m.due_date < today)
+            const p0 = open.filter(m => m.priority === 'P00' || m.priority === 'P0')
+            const nextDue = [...open].filter(m => m.due_date).sort((a, b) => (a.due_date ?? '').localeCompare(b.due_date ?? ''))[0]
+            const tierRole = pa.some(a => a.assignment_role === 'Lead') ? 'Lead'
+              : pa.some(a => a.assignment_role === 'Supervisor') ? 'Supervisor'
+              : pa.some(a => a.assignment_role === 'STO') ? 'STO' : null
+            const owners = tierRole ? pa.filter(a => a.assignment_role === tierRole).map(a => staff.find(s => s.id === a.staff_id)).filter((s): s is Staff => !!s) : []
+            const active = p.status === 'active'
+            const flags = {
+              flagged: p.flagged,
+              understaffed: active && staffing === 'understaffed',
+              nopp: active && p.weekly_target == null,
+              overdue: active && overdue.length > 0,
+              p0: active && p0.length > 0,
+              noteam: active && pa.length === 0,
+            }
+            const attention = Object.values(flags).some(Boolean)
+            const health = !active ? 'idle' : (flags.flagged || flags.overdue || flags.noteam) ? 'red' : (flags.understaffed || flags.nopp || flags.p0) ? 'amber' : 'green'
+            return { pa, staffing, ms, open, overdue, p0, nextDue, tierRole, owners, flags, attention, health }
+          }
+
+          // ---- Visible project set ----
+          const q = cmSearch.trim().toLowerCase()
+          const base = [...projects]
+            .filter(p => visibleStatuses[p.status])
+            .filter(p => !q || p.name.toLowerCase().includes(q) || (p.customer_codename ?? '').toLowerCase().includes(q))
+            .filter(p => !hideEmptyMilestoneProjects || milestones.some(m => m.project_id === p.id))
+            .sort((a, b) => statusRank(a.status) - statusRank(b.status) || a.name.localeCompare(b.name))
+          const infoMap = new Map(base.map(p => [p.id, info(p)]))
+          const countFor = (k: typeof cmFilter) => k === 'all' ? base.length : k === 'attention'
+            ? base.filter(p => infoMap.get(p.id)!.attention).length
+            : base.filter(p => infoMap.get(p.id)!.flags[k]).length
+          const filtered = base.filter(p => {
+            const i = infoMap.get(p.id)!
+            if (cmFilter === 'all') return true
+            if (cmFilter === 'attention') return i.attention
+            return i.flags[cmFilter]
+          })
+          // Supervisor filter (same semantics as the Assignments tab's ungrouped view)
+          const shown = groupBySupervisor ? filtered : filtered.filter(p => {
+            if (!supervisorFilter) return true
+            const hasSup = assignments.some(a => a.project_id === p.id && a.assignment_role === 'Supervisor')
+            if (supervisorFilter === '__none__') return !hasSup
+            return assignments.some(a => a.project_id === p.id && a.staff_id === supervisorFilter && a.assignment_role === 'Supervisor')
+          })
+
+          // ---- Grouping by lead (Lead → Supervisor → STO), same as Assignments ----
+          const groups = (() => {
+            const map = new Map<string, { key: string; name: string; projects: Project[] }>()
+            const ensure = (key: string, name: string) => { if (!map.has(key)) map.set(key, { key, name, projects: [] }); return map.get(key)! }
+            shown.forEach(p => {
+              const i = infoMap.get(p.id)!
+              if (i.owners.length === 0) ensure('__none__', 'No lead / supervisor / STO').projects.push(p)
+              else i.owners.forEach(o => ensure(o.id, o.name).projects.push(p))
+            })
+            let g = [...map.values()]
+            if (supervisorFilter) g = g.filter(x => x.key === supervisorFilter)
+            return g.sort((a, b) => a.key === '__none__' ? 1 : b.key === '__none__' ? -1 : a.name.localeCompare(b.name))
+          })()
+
+          // ---- Pulse (right rail) numbers — active projects ----
+          const activeAll = projects.filter(p => p.status === 'active')
+          const activeInfo = activeAll.map(p => ({ p, i: info(p) }))
+          const ppTotal = activeAll.reduce((n, p) => n + (p.weekly_target ?? 0), 0)
+          const ppSet = activeAll.filter(p => p.weekly_target != null).length
+          const activeMs = milestones.filter(m => activeAll.some(p => p.id === m.project_id))
+          const msDone = activeMs.filter(m => m.done).length
+          const msPct = activeMs.length ? Math.round((msDone / activeMs.length) * 100) : 0
+          const peopleOnActive = new Set(assignments.filter(a => activeAll.some(p => p.id === a.project_id)).map(a => a.staff_id)).size
+          const openP0All = activeMs.filter(m => !m.done && (m.priority === 'P00' || m.priority === 'P0'))
+            .sort((a, b) => (a.due_date ?? '9999').localeCompare(b.due_date ?? '9999'))
+
+          const jumpTo = (pid: string) => {
+            if (!shown.some(p => p.id === pid)) { setCmFilter('all'); setCmSearch('') }
+            setCmView('cards')
+            setCmCollapsed(prev => ({ ...prev, [pid]: false }))
+            setCmHighlight(pid)
+            setTimeout(() => document.getElementById(`cm-proj-${pid}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 60)
+            setTimeout(() => setCmHighlight(h => (h === pid ? null : h)), 1800)
+          }
+
+          // ---- Small building blocks ----
+          const healthDot = (h: string) => (
+            <span
+              title={h === 'red' ? 'Needs attention now' : h === 'amber' ? 'Worth a look' : h === 'green' ? 'Healthy' : 'Not active'}
+              className={`inline-block w-2.5 h-2.5 rounded-full shrink-0 ${h === 'red' ? 'bg-red-500' : h === 'amber' ? 'bg-amber-400' : h === 'green' ? 'bg-emerald-500' : 'bg-gray-600'}`}
+            />
+          )
+          const statusSelect = (p: Project) => (
+            <select
+              value={p.status}
+              onChange={e => updateProjectStatus(p.id, e.target.value)}
+              title="Change project status"
+              className={`px-2.5 py-1 pr-6 rounded-full text-xs font-medium cursor-pointer appearance-none focus:outline-none focus:ring-1 focus:ring-gray-500 ${
+                p.status === 'active' ? 'bg-emerald-500/10 text-emerald-400' :
+                p.status === 'starting-soon' ? 'bg-sky-500/10 text-sky-400' :
+                p.status === 'paused' ? 'bg-rose-500/10 text-rose-400' :
+                'bg-gray-700 text-gray-400'
+              }`}
+              style={{ backgroundImage: 'none' }}
+            >
+              {STATUS_OPTIONS.map(o => <option key={o.value} value={o.value} className="bg-gray-900 text-gray-100">{o.label}</option>)}
+            </select>
+          )
+          const staffingBadge = (st: string) => (
+            <span className={`px-2 py-0.5 rounded-full text-[11px] font-medium whitespace-nowrap ${
+              st === 'understaffed' ? 'bg-amber-500/10 text-amber-400' : st === 'overstaffed' ? 'bg-blue-500/10 text-blue-400' : 'bg-emerald-500/10 text-emerald-400'
+            }`}>
+              {st === 'understaffed' ? 'Potentially understaffed' : st === 'overstaffed' ? 'Potentially overstaffed' : 'Well staffed'}
+            </span>
+          )
+          const emojiPicker = (p: Project) => (
+            <div className="relative">
+              <button onClick={() => setEmojiPickerProjectId(emojiPickerProjectId === p.id ? null : p.id)} title="Set project emoji" className="text-lg leading-none hover:scale-110 transition-transform">
+                {p.emoji || '📁'}
+              </button>
+              {emojiPickerProjectId === p.id && (
+                <>
+                  <div className="fixed inset-0 z-10" onClick={() => setEmojiPickerProjectId(null)} />
+                  <div className="absolute left-0 top-8 z-20 bg-gray-900 border border-gray-700 rounded-lg p-2 shadow-xl w-60">
+                    <div className="grid grid-cols-6 gap-1 max-h-48 overflow-y-auto">
+                      {PROJECT_EMOJIS.map(em => (
+                        <button key={em} onClick={() => { updateProjectEmoji(p.id, em); setEmojiPickerProjectId(null) }} className="text-lg hover:bg-gray-800 rounded p-1">{em}</button>
+                      ))}
+                    </div>
+                    <div className="flex gap-1 mt-2 pt-2 border-t border-gray-800">
+                      <input
+                        className={inputSmClass + ' flex-1'}
+                        placeholder="Paste any emoji…"
+                        value={customEmoji}
+                        onChange={e => setCustomEmoji(e.target.value)}
+                        onKeyDown={e => { if (e.key === 'Enter' && customEmoji.trim()) { updateProjectEmoji(p.id, customEmoji.trim()); setCustomEmoji(''); setEmojiPickerProjectId(null) } }}
+                      />
+                      <button className="text-xs px-2 py-1 rounded bg-gray-700 text-gray-300 hover:text-white transition-colors" onClick={() => { if (customEmoji.trim()) { updateProjectEmoji(p.id, customEmoji.trim()); setCustomEmoji(''); setEmojiPickerProjectId(null) } }}>Set</button>
+                    </div>
+                    <button onClick={() => { updateProjectEmoji(p.id, null); setEmojiPickerProjectId(null) }} className="w-full text-xs text-gray-500 hover:text-gray-300 mt-2">Reset to default</button>
+                  </div>
+                </>
+              )}
+            </div>
+          )
+          const leadEmojiPicker = (staffId: string) => (
+            <span className="relative">
+              <button onClick={() => setEmojiPickerStaffId(emojiPickerStaffId === staffId ? null : staffId)} title="Set lead emoji" className="text-lg leading-none hover:scale-110 transition-transform">
+                {staff.find(s => s.id === staffId)?.emoji || '👤'}
+              </button>
+              {emojiPickerStaffId === staffId && (
+                <>
+                  <div className="fixed inset-0 z-10" onClick={() => setEmojiPickerStaffId(null)} />
+                  <div className="absolute left-0 top-8 z-20 bg-gray-900 border border-gray-700 rounded-lg p-2 shadow-xl w-60">
+                    <div className="grid grid-cols-6 gap-1 max-h-48 overflow-y-auto">
+                      {PROJECT_EMOJIS.map(em => (
+                        <button key={em} onClick={() => { updateStaffEmoji(staffId, em); setEmojiPickerStaffId(null) }} className="text-lg hover:bg-gray-800 rounded p-1">{em}</button>
+                      ))}
+                    </div>
+                    <div className="flex gap-1 mt-2 pt-2 border-t border-gray-800">
+                      <input
+                        className={inputSmClass + ' flex-1'}
+                        placeholder="Paste any emoji…"
+                        value={customEmoji}
+                        onChange={e => setCustomEmoji(e.target.value)}
+                        onKeyDown={e => { if (e.key === 'Enter' && customEmoji.trim()) { updateStaffEmoji(staffId, customEmoji.trim()); setCustomEmoji(''); setEmojiPickerStaffId(null) } }}
+                      />
+                      <button className="text-xs px-2 py-1 rounded bg-gray-700 text-gray-300 hover:text-white transition-colors" onClick={() => { if (customEmoji.trim()) { updateStaffEmoji(staffId, customEmoji.trim()); setCustomEmoji(''); setEmojiPickerStaffId(null) } }}>Set</button>
+                    </div>
+                    <button onClick={() => { updateStaffEmoji(staffId, null); setEmojiPickerStaffId(null) }} className="w-full text-xs text-gray-500 hover:text-gray-300 mt-2">Reset to default</button>
+                  </div>
+                </>
+              )}
+            </span>
+          )
+          const requestUpdateBtn = (p: Project) => (
+            <>
+              <button
+                onClick={() => handleRequestUpdate(p)}
+                disabled={slackReqStatus[p.id] === 'sending'}
+                className={`text-xs px-2.5 py-1 rounded-lg border transition-colors whitespace-nowrap ${
+                  slackReqStatus[p.id] === 'sent' ? 'border-emerald-500/40 text-emerald-400' :
+                  slackReqStatus[p.id] === 'error' ? 'border-red-500/40 text-red-400' :
+                  'border-gray-700 text-gray-400 hover:text-gray-200'
+                }`}
+              >
+                {slackReqStatus[p.id] === 'sending' ? 'Requesting…' :
+                 slackReqStatus[p.id] === 'sent' ? '✓ Requested' :
+                 slackReqStatus[p.id] === 'error' ? '⚠ Retry' :
+                 '💬 Request update'}
+              </button>
+              {slackPermalinks[p.id] && (
+                <a href={slackPermalinks[p.id]} target="_blank" rel="noopener noreferrer" className="text-xs text-sky-400 hover:text-sky-300 whitespace-nowrap">Thread ↗</a>
+              )}
+            </>
+          )
+          const dropProps = (pid: string) => ({
+            onDragOver: (e: React.DragEvent) => { e.preventDefault(); setDragOverProjectId(pid) },
+            onDragLeave: () => setDragOverProjectId(null),
+            onDrop: (e: React.DragEvent) => {
+              e.preventDefault(); setDragOverProjectId(null)
+              const type = e.dataTransfer.getData('type')
+              const id = e.dataTransfer.getData('id')
+              if (type === 'staff' && id) {
+                if (!assignments.some(a => a.project_id === pid && a.staff_id === id)) setPendingDrop({ staffId: id, projectId: pid })
+                setDraggedStaffId(null)
+              } else if (type === 'assignment' && id) {
+                const a = assignments.find(x => x.id === id)
+                if (a && a.project_id !== pid && !assignments.some(x => x.project_id === pid && x.staff_id === a.staff_id)) {
+                  setPendingMove({ assignmentId: id, projectId: pid })
+                  setDropRole(a.assignment_role ?? '')
+                }
+                setDraggedAssignmentId(null)
+              }
+            },
+          })
+          const assignmentRow = (a: Assignment) => {
+            const member = staff.find(s => s.id === a.staff_id)
+            const nonSupCount = new Set(assignments.filter(x => x.staff_id === a.staff_id && x.assignment_role !== 'Supervisor' && x.assignment_role !== 'Lead').map(x => x.project_id)).size
+            const overAllocated = a.assignment_role !== 'Supervisor' && a.assignment_role !== 'Lead' && nonSupCount >= 2
+            return (
+              <div
+                key={a.id}
+                draggable
+                onDragStart={e => { e.dataTransfer.setData('type', 'assignment'); e.dataTransfer.setData('id', a.id); setDraggedAssignmentId(a.id); setDraggedStaffId(null) }}
+                onDragEnd={() => setDraggedAssignmentId(null)}
+                className={`flex items-center justify-between gap-2 bg-gray-800/50 rounded-lg px-3 py-2 text-sm cursor-grab active:cursor-grabbing transition-opacity ${draggedAssignmentId === a.id ? 'opacity-40' : ''}`}
+              >
+                <div className="flex items-center gap-2 flex-wrap min-w-0">
+                  <span className="font-medium text-gray-200 truncate">{member?.name ?? 'Unknown'}</span>
+                  <select
+                    value={a.assignment_role ?? ''}
+                    onChange={e => updateAssignmentRole(a.id, e.target.value)}
+                    onClick={e => e.stopPropagation()}
+                    title="Change role"
+                    className={`text-xs font-medium px-2 py-0.5 pr-5 rounded-full cursor-pointer appearance-none focus:outline-none focus:ring-1 focus:ring-gray-500 ${a.assignment_role ? roleColor(a.assignment_role) : 'bg-gray-700/60 text-gray-400'}`}
+                    style={{ backgroundImage: 'none' }}
+                  >
+                    <option value="" className="bg-gray-900 text-gray-100">No role</option>
+                    {ROLE_ORDER.map(r => <option key={r} value={r} className="bg-gray-900 text-gray-100">{r}</option>)}
+                  </select>
+                  {member?.ooo && (
+                    <span className="flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400" title={member.ooo_return_date ? `OOO — back ${member.ooo_return_date}` : 'Out of office'}>
+                      ⚠️ OOO{member.ooo_return_date ? ` · back ${member.ooo_return_date}` : ''}
+                      <button onClick={() => clearStaffOOO(member.id)} title="Clear OOO" className="ml-0.5 text-amber-400/70 hover:text-amber-300 leading-none">×</button>
+                    </span>
+                  )}
+                  {overAllocated && (
+                    <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-red-500/10 text-red-400" title={`Assigned to ${nonSupCount} projects in a non-Supervisor role`}>⚠️ In {nonSupCount} projects</span>
+                  )}
+                  {member?.position && <span className="text-xs text-gray-500">{member.position}</span>}
+                </div>
+                <button className={btnDanger} onClick={() => removeAssignment(a.id)} title="Remove from project">×</button>
+              </div>
+            )
+          }
+          const quickAddRow = (p: Project, pa: Assignment[]) => (
+            <div className="flex flex-wrap gap-2 mb-2 p-2 rounded-lg bg-gray-800/40 border border-gray-700">
+              <select className={selectSmClass + ' flex-1 min-w-[140px]'} value={quickAdd.staff_id} onChange={e => setQuickAdd({ ...quickAdd, staff_id: e.target.value })}>
+                <option value="">Select staff…</option>
+                {[...staff].filter(s => !pa.some(a => a.staff_id === s.id)).sort((a, b) => a.name.localeCompare(b.name))
+                  .map(s => <option key={s.id} value={s.id}>{s.name}{s.position ? ` — ${s.position}` : ''}</option>)}
+              </select>
+              <select className={selectSmClass + ' w-28'} value={quickAdd.assignment_role} onChange={e => setQuickAdd({ ...quickAdd, assignment_role: e.target.value })}>
+                <option value="">Role</option>
+                {ROLE_ORDER.map(r => <option key={r}>{r}</option>)}
+              </select>
+              <button
+                className="text-xs px-2 py-1 rounded bg-gray-700 text-gray-300 hover:text-white transition-colors whitespace-nowrap"
+                onClick={async () => {
+                  if (!quickAdd.staff_id) return
+                  const { data } = await supabase.from('assignments').insert([{ project_id: p.id, staff_id: quickAdd.staff_id, assignment_role: quickAdd.assignment_role || null }]).select().single()
+                  if (data) setAssignments(prev => [...prev, data])
+                  setQuickAdd({ staff_id: '', assignment_role: '' })
+                  setAddingToProjectId(null)
+                }}
+              >+ Add</button>
+              <button className={btnCancel} onClick={() => { setAddingToProjectId(null); setQuickAdd({ staff_id: '', assignment_role: '' }) }}>Cancel</button>
+            </div>
+          )
+
+          // ---- The project card: header · PP & Slack strip · Team | Milestones ----
+          const card = (p: Project) => {
+            const i = infoMap.get(p.id) ?? info(p)
+            const collapsed = !!cmCollapsed[p.id]
+            const isOver = dragOverProjectId === p.id
+            const done = i.ms.length - i.open.length
+            const pct = i.ms.length ? Math.round((done / i.ms.length) * 100) : 0
+            return (
+              <div
+                key={p.id}
+                id={`cm-proj-${p.id}`}
+                {...dropProps(p.id)}
+                className={`border rounded-xl p-4 transition-all ${
+                  isOver ? 'border-[#193a29] bg-[#193a29]/10 scale-[1.005]' :
+                  p.flagged ? 'border-red-500/40 bg-red-500/5' : 'border-gray-800 bg-gray-900/40'
+                } ${cmHighlight === p.id ? 'ring-2 ring-sky-500/70' : ''}`}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex items-center gap-2 flex-wrap min-w-0">
+                    {healthDot(i.health)}
+                    {emojiPicker(p)}
+                    {renderProjectName(p, 'font-semibold text-gray-100')}
+                    {p.customer_codename && <span className="text-xs text-gray-500">{p.customer_codename}</span>}
+                    <button
+                      onClick={() => toggleProjectFlag(p.id, !p.flagged)}
+                      title={p.flagged ? 'Flagged: needs more support — click to clear' : 'Flag: needs more support'}
+                      className={`text-sm leading-none transition-colors ${p.flagged ? '' : 'opacity-40 hover:opacity-100 grayscale'}`}
+                    >🚩</button>
+                    {p.flagged && <span className="px-2 py-0.5 rounded-full text-[11px] font-medium bg-red-500/10 text-red-400">Needs more support</span>}
+                    {p.status === 'active' && staffingBadge(i.staffing)}
+                    {i.overdue.length > 0 && <span className="px-2 py-0.5 rounded-full text-[11px] font-medium bg-red-500/10 text-red-400">⏰ {i.overdue.length} overdue</span>}
+                    {i.p0.length > 0 && <span className="px-2 py-0.5 rounded-full text-[11px] font-medium bg-red-500/10 text-red-300">🔥 {i.p0.length} open P0</span>}
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    {statusSelect(p)}
+                    <button
+                      onClick={() => setCmCollapsed(prev => ({ ...prev, [p.id]: !collapsed }))}
+                      title={collapsed ? 'Expand' : 'Collapse'}
+                      className="w-6 h-6 flex items-center justify-center rounded-md text-gray-500 hover:text-gray-200 hover:bg-gray-800 transition-colors text-xs"
+                    >{collapsed ? '▸' : '▾'}</button>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-2 mt-3">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-gray-500">PP this week</span>
+                    {ppStepper(p)}
+                  </div>
+                  <div className="flex items-center gap-2">{requestUpdateBtn(p)}</div>
+                  {i.owners.length > 0 && (
+                    <span className="text-xs text-gray-500">{i.tierRole === 'Lead' ? 'Lead' : `${i.tierRole} (acting lead)`}: <span className="text-gray-300">{i.owners.map(o => o.name).join(', ')}</span></span>
+                  )}
+                  {i.ms.length > 0 && (
+                    <div className="flex items-center gap-2 ml-auto" title={`${done} of ${i.ms.length} milestones done`}>
+                      <div className="w-24 bg-gray-800 rounded-full h-1.5"><div className="h-1.5 rounded-full bg-emerald-600" style={{ width: `${pct}%` }} /></div>
+                      <span className="text-xs text-gray-500">{done}/{i.ms.length}</span>
+                    </div>
+                  )}
+                </div>
+
+                {collapsed ? (
+                  <p className="text-xs text-gray-500 mt-3">
+                    👥 {i.pa.length} {i.pa.length === 1 ? 'person' : 'people'} · ✅ {i.open.length} open milestone{i.open.length === 1 ? '' : 's'}
+                    {i.nextDue ? <> · next due <span className={i.nextDue.due_date! < today ? 'text-red-400' : 'text-gray-300'}>{i.nextDue.due_date}</span></> : null}
+                  </p>
+                ) : (
+                  <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 mt-4">
+                    {/* Team */}
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 mb-2">
+                        <p className="text-[11px] text-gray-500 uppercase tracking-wider">Team · {i.pa.length}</p>
+                        <button
+                          onClick={() => { setAddingToProjectId(addingToProjectId === p.id ? null : p.id); setQuickAdd({ staff_id: '', assignment_role: '' }) }}
+                          title="Add a person to this project"
+                          className="w-5 h-5 flex items-center justify-center rounded-full border border-gray-600 text-gray-400 hover:text-white hover:border-gray-400 transition-colors text-sm leading-none"
+                        >+</button>
+                      </div>
+                      {addingToProjectId === p.id && quickAddRow(p, i.pa)}
+                      {i.pa.length === 0 ? (
+                        <p className={`text-xs border border-dashed rounded-lg px-3 py-3 text-center ${isOver ? 'border-[#193a29] text-gray-300' : 'border-gray-800 text-gray-600'}`}>
+                          {isOver ? 'Drop to assign' : 'No staff yet — drag someone here from the pools'}
+                        </p>
+                      ) : (
+                        <div className="space-y-1.5">{[...i.pa].sort((a, b) => roleRank(a.assignment_role) - roleRank(b.assignment_role)).map(assignmentRow)}</div>
+                      )}
+                    </div>
+                    {/* Milestones */}
+                    <div className="min-w-0 xl:border-l xl:border-gray-800 xl:pl-4">
+                      <p className="text-[11px] text-gray-500 uppercase tracking-wider mb-2">Milestones · {done}/{i.ms.length}</p>
+                      {renderMilestoneList(p)}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )
+          }
+
+          // ---- Summary table (one row per project) ----
+          const tableRow = (p: Project, idx: number) => {
+            const i = infoMap.get(p.id) ?? info(p)
+            const done = i.ms.length - i.open.length
+            return (
+              <tr key={p.id} {...dropProps(p.id)} className={`border-b border-gray-800/60 last:border-0 transition-colors ${dragOverProjectId === p.id ? 'bg-[#193a29]/20' : 'hover:bg-gray-800/20'}`}>
+                <td className="py-2.5 pl-4 pr-2 text-gray-600 text-xs">{idx + 1}</td>
+                <td className="py-2.5 pr-3">
+                  <div className="flex items-center gap-2">
+                    {healthDot(i.health)}
+                    <button onClick={() => jumpTo(p.id)} className="text-gray-100 hover:underline decoration-dotted underline-offset-4 text-left" title="Open in card view">{p.emoji || '📁'} {p.name}</button>
+                    {p.flagged && <span title="Needs more support">🚩</span>}
+                  </div>
+                </td>
+                <td className="py-2.5 pr-3">{statusSelect(p)}</td>
+                <td className="py-2.5 pr-3 text-xs text-gray-300">{i.owners.map(o => o.name).join(', ') || <span className="text-gray-600">—</span>}</td>
+                <td className="py-2.5 pr-3 text-xs text-gray-400" title={i.pa.map(a => staff.find(s => s.id === a.staff_id)?.name).filter(Boolean).join(', ')}>{i.pa.length}</td>
+                <td className="py-2.5 pr-3">{p.status === 'active' ? staffingBadge(i.staffing) : <span className="text-xs text-gray-600">—</span>}</td>
+                <td className="py-2.5 pr-3 text-xs">
+                  <span className="text-gray-300">{done}/{i.ms.length}</span>
+                  {i.overdue.length > 0 && <span className="ml-2 text-red-400">⏰{i.overdue.length}</span>}
+                  {i.p0.length > 0 && <span className="ml-2 text-red-300">🔥{i.p0.length}</span>}
+                </td>
+                <td className={`py-2.5 pr-3 text-xs ${i.nextDue && i.nextDue.due_date! < today ? 'text-red-400' : 'text-gray-400'}`}>{i.nextDue?.due_date ?? '—'}</td>
+                <td className="py-2.5 pr-4 text-right">{ppStepper(p)}</td>
+              </tr>
+            )
+          }
+          const table = (rowsFor: { key: string; title: React.ReactNode; projects: Project[] }[]) => (
+            <div className="border border-gray-800 rounded-xl bg-gray-900/40 overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-left text-gray-500 border-b border-gray-800 text-xs uppercase tracking-wider">
+                    <th className="py-3 pl-4 pr-2 font-medium w-8">#</th>
+                    <th className="py-3 pr-3 font-medium">Project</th>
+                    <th className="py-3 pr-3 font-medium">Status</th>
+                    <th className="py-3 pr-3 font-medium">Lead</th>
+                    <th className="py-3 pr-3 font-medium">Team</th>
+                    <th className="py-3 pr-3 font-medium">Staffing</th>
+                    <th className="py-3 pr-3 font-medium">Milestones</th>
+                    <th className="py-3 pr-3 font-medium">Next due</th>
+                    <th className="py-3 pr-4 font-medium text-right">PP this week</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rowsFor.map(g => (
+                    <Fragment key={g.key}>
+                      {g.title && (
+                        <tr className="bg-gray-800/30"><td colSpan={9} className="py-2 pl-4 text-xs font-semibold text-gray-300">{g.title}</td></tr>
+                      )}
+                      {g.projects.map((p, idx) => tableRow(p, idx))}
+                    </Fragment>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr className="border-t border-gray-800 text-xs">
+                    <td />
+                    <td className="py-3 pr-3 text-gray-500" colSpan={3}>{shown.length} project{shown.length === 1 ? '' : 's'} shown</td>
+                    <td className="py-3 pr-3 text-gray-400">{shown.reduce((n, p) => n + (infoMap.get(p.id)?.pa.length ?? 0), 0)}</td>
+                    <td />
+                    <td className="py-3 pr-3 text-gray-400">{shown.reduce((n, p) => n + (infoMap.get(p.id)?.open.length ?? 0), 0)} open</td>
+                    <td />
+                    <td className="py-3 pr-4 text-right text-gray-300 font-medium">Total: {shown.reduce((n, p) => n + (p.weekly_target ?? 0), 0)} tasks</td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          )
+
+          const groupTitle = (g: { key: string; name: string; projects: Project[] }) => (
+            g.key === '__none__'
+              ? <span>⚠️ No lead / supervisor / STO <span className="text-gray-500 font-normal">· {g.projects.length}</span></span>
+              : <span className="flex items-center gap-2">{leadEmojiPicker(g.key)} {g.name} <span className="text-gray-500 font-normal">· {g.projects.length} project{g.projects.length === 1 ? '' : 's'}</span></span>
+          )
+
+          const chip = (k: typeof cmFilter, label: string) => {
+            const n = countFor(k)
+            const on = cmFilter === k
+            return (
+              <button
+                key={k}
+                onClick={() => setCmFilter(k)}
+                className={`text-xs px-2.5 py-1 rounded-full border transition-colors whitespace-nowrap ${
+                  on ? 'text-white border-transparent' : n === 0 && k !== 'all' ? 'border-gray-800 text-gray-600' : 'border-gray-700 text-gray-400 hover:text-gray-200'
+                }`}
+                style={on ? { backgroundColor: '#193a29' } : {}}
+              >{label} <span className={on ? 'text-white/70' : 'text-gray-500'}>{n}</span></button>
+            )
+          }
+          const menuBtn = (key: 'export' | 'clear' | 'slack', label: string, items: { label: React.ReactNode; onClick: () => void; danger?: boolean; hidden?: boolean }[]) => (
+            <div className="relative">
+              <button
+                onClick={() => setCmMenu(cmMenu === key ? null : key)}
+                className={`text-xs px-3 py-1.5 rounded-lg border transition-colors whitespace-nowrap ${cmMenu === key ? 'border-gray-500 text-gray-100' : 'border-gray-700 text-gray-300 hover:text-white hover:border-gray-500'}`}
+              >{label} ▾</button>
+              {cmMenu === key && (
+                <>
+                  <div className="fixed inset-0 z-10" onClick={() => setCmMenu(null)} />
+                  <div className="absolute right-0 top-9 z-20 bg-gray-900 border border-gray-700 rounded-lg shadow-xl py-1 min-w-[260px]">
+                    {items.filter(it => !it.hidden).map((it, n) => (
+                      <button
+                        key={n}
+                        onClick={() => { setCmMenu(null); it.onClick() }}
+                        className={`w-full text-left text-xs px-3 py-2 transition-colors ${it.danger ? 'text-red-400 hover:bg-red-500/10' : 'text-gray-300 hover:bg-gray-800 hover:text-white'}`}
+                      >{it.label}</button>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+          )
+
+          return (
+            <div className="space-y-4">
+              {/* ===== Command bar ===== */}
+              <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 space-y-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="relative flex-1 min-w-[220px]">
+                    <input className={inputClass + ' w-full pl-9'} placeholder="Search projects or customers…" value={cmSearch} onChange={e => setCmSearch(e.target.value)} />
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-sm pointer-events-none">🔍</span>
+                    {cmSearch && <button onClick={() => setCmSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300 text-sm">✕</button>}
+                  </div>
+                  {statusFilterDropdown()}
+                  <select
+                    value={supervisorFilter}
+                    onChange={e => setSupervisorFilter(e.target.value)}
+                    title="Filter projects by supervisor"
+                    className={`text-xs px-3 py-1.5 rounded-lg border transition-colors cursor-pointer ${supervisorFilter ? 'text-emerald-400' : 'border-gray-700 text-gray-400 hover:text-gray-200'}`}
+                    style={supervisorFilter ? { borderColor: '#193a29' } : {}}
+                  >
+                    <option value="">All supervisors</option>
+                    <option value="__none__">No supervisor</option>
+                    {staff.filter(s => assignments.some(a => a.staff_id === s.id && a.assignment_role === 'Supervisor')).sort((a, b) => a.name.localeCompare(b.name))
+                      .map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                  </select>
+                  {toggleSwitch(groupBySupervisor, () => setGroupBySupervisor(v => !v), 'Group by lead')}
+                  <div className="flex items-center gap-1 bg-gray-800/60 rounded-lg p-0.5">
+                    {(['cards', 'table'] as const).map(v => (
+                      <button key={v} onClick={() => setCmView(v)} className={`text-xs px-3 py-1 rounded-md transition-colors ${cmView === v ? 'text-white' : 'text-gray-400 hover:text-gray-200'}`} style={cmView === v ? { backgroundColor: '#193a29' } : {}}>
+                        {v === 'cards' ? '▦ Cards' : '☰ Table'}
+                      </button>
+                    ))}
+                  </div>
+                  {cmView === 'cards' && (
+                    <>
+                      <button onClick={() => setCmCollapsed({})} className="text-xs px-2.5 py-1.5 rounded-lg border border-gray-700 text-gray-400 hover:text-gray-200 transition-colors">Expand all</button>
+                      <button onClick={() => setCmCollapsed(Object.fromEntries(shown.map(p => [p.id, true])))} className="text-xs px-2.5 py-1.5 rounded-lg border border-gray-700 text-gray-400 hover:text-gray-200 transition-colors">Collapse all</button>
+                    </>
+                  )}
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    onClick={() => setShowAddProjectInline(v => !v)}
+                    className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${showAddProjectInline ? 'text-emerald-400' : 'border-gray-700 text-gray-300 hover:text-white hover:border-gray-500'}`}
+                    style={showAddProjectInline ? { borderColor: '#193a29' } : {}}
+                  >+ New project</button>
+                  <button
+                    onClick={() => setCmShowAssign(v => !v)}
+                    className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${cmShowAssign ? 'text-emerald-400' : 'border-gray-700 text-gray-300 hover:text-white hover:border-gray-500'}`}
+                    style={cmShowAssign ? { borderColor: '#193a29' } : {}}
+                  >⚡ Quick assign</button>
+                  {menuBtn('slack', '💬 Slack', [
+                    { label: leadStatus === 'sending' ? 'Posting…' : leadStatus === 'sent' ? '✓ Sent to #code_leads_plus — send again' : leadStatus === 'error' ? '⚠ Confirm with leads failed — retry' : leadStatus === 'empty' ? 'Confirm with leads (no leads on active projects)' : '✅ Confirm assignments with leads', onClick: handleConfirmLeads },
+                    { label: overviewStatus === 'sending' ? 'Posting…' : overviewStatus === 'sent' ? '✓ Overview posted — post again' : overviewStatus === 'error' ? '⚠ Overview failed — retry' : overviewStatus === 'empty' ? 'Milestones & PP overview (nothing to share)' : '📣 Give milestones & PP update to the whole team', onClick: giveTeamOverview },
+                  ])}
+                  {leadStatus === 'sent' && leadPermalink && <a href={leadPermalink} target="_blank" rel="noopener noreferrer" className="text-xs text-sky-400 hover:text-sky-300 whitespace-nowrap">Leads post ↗</a>}
+                  {overviewStatus === 'sent' && overviewPermalink && <a href={overviewPermalink} target="_blank" rel="noopener noreferrer" className="text-xs text-sky-400 hover:text-sky-300 whitespace-nowrap">Overview post ↗</a>}
+                  {menuBtn('export', '⬇ Export', [
+                    { label: 'Assignments — HTML', onClick: exportAssignmentsHTML },
+                    { label: 'Assignments — DOCX', onClick: exportAssignmentsDOCX },
+                    { label: 'Milestones — HTML', onClick: exportMilestonesHTML },
+                    { label: 'Milestones — PDF', onClick: exportMilestonesPDF },
+                  ])}
+                  {menuBtn('clear', '🗑 Clear', [
+                    { label: `Clear staffing from inactive projects (${inactiveAssignmentIds().length})`, onClick: () => setConfirmClearInactive(true), danger: true, hidden: inactiveAssignmentIds().length === 0 },
+                    { label: `Clear all assignments (${assignments.length})`, onClick: () => setConfirmClearAll(true), danger: true, hidden: assignments.length === 0 },
+                    { label: 'Clear milestones and/or PP targets…', onClick: () => setClearMsPrompt(true), danger: true },
+                  ])}
+                  <div className="flex items-center gap-4 ml-auto">
+                    {toggleSwitch(showCompletedMilestones, () => setShowCompletedMilestones(v => !v), 'Show completed')}
+                    {toggleSwitch(hideEmptyMilestoneProjects, () => setHideEmptyMilestoneProjects(v => !v), 'With milestones only')}
+                  </div>
+                </div>
+
+                {cmShowAssign && (
+                  <div className="flex flex-wrap items-center gap-2 pt-3 border-t border-gray-800">
+                    <select className={selectClass} value={newAssignment.project_id} onChange={e => setNewAssignment({ ...newAssignment, project_id: e.target.value })}>
+                      <option value="">Select project *</option>
+                      {[...projects].filter(p => visibleStatuses[p.status]).sort((a, b) => statusRank(a.status) - statusRank(b.status) || a.name.localeCompare(b.name)).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                    </select>
+                    <select className={selectClass} value={newAssignment.staff_id} onChange={e => setNewAssignment({ ...newAssignment, staff_id: e.target.value })}>
+                      <option value="">Select staff *</option>
+                      {staff.filter(s => !hideAssignedInDropdown || !assignments.some(a => a.staff_id === s.id)).sort((a, b) => a.name.localeCompare(b.name)).map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                    </select>
+                    <select className={selectClass} value={newAssignment.assignment_role} onChange={e => setNewAssignment({ ...newAssignment, assignment_role: e.target.value })}>
+                      <option value="">Role</option>
+                      {ROLE_ORDER.map(r => <option key={r}>{r}</option>)}
+                    </select>
+                    <button className={btnPrimary} style={{ backgroundColor: '#193a29' }} onClick={addAssignment}>Assign</button>
+                    {toggleSwitch(hideAssignedInDropdown, () => setHideAssignedInDropdown(!hideAssignedInDropdown), 'Unassigned only')}
+                  </div>
+                )}
+
+                {showAddProjectInline && (
+                  <div className="flex flex-wrap items-center gap-2 pt-3 border-t border-gray-800">
+                    <input className={inputClass} placeholder="Project name *" value={newProject.name} onChange={e => setNewProject({ ...newProject, name: e.target.value })} onKeyDown={e => e.key === 'Enter' && addProject()} />
+                    <input className={inputClass} placeholder="Customer Codename" value={newProject.customer_codename} onChange={e => setNewProject({ ...newProject, customer_codename: e.target.value })} />
+                    <select className={selectClass} value={newProject.status} onChange={e => setNewProject({ ...newProject, status: e.target.value })}>
+                      {STATUS_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                    </select>
+                    <input className={inputClass} type="number" placeholder="Expected Duration (Weeks)" value={newProject.duration_weeks} onChange={e => setNewProject({ ...newProject, duration_weeks: e.target.value })} style={{ width: 210 }} />
+                    <button className={btnPrimary} style={{ backgroundColor: '#193a29' }} onClick={addProject}>Add</button>
+                  </div>
+                )}
+
+                <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                  {chip('all', 'All')}
+                  {chip('attention', '⚠ Needs attention')}
+                  {chip('flagged', '🚩 Flagged')}
+                  {chip('understaffed', '🟠 Understaffed')}
+                  {chip('nopp', '📉 No PP')}
+                  {chip('overdue', '⏰ Overdue')}
+                  {chip('p0', '🔥 Open P0')}
+                  {chip('noteam', '👻 No team')}
+                </div>
+              </div>
+
+              {/* ===== Workspace: pools | projects | pulse ===== */}
+              <div className="flex gap-5 items-start">
+                {renderStaffPools('w-48')}
+
+                <div className="flex-1 min-w-0">
+                  {shown.length === 0 ? (
+                    <div className="border border-dashed border-gray-800 rounded-xl p-10 text-center">
+                      <p className="text-gray-400 text-sm">{cmFilter === 'all' ? 'No projects match.' : 'Nothing here — nice! 🎉'}</p>
+                      {(cmFilter !== 'all' || cmSearch) && <button onClick={() => { setCmFilter('all'); setCmSearch('') }} className="text-xs text-sky-400 hover:text-sky-300 mt-2">Clear filters</button>}
+                    </div>
+                  ) : cmView === 'table' ? (
+                    table(groupBySupervisor ? groups.map(g => ({ key: g.key, title: groupTitle(g), projects: g.projects })) : [{ key: 'all', title: null, projects: shown }])
+                  ) : groupBySupervisor ? (
+                    <div className="space-y-6">
+                      {groups.length === 0 && <p className="text-gray-600 text-sm">No leads to show.</p>}
+                      {groups.map(g => (
+                        <div key={g.key}>
+                          <h3 className="font-semibold text-gray-100 mb-3 flex items-center gap-2">{groupTitle(g)}</h3>
+                          <div className="space-y-3">{g.projects.map(card)}</div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="space-y-3">{shown.map(card)}</div>
+                  )}
+                </div>
+
+                {/* Pulse rail */}
+                <div className="w-72 shrink-0 sticky top-6 flex flex-col gap-4">
+                  <div className="grid grid-cols-2 gap-3">
+                    {[
+                      { label: 'Active projects', value: activeAll.length, sub: `${peopleOnActive} people on them` },
+                      { label: 'PP this week', value: ppTotal, sub: `${ppSet}/${activeAll.length} with a plan` },
+                      { label: 'Milestones done', value: `${msPct}%`, sub: `${msDone} of ${activeMs.length}` },
+                      { label: 'Open P0', value: openP0All.length, sub: openP0All.length ? 'see below' : 'all clear' },
+                    ].map(k => (
+                      <div key={k.label} className="bg-gray-900 border border-gray-800 rounded-xl p-3">
+                        <p className="text-[10px] text-gray-500 uppercase tracking-wider">{k.label}</p>
+                        <p className="text-2xl font-bold text-gray-100 leading-tight mt-1">{k.value}</p>
+                        <p className="text-[11px] text-gray-600">{k.sub}</p>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
+                    <p className="text-xs text-gray-500 uppercase tracking-wider mb-3">Needs attention <span className="normal-case text-gray-600">— active</span></p>
+                    <div className="space-y-1">
+                      {([
+                        ['flagged', '🚩 Flagged'], ['understaffed', '🟠 Potentially understaffed'], ['nopp', '📉 No production plan'],
+                        ['overdue', '⏰ Overdue milestones'], ['p0', '🔥 Open P0 / P00'], ['noteam', '👻 No team'],
+                      ] as const).map(([k, label]) => {
+                        const n = activeInfo.filter(x => x.i.flags[k]).length
+                        return (
+                          <button key={k} onClick={() => setCmFilter(k)} className={`w-full flex items-center justify-between text-xs px-2 py-1.5 rounded-md transition-colors ${cmFilter === k ? 'bg-gray-800 text-white' : 'text-gray-400 hover:bg-gray-800/60 hover:text-gray-200'}`}>
+                            <span>{label}</span>
+                            <span className={`font-semibold ${n > 0 ? 'text-gray-100' : 'text-gray-600'}`}>{n}</span>
+                          </button>
+                        )
+                      })}
+                    </div>
+                    <div className="flex h-2 rounded-full overflow-hidden mt-3 bg-gray-800">
+                      {(['red', 'amber', 'green'] as const).map(h => {
+                        const n = activeInfo.filter(x => x.i.health === h).length
+                        return n > 0 ? <div key={h} title={`${n} ${h}`} className={h === 'red' ? 'bg-red-500' : h === 'amber' ? 'bg-amber-400' : 'bg-emerald-500'} style={{ width: `${(n / Math.max(activeAll.length, 1)) * 100}%` }} /> : null
+                      })}
+                    </div>
+                    <p className="text-[11px] text-gray-600 mt-1.5">Health mix across {activeAll.length} active projects</p>
+                  </div>
+
+                  <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
+                    <div className="flex items-center justify-between mb-3">
+                      <p className="text-xs text-gray-500 uppercase tracking-wider">P00 / P0 — needs attention</p>
+                      <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${openP0All.length > 0 ? 'bg-red-500/10 text-red-400' : 'bg-emerald-500/10 text-emerald-400'}`}>{openP0All.length}</span>
+                    </div>
+                    {openP0All.length === 0 ? (
+                      <p className="text-xs text-gray-600">No open P0 milestones. 🎉</p>
+                    ) : (
+                      <div className="space-y-2 max-h-[40vh] overflow-y-auto">
+                        {openP0All.map(m => {
+                          const proj = projects.find(p => p.id === m.project_id)
+                          const overdue = m.due_date && m.due_date < today
+                          return (
+                            <button key={m.id} onClick={() => jumpTo(m.project_id)} className="w-full text-left border border-gray-800 rounded-lg px-3 py-2 hover:border-gray-600 transition-colors">
+                              <p className="text-sm text-gray-200 leading-tight">{m.title}</p>
+                              <div className="flex items-center justify-between mt-1">
+                                <span className="text-xs text-gray-500">{proj?.name}</span>
+                                {m.due_date && <span className={`text-xs ${overdue ? 'text-red-400 font-medium' : 'text-gray-500'}`}>{overdue ? '⚠ overdue · ' : 'due '}{m.due_date}</span>}
+                              </div>
+                            </button>
+                          )
+                        })}
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
@@ -4136,6 +4888,8 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
         })()}
       </div>
       </div>{/* end spin wrapper */}
+
+      {renderDropModals()}
 
       {overviewOpen && (() => {
         const original = buildOverview('preview')
