@@ -51,6 +51,49 @@ const UTIL_TIER_INFO: Record<string, { label: string; detail: string; cls: strin
 }
 const COMPLEXITY_RANK: Record<string, number> = { Low: 1, Mid: 2, High: 3 }
 
+// Baseline "Code Pod - Staffing x Queues Utilization" sheet (static). Seeds the table when it's empty
+// and backs "Reset to original sheet".
+// [lead, supervisor, sto, ops, queue complexity, current assignment, assignment complexity, tier, assign prio, notes]
+const UTIL_SEED_ROWS: [string | null, string | null, string | null, string | null, string | null, string, string | null, string | null, number | null, string | null][] = [
+  ["Lisiman Hua", "Abril Herrlein", "Daniel Cueva", null, "Low", "Free", null, null, 2, null],
+  ["Lisiman Hua", null, "Abril Herrlein", "Prashant Kumar", "High", "RSI OTS", "High", "A", null, "Not getting good commercial traction"],
+  ["Lisiman Hua", null, "Gonzalo Lopez", null, "Mid", "Free", null, null, 2, null],
+  ["Lisiman Hua", null, "Ale Pérez", "Sophia Basturk", "Mid", "Quadrillion", "Mid", "S", null, "Big commitment with the customer, cannot back down"],
+  ["Lisiman Hua", "Abril Herrlein", "Andrea Sosa", "Claudia Avendaño", "Mid", "PKJA Finance", "Mid", "B", null, "Seems low priority for PKJA"],
+  ["Lisiman Hua", null, "Aldo Vergara", null, "High", "CUA", "High", "S", null, null],
+  ["Lisiman Hua", null, "Katara Zhiduo Xie", null, "Mid", "PKJA Harness", "Mid", "B", null, "Low revenue, customer moving slow"],
+  ["Lisiman Hua", null, "Mahek Hemani", null, "Low", "Free", null, null, 2, null],
+  ["Cole McCollum", null, "Aditi Chatterjee", null, "Low", "FNA1 Document QA Code", "Mid", "B", 3, null],
+  ["Cole McCollum", null, "Gautam Anand", null, "High", "PKJA Contamination", "High", "A", null, null],
+  ["Cole McCollum", "Gautam Anand", "Christian Rojas", null, "Low", "Free", null, null, 2, null],
+  ["Cole McCollum", null, "Pavit Singh", "Jahnavi Murthy Padukone", "High", "Free", null, null, 3, null],
+  ["David Espinosa", null, "Killian Mannarelli", null, "Mid", "Free", null, null, 1, null],
+  ["David Espinosa", null, "David Espinosa", "Francisco Castellano", "High", "OpenClaw MM", "High", "S", null, null],
+  ["Ivan Guevara", null, "Fernando Carabedo", null, "Mid", "Free", null, null, 2, null],
+  ["Ivan Guevara", null, "Ezequiel Manoukian", null, "Mid", "SWE Atlas", "High", "B", null, null],
+  ["Ivan Guevara", null, "Ignacio Ramet", null, "Mid", "SWE Atlas", "High", "B", null, null],
+  ["Ivan Guevara", null, "Sebastian Toranzo", null, "Mid", "Tau 3", "High", "A", null, null],
+  ["Ivan Guevara", null, "Nicolas Bizzotto", null, "Low", "Free", null, null, 1, null],
+  ["Ivan Guevara", null, "Julio Reyna", null, "Low", "Enterprise Atlas Advanced", "Mid", "B", null, null],
+  ["Jose Gutierrez", null, "Servando Rodríguez", null, "Mid", "Free", null, null, 1, null],
+  ["Jose Gutierrez", "Servando Rodríguez", "Jorge Jimenez", null, "Mid", "PKJA Web Dev RL", "High", "A", null, null],
+  ["Jose Gutierrez", null, "Achal Gandhi", null, "High", "OTS CyberPentest RL", "High", "B", null, null],
+  ["Jose Gutierrez", "Pablo Caneva", "Matin Mansouri", null, "High", "OTS Co-found bench", "High", "C", null, null],
+  ["Jose Gutierrez", null, "Pablo Caneva", "Valeria Guzman", "High", "OTS Multimodal Artifact Coding", "High", "B", null, null],
+  ["Jose Gutierrez", null, "Ivan Seira", null, "High", "PKJA Ultra Evals i18n", "High", "A", null, null],
+  ["Rafael Cruz", "Mila Avagimova", "Pablo Kogan", null, "Mid", "PKJA Ultra GAB Agent", "Mid", "A", null, null],
+  ["Rafael Cruz", null, "Evan Honggo", "Daniela Ortiz", "High", "Enterprise Atlas Commercial", "High", "S", null, null],
+  ["Rafael Cruz", "Mila Avagimova", "Oluwasegun Madarikan", null, "Mid", "Free", null, null, 1, null],
+  ["Rafael Cruz", "Mila Avagimova", "Santos Iparraguirre", null, "High", "FNA1 Project Aura", "High", "S", null, null],
+  ["Rafael Cruz", "Mila Avagimova", "Muskan Rastogi", null, "Mid", "PKJA Ultra Evals SxS", "Mid", "S", null, null],
+  ["Rafael Cruz", "Mila Avagimova", "Pablo Paniagua", "Marius Delahay", "High", "Universe Gen", "High", "S", null, null],
+]
+function utilSeed(): Omit<UtilTeam, 'id'>[] {
+  return UTIL_SEED_ROWS.map(([lead, supervisor, sto, ops, queue_complexity, assignment_name, assignment_complexity, tier, assign_priority, notes], i) => ({
+    lead, supervisor, sto, ops, queue_complexity, assignment_name, assignment_complexity, tier, assign_priority, notes, reason: null, sort_order: i + 1,
+  }))
+}
+
 const PROJECT_EMOJIS = ['📁', '🚀', '🎯', '🔥', '⭐', '🧪', '🤖', '🛡️', '📊', '💡', '⚙️', '🧠', '🌐', '📈', '🏆', '🐛', '🔒', '📝', '🎨', '⚡', '🧩', '📦', '🔧', '🩺', '💬', '🎓', '🗂️', '✅', '🔬', '🛰️', '📡', '💻', '📱', '☁️', '🔑', '🧵', '📐', '🕹️', '🎬', '🎧', '📷', '🏗️', '🚦', '🧭', '⏱️', '📅', '💰', '🏦', '⚖️', '🩹', '🧬', '🔭', '🌟', '💎', '🎲', '🃏', '🐙', '🦾', '👾', '🦉']
 
 // The person who owns this tool — always cc'd on update requests
@@ -155,7 +198,9 @@ export default function StaffingApp() {
   const [utilFilter, setUtilFilter] = useState<'all' | 'utilized' | 'under' | 'not'>('all')
   const [utilLead, setUtilLead] = useState('')
   const [utilSearch, setUtilSearch] = useState('')
-  const [utilImport, setUtilImport] = useState<{ fileName: string; rows: Omit<UtilTeam, 'id' | 'sort_order'>[] } | null>(null)
+  const [utilEdit, setUtilEdit] = useState<(Omit<UtilTeam, 'id'> & { id: string | null }) | null>(null)
+  const [utilLocalOnly, setUtilLocalOnly] = useState(false)
+  const utilSeeding = useRef(false)
   const [manageTypesOpen, setManageTypesOpen] = useState(false)
   const [newTypeName, setNewTypeName] = useState('')
   const [orgChart, setOrgChart] = useState<OrgNode[]>([])
@@ -369,7 +414,19 @@ export default function StaffingApp() {
       if (ms.data) setMilestones(ms.data)
       if (oc.data) setOrgChart(oc.data)
       if (pt.data) setProjectTypes(pt.data)
-      if (ut.data) setUtilTeams(ut.data)
+      if (ut.error) {
+        // Table not created yet → show the static sheet (edits stay in this browser session)
+        setUtilLocalOnly(true)
+        setUtilTeams(utilSeed().map((t, i) => ({ ...t, id: `local-${i}` })))
+      } else if (ut.data && ut.data.length === 0 && !utilSeeding.current) {
+        utilSeeding.current = true
+        const { data: seeded } = await supabase.from('utilization_teams').insert(utilSeed()).select()
+        setUtilLocalOnly(false)
+        setUtilTeams([...(seeded ?? [])].sort((a, b) => a.sort_order - b.sort_order))
+      } else if (ut.data && !(ut.data.length === 0 && utilSeeding.current)) {
+        setUtilLocalOnly(false)
+        setUtilTeams(ut.data)
+      }
     } catch {
       setLoadError(true)
     } finally {
@@ -585,72 +642,59 @@ export default function StaffingApp() {
   }
   async function updateUtilTeam(id: string, patch: Partial<UtilTeam>) {
     setUtilTeams(prev => prev.map(t => t.id === id ? { ...t, ...patch } : t))
+    if (utilLocalOnly) return
     const { error } = await supabase.from('utilization_teams').update(patch).eq('id', id)
     if (error) alert(`Couldn't save: ${error.message}`)
   }
-  async function addUtilTeam() {
-    const sort_order = utilTeams.reduce((m, t) => Math.max(m, t.sort_order), 0) + 1
-    const { data, error } = await supabase.from('utilization_teams')
-      .insert([{ lead: utilLead || null, assignment_name: 'Free', sort_order }]).select().single()
-    if (error) { alert(`Couldn't add team: ${error.message}`); return }
-    if (data) setUtilTeams(prev => [...prev, data])
+  // Edit popup: open for an existing team, or a blank one (prefilled with the lead filter)
+  function openUtilEdit(t?: UtilTeam) {
+    if (t) { setUtilEdit({ ...t }); return }
+    setUtilEdit({
+      id: null, lead: utilLead && utilLead !== '__none__' ? utilLead : null, supervisor: null, sto: null, ops: null,
+      queue_complexity: null, assignment_name: 'Free', assignment_complexity: null, tier: null, assign_priority: null,
+      notes: null, reason: null, sort_order: utilTeams.reduce((m, x) => Math.max(m, x.sort_order), 0) + 1,
+    })
   }
-  async function deleteUtilTeam(t: UtilTeam) {
+  async function saveUtilEdit() {
+    if (!utilEdit) return
+    const clean = (v: string | null) => (v ?? '').trim() || null
+    const { id, ...rest } = utilEdit
+    const free = !clean(rest.assignment_name) || clean(rest.assignment_name)!.toLowerCase() === 'free'
+    const row = {
+      ...rest,
+      lead: clean(rest.lead), supervisor: clean(rest.supervisor), sto: clean(rest.sto), ops: clean(rest.ops),
+      assignment_name: free ? 'Free' : clean(rest.assignment_name),
+      assignment_complexity: free ? null : rest.assignment_complexity,
+      tier: free ? null : rest.tier,
+      assign_priority: free ? rest.assign_priority : null,
+      notes: clean(rest.notes), reason: clean(rest.reason),
+    }
+    if (id) {
+      await updateUtilTeam(id, row)
+    } else if (utilLocalOnly) {
+      setUtilTeams(prev => [...prev, { ...row, id: `local-${Date.now()}` }])
+    } else {
+      const { data, error } = await supabase.from('utilization_teams').insert([row]).select().single()
+      if (error) { alert(`Couldn't add team: ${error.message}`); return }
+      if (data) setUtilTeams(prev => [...prev, data])
+    }
+    setUtilEdit(null)
+  }
+  async function deleteUtilTeam(t: { id: string | null; sto: string | null; lead: string | null }) {
+    if (!t.id) return
     const who = [t.sto, t.lead].filter(Boolean).join(' / ') || 'this team'
     if (!confirm(`Remove ${who} from the utilization sheet?`)) return
-    await supabase.from('utilization_teams').delete().eq('id', t.id)
+    if (!utilLocalOnly) await supabase.from('utilization_teams').delete().eq('id', t.id)
     setUtilTeams(prev => prev.filter(x => x.id !== t.id))
+    setUtilEdit(null)
   }
-  // Reads the "Staffing x Queues Utilization" sheet format (header row is found automatically)
-  function parseUtilCSV(text: string): Omit<UtilTeam, 'id' | 'sort_order'>[] {
-    const lines = text.split(/\r?\n/)
-    const hIdx = lines.findIndex(l => { const c = parseCSVLine(l).map(x => x.toLowerCase()); return c.includes('lead') && c.includes('sto') })
-    if (hIdx === -1) return []
-    const h = parseCSVLine(lines[hIdx]).map(x => x.toLowerCase())
-    const col = (pred: (x: string) => boolean) => h.findIndex(pred)
-    const ix = {
-      lead: col(x => x === 'lead'), supervisor: col(x => x === 'supervisor'), sto: col(x => x === 'sto'), ops: col(x => x === 'ops'),
-      qc: col(x => x.includes('queue complexity')), an: col(x => x.includes('assignment name')),
-      ac: col(x => x.includes('assignment complexity')), tier: col(x => x.includes('tier')),
-      prio: col(x => x.startsWith('prio')), notes: col(x => x === 'notes'),
-    }
-    const cx = (v: string | null) => {
-      const m = (v ?? '').trim().toLowerCase()
-      return m.startsWith('h') ? 'High' : m.startsWith('m') ? 'Mid' : m.startsWith('l') ? 'Low' : null
-    }
-    return lines.slice(hIdx + 1).map(l => {
-      const c = parseCSVLine(l)
-      const get = (i: number) => (i >= 0 ? (c[i] ?? '').trim() : '') || null
-      const tier = (get(ix.tier) ?? '').toUpperCase()
-      const prio = parseInt(get(ix.prio) ?? '', 10)
-      return {
-        lead: get(ix.lead), supervisor: get(ix.supervisor), sto: get(ix.sto), ops: get(ix.ops),
-        queue_complexity: cx(get(ix.qc)), assignment_name: get(ix.an) ?? 'Free', assignment_complexity: cx(get(ix.ac)),
-        tier: UTIL_POINTS[tier] ? tier : null, assign_priority: prio >= 1 && prio <= 3 ? prio : null,
-        notes: get(ix.notes), reason: null,
-      }
-    }).filter(r => r.lead || r.supervisor || r.sto || r.ops)
-  }
-  async function pickUtilCSV(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
-    e.target.value = ''
-    if (!file) return
-    const rows = parseUtilCSV(await file.text())
-    if (rows.length === 0) { alert("Couldn't find any teams — the CSV needs a header row with Lead and STO columns."); return }
-    setUtilImport({ fileName: file.name, rows })
-  }
-  async function importUtilTeams(mode: 'replace' | 'append') {
-    if (!utilImport) return
-    if (mode === 'replace' && utilTeams.length > 0) {
-      const { error } = await supabase.from('utilization_teams').delete().neq('id', '00000000-0000-0000-0000-000000000000')
-      if (error) { alert(`Couldn't clear existing teams: ${error.message}`); return }
-    }
-    const start = mode === 'replace' ? 1 : utilTeams.reduce((m, t) => Math.max(m, t.sort_order), 0) + 1
-    const { data, error } = await supabase.from('utilization_teams')
-      .insert(utilImport.rows.map((r, i) => ({ ...r, sort_order: start + i }))).select()
-    if (error) { alert(`Import failed: ${error.message}`); return }
-    setUtilTeams(prev => [...(mode === 'replace' ? [] : prev), ...(data ?? [])])
-    setUtilImport(null)
+  async function resetUtilToSheet() {
+    if (!confirm('Reset to the original sheet? This replaces all teams (and any edits) with the original 32 teams.')) return
+    if (utilLocalOnly) { setUtilTeams(utilSeed().map((t, i) => ({ ...t, id: `local-${i}` }))); return }
+    const { error } = await supabase.from('utilization_teams').delete().neq('id', '00000000-0000-0000-0000-000000000000')
+    if (error) { alert(`Couldn't reset: ${error.message}`); return }
+    const { data } = await supabase.from('utilization_teams').insert(utilSeed()).select()
+    setUtilTeams([...(data ?? [])].sort((a, b) => a.sort_order - b.sort_order))
   }
   function exportUtilCSV() {
     const rows: (string | number | boolean | null)[][] = [[
@@ -5043,22 +5087,15 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
             >{label} <span className={utilFilter === k ? 'text-white/70' : 'text-gray-500'}>{n}</span></button>
           )
 
-          const importBtn = (big = false) => (
-            <label className={`cursor-pointer transition-colors border rounded-lg ${big ? 'text-sm px-4 py-2 text-white border-transparent hover:brightness-125' : 'text-xs px-3 py-1.5 text-gray-300 border-gray-700 hover:text-white hover:border-gray-500'}`} style={big ? { backgroundColor: '#193a29' } : {}}>
-              ⬆ Import CSV
-              <input type="file" accept=".csv" className="hidden" onChange={pickUtilCSV} />
-            </label>
-          )
-
           if (all.length === 0) {
             return (
               <div className="border border-dashed border-gray-700 rounded-2xl p-12 text-center max-w-2xl mx-auto">
                 <p className="text-3xl mb-3">📊</p>
                 <p className="text-gray-100 font-semibold mb-1">No teams yet</p>
-                <p className="text-sm text-gray-500 mb-6">Import your “Staffing x Queues Utilization” sheet (CSV) to get started — or add teams one by one.</p>
+                <p className="text-sm text-gray-500 mb-6">All teams were removed. Add one, or restore the original sheet.</p>
                 <div className="flex items-center justify-center gap-3">
-                  {importBtn(true)}
-                  <button onClick={addUtilTeam} className="text-sm px-4 py-2 rounded-lg border border-gray-700 text-gray-300 hover:text-white transition-colors">+ Add a team</button>
+                  <button onClick={() => openUtilEdit()} className={btnPrimary} style={{ backgroundColor: '#193a29' }}>+ Add a team</button>
+                  <button onClick={resetUtilToSheet} className="text-sm px-4 py-2 rounded-lg border border-gray-700 text-gray-300 hover:text-white transition-colors">↺ Restore original sheet</button>
                 </div>
               </div>
             )
@@ -5067,6 +5104,11 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
           const gaugePct = rating == null ? 0 : ((rating - 1) / 9) * 100
           return (
             <div className="space-y-5">
+              {utilLocalOnly && (
+                <div className="border border-amber-500/30 bg-amber-500/5 rounded-xl px-4 py-3 text-sm text-amber-300">
+                  Showing the original sheet, but changes won’t be saved yet — the <code className="text-amber-200">utilization_teams</code> table doesn’t exist in Supabase. Run the setup SQL, then refresh.
+                </div>
+              )}
               <datalist id="util-people">
                 {[...new Set([...staff.map(s => s.name), ...all.flatMap(t => [t.lead, t.supervisor, t.sto, t.ops]).filter((x): x is string => !!x)])]
                   .sort((a, b) => a.localeCompare(b)).map(n => <option key={n} value={n} />)}
@@ -5191,8 +5233,8 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                 {chip('not', '○ Not utilized', counts.not)}
                 {utilLead && <button onClick={() => setUtilLead('')} className="text-xs text-sky-400 hover:text-sky-300">Lead: {utilLead === '__none__' ? 'No lead' : utilLead} ✕</button>}
                 <div className="flex items-center gap-2 ml-auto">
-                  <button onClick={addUtilTeam} className="text-xs px-3 py-1.5 rounded-lg border border-gray-700 text-gray-300 hover:text-white hover:border-gray-500 transition-colors">+ Add team</button>
-                  {importBtn()}
+                  <button onClick={() => openUtilEdit()} className="text-xs px-3 py-1.5 rounded-lg text-white transition-colors hover:brightness-125" style={{ backgroundColor: '#193a29' }}>+ Add team</button>
+                  <button onClick={resetUtilToSheet} className="text-xs px-3 py-1.5 rounded-lg border border-gray-700 text-gray-400 hover:text-white hover:border-gray-500 transition-colors" title="Replace everything with the original 32-team sheet">↺ Reset to original sheet</button>
                   <button onClick={exportUtilCSV} className="text-xs px-3 py-1.5 rounded-lg border border-gray-700 text-gray-300 hover:text-white hover:border-gray-500 transition-colors">⬇ Export CSV</button>
                 </div>
               </div>
@@ -5213,7 +5255,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                       <th className="py-3 px-1 font-medium text-center" title="S / A / B / C">Score</th>
                       <th className="py-3 px-1 font-medium text-center whitespace-nowrap" title="Priority on giving this team an assignment">Assign prio</th>
                       <th className="py-3 px-1 font-medium min-w-[180px]">Notes</th>
-                      <th className="py-3 pr-3 w-6" />
+                      <th className="py-3 pr-3 w-20" />
                     </tr>
                   </thead>
                   <tbody>
@@ -5259,8 +5301,9 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                                 <td className="py-2 px-1 text-center">{tierCell(t)}</td>
                                 <td className="py-2 px-1 pt-2.5 text-center">{prioCell(t)}</td>
                                 <td className="py-1.5 px-1">{textCell(t, 'notes', { placeholder: 'Add a note…', muted: true })}</td>
-                                <td className="py-2 pr-3 pt-2.5 text-right">
-                                  <button className={btnDanger} onClick={() => deleteUtilTeam(t)} title="Remove team">×</button>
+                                <td className="py-2 pr-3 pt-2 text-right whitespace-nowrap">
+                                  <button onClick={() => openUtilEdit(t)} title="Edit team" className="text-xs px-2 py-1 rounded-md text-gray-400 hover:text-white hover:bg-gray-800 transition-colors">✎ Edit</button>
+                                  <button className={btnDanger + ' ml-1'} onClick={() => deleteUtilTeam(t)} title="Remove team">×</button>
                                 </td>
                               </tr>
                             )
@@ -5272,7 +5315,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                 </table>
               </div>
               <p className="text-xs text-gray-600">
-                Status is automatic: <span className="text-red-400">Not utilized</span> = no assignment (Free) · <span className="text-amber-400">Under-utilized</span> = C-tier work, or a team assigned to a less complex queue than it can handle · <span className="text-emerald-400">Utilized</span> = everything else. Type in the “why” line to override the explanation. Click a lead card to filter.
+                Status is automatic: <span className="text-red-400">Not utilized</span> = no assignment (Free) · <span className="text-amber-400">Under-utilized</span> = C-tier work, or a team assigned to a less complex queue than it can handle · <span className="text-emerald-400">Utilized</span> = everything else. Edit any cell in place, or use ✎ Edit for the full form. Type in the “why” line to override the explanation. Click a lead card to filter.
               </p>
             </div>
           )
@@ -5703,26 +5746,94 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
         </div>
       )}
 
-      {utilImport && (() => {
-        const n = utilImport.rows.length
-        const free = utilImport.rows.filter(r => !r.assignment_name || r.assignment_name.trim().toLowerCase() === 'free').length
-        const leadsN = new Set(utilImport.rows.map(r => r.lead ?? '')).size
+      {utilEdit && (() => {
+        const e = utilEdit
+        const set = (patch: Partial<typeof e>) => setUtilEdit({ ...e, ...patch })
+        const free = !(e.assignment_name ?? '').trim() || (e.assignment_name ?? '').trim().toLowerCase() === 'free'
+        const field = (label: string, el: React.ReactNode, hint?: string) => (
+          <label className="block">
+            <span className="text-[11px] text-gray-500 uppercase tracking-wider">{label}</span>
+            <div className="mt-1">{el}</div>
+            {hint && <span className="text-[11px] text-gray-600">{hint}</span>}
+          </label>
+        )
+        const person = (k: 'lead' | 'supervisor' | 'sto' | 'ops', label: string) => field(label,
+          <input className={inputClass + ' w-full'} list="util-people" value={e[k] ?? ''} placeholder="—" onChange={ev => set({ [k]: ev.target.value })} />)
+        const cxSelect = (k: 'queue_complexity' | 'assignment_complexity', disabled = false) => (
+          <select className={selectClass + ' w-full'} value={disabled ? '' : (e[k] ?? '')} disabled={disabled} onChange={ev => set({ [k]: ev.target.value || null })}>
+            <option value="">—</option>
+            {['Low', 'Mid', 'High'].map(o => <option key={o}>{o}</option>)}
+          </select>
+        )
         return (
-          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-6" onClick={() => setUtilImport(null)}>
-            <div className="bg-gray-900 border border-gray-700 rounded-xl p-6 w-[420px] max-w-full shadow-xl" onClick={e => e.stopPropagation()}>
-              <p className="text-sm font-semibold text-gray-100 mb-1">Import utilization sheet</p>
-              <p className="text-xs text-gray-500 mb-4 truncate">{utilImport.fileName}</p>
-              <p className="text-sm text-gray-300 mb-5">
-                Found <span className="font-semibold text-gray-100">{n}</span> team{n === 1 ? '' : 's'} across <span className="font-semibold text-gray-100">{leadsN}</span> lead{leadsN === 1 ? '' : 's'} — <span className="text-red-400">{free} free</span>, {n - free} assigned.
-              </p>
-              <div className="flex flex-col gap-2">
-                <button className={btnPrimary} style={{ backgroundColor: '#193a29' }} onClick={() => importUtilTeams('replace')}>
-                  {utilTeams.length > 0 ? `Replace the current ${utilTeams.length} teams` : 'Import'}
-                </button>
-                {utilTeams.length > 0 && (
-                  <button className="text-sm font-medium px-4 py-2 rounded-lg border border-gray-700 text-gray-300 hover:text-gray-100 hover:border-gray-600 transition-colors" onClick={() => importUtilTeams('append')}>Add to the existing teams</button>
-                )}
-                <button className={btnCancel + ' mt-1'} onClick={() => setUtilImport(null)}>Cancel</button>
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-6" onClick={() => setUtilEdit(null)}>
+            <div className="bg-gray-900 border border-gray-700 rounded-xl p-6 w-[640px] max-w-full max-h-[90vh] overflow-y-auto shadow-xl" onClick={ev => ev.stopPropagation()}>
+              <p className="text-sm font-semibold text-gray-100 mb-4">{e.id ? 'Edit team' : 'Add team'}</p>
+
+              <p className="text-xs font-semibold text-gray-400 mb-2">Configuration</p>
+              <div className="grid grid-cols-2 gap-3 mb-3">
+                {person('lead', 'Lead')}
+                {person('supervisor', 'Supervisor')}
+                {person('sto', 'STO')}
+                {person('ops', 'Ops')}
+              </div>
+              <div className="grid grid-cols-2 gap-3 mb-5">
+                {field('Team complexity', cxSelect('queue_complexity'), 'The most complex queue this team can run')}
+              </div>
+
+              <p className="text-xs font-semibold text-gray-400 mb-2">Current utilization</p>
+              <div className="grid grid-cols-2 gap-3 mb-3">
+                {field('Current assignment', (
+                  <div className="flex gap-2">
+                    <input className={inputClass + ' w-full'} value={free ? '' : (e.assignment_name ?? '')} placeholder="Free (no assignment)" onChange={ev => set({ assignment_name: ev.target.value || 'Free' })} />
+                    {!free && <button type="button" onClick={() => set({ assignment_name: 'Free' })} className="text-xs px-2 rounded-lg border border-gray-700 text-gray-400 hover:text-white whitespace-nowrap">Make free</button>}
+                  </div>
+                ))}
+                {field('Queue complexity', cxSelect('assignment_complexity', free))}
+              </div>
+              <div className="mb-3">
+                {field('Utilization score', (
+                  <div className="grid grid-cols-4 gap-2">
+                    {UTIL_TIERS.map(k => {
+                      const on = free ? k === 'C' : e.tier === k
+                      return (
+                        <button
+                          key={k}
+                          type="button"
+                          disabled={free}
+                          onClick={() => set({ tier: e.tier === k ? null : k })}
+                          title={UTIL_TIER_INFO[k].detail}
+                          className={`rounded-lg border px-2 py-2 text-left transition-colors ${on ? `${UTIL_TIER_INFO[k].cls} border-transparent` : 'border-gray-700 text-gray-400 hover:border-gray-500'} ${free ? 'opacity-60 cursor-not-allowed' : ''}`}
+                        >
+                          <p className="text-sm font-bold">{k}</p>
+                          <p className="text-[10px] leading-tight opacity-80">{UTIL_TIER_INFO[k].detail}</p>
+                        </button>
+                      )
+                    })}
+                  </div>
+                ), free ? 'Free teams count as C (not assigned).' : undefined)}
+              </div>
+              <div className="grid grid-cols-2 gap-3 mb-3">
+                {field('Priority to assign', (
+                  <select className={selectClass + ' w-full'} value={free ? (e.assign_priority ?? '') : ''} disabled={!free} onChange={ev => set({ assign_priority: ev.target.value ? Number(ev.target.value) : null })}>
+                    <option value="">—</option>
+                    {[1, 2, 3].map(n => <option key={n} value={n}>P{n}</option>)}
+                  </select>
+                ), free ? '1 = staff this team first' : 'Only for free teams')}
+                {field('Why (utilization status)', (
+                  <input className={inputClass + ' w-full'} value={e.reason ?? ''} placeholder="Leave blank for the automatic explanation" onChange={ev => set({ reason: ev.target.value })} />
+                ))}
+              </div>
+              <div className="mb-5">
+                {field('Notes', <textarea className={inputClass + ' w-full'} rows={2} value={e.notes ?? ''} onChange={ev => set({ notes: ev.target.value })} />)}
+              </div>
+
+              <div className="flex items-center gap-2">
+                {e.id && <button className={btnDanger} onClick={() => deleteUtilTeam(e)}>Remove team</button>}
+                <div className="flex gap-2 ml-auto">
+                  <button className={btnCancel} onClick={() => setUtilEdit(null)}>Cancel</button>
+                  <button className={btnPrimary} style={{ backgroundColor: '#193a29' }} onClick={saveUtilEdit}>{e.id ? 'Save' : 'Add team'}</button>
+                </div>
               </div>
             </div>
           </div>
