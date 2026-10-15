@@ -24,6 +24,33 @@ type ProjectType = {
   name: string
 }
 
+// A "team" (Lead / Supervisor / STO / Ops) that can run one queue — Utilization tab
+type UtilTeam = {
+  id: string
+  lead: string | null
+  supervisor: string | null
+  sto: string | null
+  ops: string | null
+  queue_complexity: string | null
+  assignment_name: string | null
+  assignment_complexity: string | null
+  tier: string | null
+  assign_priority: number | null
+  notes: string | null
+  reason: string | null
+  sort_order: number
+}
+
+const UTIL_TIERS = ['S', 'A', 'B', 'C'] as const
+const UTIL_POINTS: Record<string, number> = { S: 10, A: 7, B: 4, C: 1 }
+const UTIL_TIER_INFO: Record<string, { label: string; detail: string; cls: string }> = {
+  S: { label: 'S Tier', detail: 'High revenue result ($XM/week)', cls: 'bg-violet-500/15 text-violet-300' },
+  A: { label: 'A Tier', detail: 'Mid revenue result ($X00K/week) OR very high potential pilot', cls: 'bg-emerald-500/15 text-emerald-300' },
+  B: { label: 'B Tier', detail: 'Low revenue result ($X0K/week) OR low–mid potential pilot', cls: 'bg-sky-500/15 text-sky-300' },
+  C: { label: 'C Tier', detail: 'Very low revenue result (<$10K/week) OR not assigned', cls: 'bg-gray-600/40 text-gray-300' },
+}
+const COMPLEXITY_RANK: Record<string, number> = { Low: 1, Mid: 2, High: 3 }
+
 const PROJECT_EMOJIS = ['📁', '🚀', '🎯', '🔥', '⭐', '🧪', '🤖', '🛡️', '📊', '💡', '⚙️', '🧠', '🌐', '📈', '🏆', '🐛', '🔒', '📝', '🎨', '⚡', '🧩', '📦', '🔧', '🩺', '💬', '🎓', '🗂️', '✅', '🔬', '🛰️', '📡', '💻', '📱', '☁️', '🔑', '🧵', '📐', '🕹️', '🎬', '🎧', '📷', '🏗️', '🚦', '🧭', '⏱️', '📅', '💰', '🏦', '⚖️', '🩹', '🧬', '🔭', '🌟', '💎', '🎲', '🃏', '🐙', '🦾', '👾', '🦉']
 
 // The person who owns this tool — always cc'd on update requests
@@ -116,7 +143,7 @@ function parseCSVLine(line: string): string[] {
 }
 
 export default function StaffingApp() {
-  const [tab, setTab] = useState<'projects' | 'staff' | 'assignments' | 'dashboard' | 'scenarios' | 'milestones' | 'orgchart' | 'consolidated'>('dashboard')
+  const [tab, setTab] = useState<'projects' | 'staff' | 'assignments' | 'dashboard' | 'scenarios' | 'milestones' | 'orgchart' | 'consolidated' | 'utilization'>('dashboard')
   const [projects, setProjects] = useState<Project[]>([])
   const [staff, setStaff] = useState<Staff[]>([])
   const [assignments, setAssignments] = useState<Assignment[]>([])
@@ -124,6 +151,11 @@ export default function StaffingApp() {
   const [scenarioAssignments, setScenarioAssignments] = useState<ScenarioAssignment[]>([])
   const [milestones, setMilestones] = useState<Milestone[]>([])
   const [projectTypes, setProjectTypes] = useState<ProjectType[]>([])
+  const [utilTeams, setUtilTeams] = useState<UtilTeam[]>([])
+  const [utilFilter, setUtilFilter] = useState<'all' | 'utilized' | 'under' | 'not'>('all')
+  const [utilLead, setUtilLead] = useState('')
+  const [utilSearch, setUtilSearch] = useState('')
+  const [utilImport, setUtilImport] = useState<{ fileName: string; rows: Omit<UtilTeam, 'id' | 'sort_order'>[] } | null>(null)
   const [manageTypesOpen, setManageTypesOpen] = useState(false)
   const [newTypeName, setNewTypeName] = useState('')
   const [orgChart, setOrgChart] = useState<OrgNode[]>([])
@@ -307,8 +339,9 @@ export default function StaffingApp() {
         supabase.from('milestones').select('*').order('created_at', { ascending: true }),
         supabase.from('org_chart').select('*'),
         supabase.from('project_types').select('*').order('name', { ascending: true }),
+        supabase.from('utilization_teams').select('*').order('sort_order', { ascending: true }),
       ])
-      const [p, s, a, sc, sa, ms, oc, pt] = await Promise.race([queries, timeout])
+      const [p, s, a, sc, sa, ms, oc, pt, ut] = await Promise.race([queries, timeout])
       // Core tables must load; scenario tables are optional (may not exist yet)
       if (p.error || s.error || a.error) throw (p.error || s.error || a.error)
       if (p.data) {
@@ -336,6 +369,7 @@ export default function StaffingApp() {
       if (ms.data) setMilestones(ms.data)
       if (oc.data) setOrgChart(oc.data)
       if (pt.data) setProjectTypes(pt.data)
+      if (ut.data) setUtilTeams(ut.data)
     } catch {
       setLoadError(true)
     } finally {
@@ -519,6 +553,119 @@ export default function StaffingApp() {
     } else {
       apply(value || null)
     }
+  }
+
+  // --- Utilization (teams × queues) ---
+  function utilIsFree(t: UtilTeam) {
+    const n = (t.assignment_name ?? '').trim().toLowerCase()
+    return !n || n === 'free'
+  }
+  // A free team counts as C ("not assigned"); an assigned team with no score yet is unscored (null)
+  function utilTier(t: UtilTeam): string | null {
+    return utilIsFree(t) ? 'C' : (t.tier && UTIL_POINTS[t.tier] ? t.tier : null)
+  }
+  // Utilized / under-utilized / not utilized, plus the "why" (a typed reason overrides the automatic one)
+  function utilStatus(t: UtilTeam): { status: 'utilized' | 'under' | 'not'; reason: string } {
+    const custom = (t.reason ?? '').trim()
+    if (utilIsFree(t)) {
+      return { status: 'not', reason: custom || `No current assignment${t.assign_priority ? ` · priority ${t.assign_priority} to staff` : ''}` }
+    }
+    if (t.tier === 'C') return { status: 'under', reason: custom || 'Very low revenue result (C tier)' }
+    const qc = COMPLEXITY_RANK[t.queue_complexity ?? ''] ?? 0
+    const ac = COMPLEXITY_RANK[t.assignment_complexity ?? ''] ?? 0
+    if (qc && ac && qc > ac) {
+      return { status: 'under', reason: custom || `${t.queue_complexity}-complexity team on a ${t.assignment_complexity}-complexity queue` }
+    }
+    return { status: 'utilized', reason: custom || (t.tier ? '' : 'Score not set yet') }
+  }
+  // 1–10 rating: average tier points (S=10, A=7, B=4, C=1) across scored teams
+  function utilRating(list: UtilTeam[]) {
+    const pts = list.map(utilTier).filter((x): x is string => !!x).map(x => UTIL_POINTS[x])
+    return pts.length ? pts.reduce((a, b) => a + b, 0) / pts.length : null
+  }
+  async function updateUtilTeam(id: string, patch: Partial<UtilTeam>) {
+    setUtilTeams(prev => prev.map(t => t.id === id ? { ...t, ...patch } : t))
+    const { error } = await supabase.from('utilization_teams').update(patch).eq('id', id)
+    if (error) alert(`Couldn't save: ${error.message}`)
+  }
+  async function addUtilTeam() {
+    const sort_order = utilTeams.reduce((m, t) => Math.max(m, t.sort_order), 0) + 1
+    const { data, error } = await supabase.from('utilization_teams')
+      .insert([{ lead: utilLead || null, assignment_name: 'Free', sort_order }]).select().single()
+    if (error) { alert(`Couldn't add team: ${error.message}`); return }
+    if (data) setUtilTeams(prev => [...prev, data])
+  }
+  async function deleteUtilTeam(t: UtilTeam) {
+    const who = [t.sto, t.lead].filter(Boolean).join(' / ') || 'this team'
+    if (!confirm(`Remove ${who} from the utilization sheet?`)) return
+    await supabase.from('utilization_teams').delete().eq('id', t.id)
+    setUtilTeams(prev => prev.filter(x => x.id !== t.id))
+  }
+  // Reads the "Staffing x Queues Utilization" sheet format (header row is found automatically)
+  function parseUtilCSV(text: string): Omit<UtilTeam, 'id' | 'sort_order'>[] {
+    const lines = text.split(/\r?\n/)
+    const hIdx = lines.findIndex(l => { const c = parseCSVLine(l).map(x => x.toLowerCase()); return c.includes('lead') && c.includes('sto') })
+    if (hIdx === -1) return []
+    const h = parseCSVLine(lines[hIdx]).map(x => x.toLowerCase())
+    const col = (pred: (x: string) => boolean) => h.findIndex(pred)
+    const ix = {
+      lead: col(x => x === 'lead'), supervisor: col(x => x === 'supervisor'), sto: col(x => x === 'sto'), ops: col(x => x === 'ops'),
+      qc: col(x => x.includes('queue complexity')), an: col(x => x.includes('assignment name')),
+      ac: col(x => x.includes('assignment complexity')), tier: col(x => x.includes('tier')),
+      prio: col(x => x.startsWith('prio')), notes: col(x => x === 'notes'),
+    }
+    const cx = (v: string | null) => {
+      const m = (v ?? '').trim().toLowerCase()
+      return m.startsWith('h') ? 'High' : m.startsWith('m') ? 'Mid' : m.startsWith('l') ? 'Low' : null
+    }
+    return lines.slice(hIdx + 1).map(l => {
+      const c = parseCSVLine(l)
+      const get = (i: number) => (i >= 0 ? (c[i] ?? '').trim() : '') || null
+      const tier = (get(ix.tier) ?? '').toUpperCase()
+      const prio = parseInt(get(ix.prio) ?? '', 10)
+      return {
+        lead: get(ix.lead), supervisor: get(ix.supervisor), sto: get(ix.sto), ops: get(ix.ops),
+        queue_complexity: cx(get(ix.qc)), assignment_name: get(ix.an) ?? 'Free', assignment_complexity: cx(get(ix.ac)),
+        tier: UTIL_POINTS[tier] ? tier : null, assign_priority: prio >= 1 && prio <= 3 ? prio : null,
+        notes: get(ix.notes), reason: null,
+      }
+    }).filter(r => r.lead || r.supervisor || r.sto || r.ops)
+  }
+  async function pickUtilCSV(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file) return
+    const rows = parseUtilCSV(await file.text())
+    if (rows.length === 0) { alert("Couldn't find any teams — the CSV needs a header row with Lead and STO columns."); return }
+    setUtilImport({ fileName: file.name, rows })
+  }
+  async function importUtilTeams(mode: 'replace' | 'append') {
+    if (!utilImport) return
+    if (mode === 'replace' && utilTeams.length > 0) {
+      const { error } = await supabase.from('utilization_teams').delete().neq('id', '00000000-0000-0000-0000-000000000000')
+      if (error) { alert(`Couldn't clear existing teams: ${error.message}`); return }
+    }
+    const start = mode === 'replace' ? 1 : utilTeams.reduce((m, t) => Math.max(m, t.sort_order), 0) + 1
+    const { data, error } = await supabase.from('utilization_teams')
+      .insert(utilImport.rows.map((r, i) => ({ ...r, sort_order: start + i }))).select()
+    if (error) { alert(`Import failed: ${error.message}`); return }
+    setUtilTeams(prev => [...(mode === 'replace' ? [] : prev), ...(data ?? [])])
+    setUtilImport(null)
+  }
+  function exportUtilCSV() {
+    const rows: (string | number | boolean | null)[][] = [[
+      'Lead', 'Supervisor', 'STO', 'Ops', 'Queue Complexity', 'Current Assignment Name', 'Current Assignment Complexity',
+      'Current Assignment Tier', 'Prio (1-3) on giving an assignment', 'Notes', 'Utilization Status', 'Why',
+    ]]
+    utilTeams.forEach(t => {
+      const st = utilStatus(t)
+      rows.push([
+        t.lead, t.supervisor, t.sto, t.ops, t.queue_complexity, t.assignment_name, t.assignment_complexity,
+        utilIsFree(t) ? '' : t.tier, t.assign_priority, t.notes,
+        st.status === 'utilized' ? 'Utilized' : st.status === 'under' ? 'Under-utilized' : 'Not utilized', st.reason,
+      ])
+    })
+    downloadCSV(`utilization-${new Date().toISOString().split('T')[0]}.csv`, rows)
   }
 
   async function updateProjectEmoji(id: string, emoji: string | null) {
@@ -1972,7 +2119,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
         </div>
       </div>
 
-      <div className={`${tab === 'orgchart' ? 'max-w-none' : tab === 'consolidated' ? 'max-w-[1720px]' : 'max-w-4xl'} mx-auto px-8 py-8`}>
+      <div className={`${tab === 'orgchart' ? 'max-w-none' : tab === 'consolidated' || tab === 'utilization' ? 'max-w-[1720px]' : 'max-w-4xl'} mx-auto px-8 py-8`}>
         {/* Tabs */}
         <div className="flex flex-wrap gap-1 mb-8 bg-gray-900 rounded-xl p-1 w-fit max-w-full">
           {([
@@ -1984,6 +2131,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
             { key: 'milestones', label: 'Milestones' },
             { key: 'orgchart', label: 'Org Chart' },
             { key: 'consolidated', label: '✨ Consolidated Manager' },
+            { key: 'utilization', label: 'Utilization' },
           ] as const).map(({ key, label }) => (
             <button
               key={key}
@@ -4768,6 +4916,368 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
           )
         })()}
 
+        {/* Utilization Tab — teams × queues */}
+        {tab === 'utilization' && (() => {
+          const all = utilTeams
+          const statusOf = new Map(all.map(t => [t.id, utilStatus(t)]))
+          const rating = utilRating(all)
+          const ratingTone = (r: number | null) =>
+            r == null ? 'text-gray-500' : r >= 8 ? 'text-violet-300' : r >= 6 ? 'text-emerald-400' : r >= 4 ? 'text-amber-400' : 'text-red-400'
+          const ratingLabel = (r: number) => r >= 8.5 ? 'Excellent' : r >= 7 ? 'Strong' : r >= 5 ? 'Fair' : r >= 3 ? 'Needs work' : 'Poor'
+          const counts = {
+            utilized: all.filter(t => statusOf.get(t.id)!.status === 'utilized').length,
+            under: all.filter(t => statusOf.get(t.id)!.status === 'under').length,
+            not: all.filter(t => statusOf.get(t.id)!.status === 'not').length,
+          }
+          const tierCounts = Object.fromEntries(UTIL_TIERS.map(k => [k, all.filter(t => utilTier(t) === k).length])) as Record<string, number>
+          const unscored = all.filter(t => utilTier(t) === null).length
+          const scoredCount = all.length - unscored
+          const free = all.filter(utilIsFree)
+          // What-if: staffing every free team with B-tier work
+          const whatIf = rating != null && free.length > 0 && scoredCount > 0
+            ? (rating * scoredCount + free.length * (UTIL_POINTS.B - UTIL_POINTS.C)) / scoredCount
+            : null
+
+          // Leads in sheet order
+          const leads: string[] = []
+          all.forEach(t => { const l = t.lead ?? ''; if (!leads.includes(l)) leads.push(l) })
+
+          const q = utilSearch.trim().toLowerCase()
+          const visible = all.filter(t => {
+            if (utilLead && (t.lead ?? '') !== (utilLead === '__none__' ? '' : utilLead)) return false
+            if (utilFilter !== 'all' && statusOf.get(t.id)!.status !== utilFilter) return false
+            if (!q) return true
+            return [t.lead, t.supervisor, t.sto, t.ops, t.assignment_name, t.notes].some(v => (v ?? '').toLowerCase().includes(q))
+          })
+          const groups = leads.map(l => ({ lead: l, teams: visible.filter(t => (t.lead ?? '') === l) })).filter(g => g.teams.length > 0)
+
+          // ---- Cell editors (save on blur / change) ----
+          const textCell = (t: UtilTeam, field: 'lead' | 'supervisor' | 'sto' | 'ops' | 'assignment_name' | 'notes', opts: { placeholder?: string; muted?: boolean; list?: boolean } = {}) => (
+            <input
+              key={`${t.id}-${field}-${t[field] ?? ''}`}
+              defaultValue={t[field] ?? ''}
+              placeholder={opts.placeholder ?? '—'}
+              list={opts.list ? 'util-people' : undefined}
+              onBlur={e => { const v = e.target.value.trim() || null; if (v !== (t[field] ?? null)) updateUtilTeam(t.id, { [field]: v }) }}
+              onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
+              className={`w-full min-w-0 bg-transparent px-1.5 py-1 rounded text-sm placeholder-gray-700 hover:bg-gray-800/60 focus:bg-gray-800 focus:outline-none focus:ring-1 focus:ring-[#193a29] ${opts.muted ? 'text-gray-500' : 'text-gray-200'}`}
+            />
+          )
+          const complexityCell = (t: UtilTeam, field: 'queue_complexity' | 'assignment_complexity', disabled = false) => {
+            const v = t[field]
+            return disabled ? <span className="text-xs text-gray-700 px-1.5">—</span> : (
+              <select
+                value={v ?? ''}
+                onChange={e => updateUtilTeam(t.id, { [field]: e.target.value || null })}
+                className={`text-xs font-medium px-2 py-0.5 pr-5 rounded-full cursor-pointer appearance-none focus:outline-none focus:ring-1 focus:ring-gray-500 ${
+                  v === 'High' ? 'bg-rose-500/10 text-rose-300' : v === 'Mid' ? 'bg-amber-500/10 text-amber-300' : v === 'Low' ? 'bg-teal-500/10 text-teal-300' : 'bg-gray-800 text-gray-500'
+                }`}
+                style={{ backgroundImage: 'none' }}
+              >
+                <option value="" className="bg-gray-900 text-gray-100">—</option>
+                {['Low', 'Mid', 'High'].map(o => <option key={o} value={o} className="bg-gray-900 text-gray-100">{o}</option>)}
+              </select>
+            )
+          }
+          const tierPill = (k: string | null, extra = '') => (
+            <span className={`inline-flex items-center justify-center w-7 h-7 rounded-lg text-sm font-bold ${k ? UTIL_TIER_INFO[k].cls : 'bg-gray-800 text-gray-600'} ${extra}`}>{k ?? '?'}</span>
+          )
+          const tierCell = (t: UtilTeam) => utilIsFree(t) ? (
+            <span className="flex items-center gap-1.5" title="Not assigned counts as C">{tierPill('C', 'opacity-60')}<span className="text-[11px] text-gray-600">not assigned</span></span>
+          ) : (
+            <select
+              value={t.tier ?? ''}
+              onChange={e => updateUtilTeam(t.id, { tier: e.target.value || null })}
+              title={t.tier ? `${UTIL_TIER_INFO[t.tier].label}: ${UTIL_TIER_INFO[t.tier].detail}` : 'Set a utilization score'}
+              className={`w-12 h-7 text-sm font-bold text-center rounded-lg cursor-pointer appearance-none focus:outline-none focus:ring-1 focus:ring-gray-500 ${t.tier ? UTIL_TIER_INFO[t.tier].cls : 'bg-gray-800 text-gray-500 border border-dashed border-gray-600'}`}
+              style={{ backgroundImage: 'none' }}
+            >
+              <option value="" className="bg-gray-900 text-gray-100">?</option>
+              {UTIL_TIERS.map(k => <option key={k} value={k} className="bg-gray-900 text-gray-100">{k} — {UTIL_TIER_INFO[k].detail}</option>)}
+            </select>
+          )
+          const prioCell = (t: UtilTeam) => utilIsFree(t) ? (
+            <select
+              value={t.assign_priority ?? ''}
+              onChange={e => updateUtilTeam(t.id, { assign_priority: e.target.value ? Number(e.target.value) : null })}
+              title="Priority on giving this team an assignment (1 = first)"
+              className={`text-xs font-semibold px-2 py-0.5 pr-4 rounded-full cursor-pointer appearance-none focus:outline-none ${
+                t.assign_priority === 1 ? 'bg-red-500/15 text-red-300' : t.assign_priority === 2 ? 'bg-amber-500/15 text-amber-300' : t.assign_priority === 3 ? 'bg-gray-700 text-gray-300' : 'bg-gray-800 text-gray-500'
+              }`}
+              style={{ backgroundImage: 'none' }}
+            >
+              <option value="" className="bg-gray-900 text-gray-100">—</option>
+              {[1, 2, 3].map(n => <option key={n} value={n} className="bg-gray-900 text-gray-100">P{n}</option>)}
+            </select>
+          ) : <span className="text-xs text-gray-700">—</span>
+          const statusCell = (t: UtilTeam) => {
+            const st = statusOf.get(t.id)!
+            return (
+              <div className="min-w-0">
+                <span className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full whitespace-nowrap ${
+                  st.status === 'utilized' ? 'bg-emerald-500/10 text-emerald-400' : st.status === 'under' ? 'bg-amber-500/10 text-amber-400' : 'bg-red-500/10 text-red-400'
+                }`}>
+                  {st.status === 'utilized' ? '● Utilized' : st.status === 'under' ? '◐ Under-utilized' : '○ Not utilized'}
+                </span>
+                {st.status !== 'utilized' || t.reason ? (
+                  <input
+                    key={`${t.id}-reason-${t.reason ?? ''}`}
+                    defaultValue={t.reason ?? ''}
+                    placeholder={st.reason}
+                    title="Why? Type your own explanation, or leave blank to use the automatic one"
+                    onBlur={e => { const v = e.target.value.trim() || null; if (v !== (t.reason ?? null)) updateUtilTeam(t.id, { reason: v }) }}
+                    onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
+                    className="block w-full mt-1 bg-transparent px-1 py-0.5 rounded text-xs text-gray-300 placeholder-gray-500 hover:bg-gray-800/60 focus:bg-gray-800 focus:outline-none focus:ring-1 focus:ring-[#193a29]"
+                  />
+                ) : st.reason ? <p className="text-[11px] text-gray-600 mt-1 px-1">{st.reason}</p> : null}
+              </div>
+            )
+          }
+
+          const chip = (k: typeof utilFilter, label: string, n: number) => (
+            <button
+              key={k}
+              onClick={() => setUtilFilter(k)}
+              className={`text-xs px-3 py-1 rounded-full border transition-colors whitespace-nowrap ${utilFilter === k ? 'text-white border-transparent' : 'border-gray-700 text-gray-400 hover:text-gray-200'}`}
+              style={utilFilter === k ? { backgroundColor: '#193a29' } : {}}
+            >{label} <span className={utilFilter === k ? 'text-white/70' : 'text-gray-500'}>{n}</span></button>
+          )
+
+          const importBtn = (big = false) => (
+            <label className={`cursor-pointer transition-colors border rounded-lg ${big ? 'text-sm px-4 py-2 text-white border-transparent hover:brightness-125' : 'text-xs px-3 py-1.5 text-gray-300 border-gray-700 hover:text-white hover:border-gray-500'}`} style={big ? { backgroundColor: '#193a29' } : {}}>
+              ⬆ Import CSV
+              <input type="file" accept=".csv" className="hidden" onChange={pickUtilCSV} />
+            </label>
+          )
+
+          if (all.length === 0) {
+            return (
+              <div className="border border-dashed border-gray-700 rounded-2xl p-12 text-center max-w-2xl mx-auto">
+                <p className="text-3xl mb-3">📊</p>
+                <p className="text-gray-100 font-semibold mb-1">No teams yet</p>
+                <p className="text-sm text-gray-500 mb-6">Import your “Staffing x Queues Utilization” sheet (CSV) to get started — or add teams one by one.</p>
+                <div className="flex items-center justify-center gap-3">
+                  {importBtn(true)}
+                  <button onClick={addUtilTeam} className="text-sm px-4 py-2 rounded-lg border border-gray-700 text-gray-300 hover:text-white transition-colors">+ Add a team</button>
+                </div>
+              </div>
+            )
+          }
+
+          const gaugePct = rating == null ? 0 : ((rating - 1) / 9) * 100
+          return (
+            <div className="space-y-5">
+              <datalist id="util-people">
+                {[...new Set([...staff.map(s => s.name), ...all.flatMap(t => [t.lead, t.supervisor, t.sto, t.ops]).filter((x): x is string => !!x)])]
+                  .sort((a, b) => a.localeCompare(b)).map(n => <option key={n} value={n} />)}
+              </datalist>
+
+              {/* ===== Hero: Pod rating · tier mix · next to staff ===== */}
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6">
+                  <p className="text-xs text-gray-500 uppercase tracking-wider">Utilization Rating for the Pod</p>
+                  <div className="flex items-end gap-3 mt-2">
+                    <p className={`text-6xl font-bold leading-none ${ratingTone(rating)}`}>{rating == null ? '—' : rating.toFixed(1)}</p>
+                    <div className="pb-1">
+                      <p className="text-sm text-gray-500">/ 10</p>
+                      {rating != null && <p className={`text-sm font-semibold ${ratingTone(rating)}`}>{ratingLabel(rating)}</p>}
+                    </div>
+                  </div>
+                  <div className="relative mt-5">
+                    <div className="h-2.5 rounded-full" style={{ background: 'linear-gradient(90deg, #ef4444, #f59e0b 35%, #10b981 70%, #8b5cf6)' }} />
+                    {rating != null && <div className="absolute -top-1 w-1.5 rounded-full bg-white shadow" style={{ left: `calc(${gaugePct}% - 3px)`, height: 18 }} />}
+                    <div className="flex justify-between text-[10px] text-gray-600 mt-1.5"><span>1 · all C</span><span>10 · all S</span></div>
+                  </div>
+                  <p className="text-xs text-gray-500 mt-4">
+                    Average of {scoredCount} team{scoredCount === 1 ? '' : 's'} (S = 10, A = 7, B = 4, C = 1).
+                    {unscored > 0 && <span className="text-amber-400"> {unscored} assigned team{unscored === 1 ? ' has' : 's have'} no score yet.</span>}
+                  </p>
+                  {whatIf != null && (
+                    <p className="text-xs text-gray-400 mt-2 bg-gray-800/50 rounded-lg px-3 py-2">
+                      💡 Staffing the <span className="text-gray-200 font-medium">{free.length} free team{free.length === 1 ? '' : 's'}</span> with B-tier work would lift the rating to <span className={`font-semibold ${ratingTone(whatIf)}`}>{whatIf.toFixed(1)}</span>.
+                    </p>
+                  )}
+                </div>
+
+                <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6">
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs text-gray-500 uppercase tracking-wider">Teams by tier</p>
+                    <p className="text-xs text-gray-500">{all.length} teams</p>
+                  </div>
+                  <div className="flex h-3 rounded-full overflow-hidden mt-4 bg-gray-800">
+                    {UTIL_TIERS.map(k => tierCounts[k] > 0 ? (
+                      <div key={k} title={`${k}: ${tierCounts[k]}`} className={k === 'S' ? 'bg-violet-500' : k === 'A' ? 'bg-emerald-500' : k === 'B' ? 'bg-sky-500' : 'bg-gray-500'} style={{ width: `${(tierCounts[k] / all.length) * 100}%` }} />
+                    ) : null)}
+                  </div>
+                  <div className="space-y-2.5 mt-4">
+                    {UTIL_TIERS.map(k => (
+                      <div key={k} className="flex items-center gap-3">
+                        {tierPill(k)}
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs text-gray-300 leading-tight">{UTIL_TIER_INFO[k].detail}</p>
+                        </div>
+                        <span className="text-sm font-semibold text-gray-100 w-6 text-right">{tierCounts[k]}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="grid grid-cols-3 gap-2 mt-5 pt-4 border-t border-gray-800 text-center">
+                    <div><p className="text-xl font-bold text-emerald-400">{counts.utilized}</p><p className="text-[11px] text-gray-500">Utilized</p></div>
+                    <div><p className="text-xl font-bold text-amber-400">{counts.under}</p><p className="text-[11px] text-gray-500">Under-utilized</p></div>
+                    <div><p className="text-xl font-bold text-red-400">{counts.not}</p><p className="text-[11px] text-gray-500">Not utilized</p></div>
+                  </div>
+                </div>
+
+                <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6">
+                  <div className="flex items-center justify-between mb-3">
+                    <p className="text-xs text-gray-500 uppercase tracking-wider">Next up to staff</p>
+                    <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${free.length ? 'bg-red-500/10 text-red-400' : 'bg-emerald-500/10 text-emerald-400'}`}>{free.length} free</span>
+                  </div>
+                  {free.length === 0 ? (
+                    <p className="text-xs text-gray-600">Every team has an assignment. 🎉</p>
+                  ) : (
+                    <div className="space-y-1.5 max-h-[300px] overflow-y-auto pr-1">
+                      {[...free].sort((a, b) => (a.assign_priority ?? 9) - (b.assign_priority ?? 9) || (COMPLEXITY_RANK[b.queue_complexity ?? ''] ?? 0) - (COMPLEXITY_RANK[a.queue_complexity ?? ''] ?? 0)).map(t => (
+                        <div key={t.id} className="flex items-center gap-2 bg-gray-800/40 rounded-lg px-3 py-2">
+                          <span className={`text-[11px] font-bold w-7 text-center rounded ${t.assign_priority === 1 ? 'text-red-300' : t.assign_priority === 2 ? 'text-amber-300' : 'text-gray-400'}`}>{t.assign_priority ? `P${t.assign_priority}` : '—'}</span>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm text-gray-200 truncate">{t.sto ?? 'No STO'}{t.ops ? <span className="text-gray-500"> + {t.ops}</span> : null}</p>
+                            <p className="text-[11px] text-gray-500 truncate">{t.lead ?? 'No lead'}{t.supervisor ? ` · sup. ${t.supervisor}` : ''}</p>
+                          </div>
+                          {t.queue_complexity && <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${t.queue_complexity === 'High' ? 'bg-rose-500/10 text-rose-300' : t.queue_complexity === 'Mid' ? 'bg-amber-500/10 text-amber-300' : 'bg-teal-500/10 text-teal-300'}`}>{t.queue_complexity}</span>}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* ===== By lead ===== */}
+              <div className="flex gap-3 overflow-x-auto pb-1">
+                {leads.map(l => {
+                  const lt = all.filter(t => (t.lead ?? '') === l)
+                  const r = utilRating(lt)
+                  const used = lt.filter(t => statusOf.get(t.id)!.status === 'utilized').length
+                  const key = l || '__none__'
+                  const on = utilLead === key
+                  return (
+                    <button
+                      key={key}
+                      onClick={() => setUtilLead(on ? '' : key)}
+                      className={`shrink-0 text-left rounded-xl border px-4 py-3 min-w-[170px] transition-colors ${on ? 'border-[#2d6a4a] bg-[#193a29]/30' : 'border-gray-800 bg-gray-900 hover:border-gray-600'}`}
+                    >
+                      <p className="text-sm font-semibold text-gray-100 truncate">{l || 'No lead'}</p>
+                      <div className="flex items-end justify-between mt-1">
+                        <p className={`text-2xl font-bold leading-none ${ratingTone(r)}`}>{r == null ? '—' : r.toFixed(1)}</p>
+                        <p className="text-[11px] text-gray-500 text-right">{lt.length} team{lt.length === 1 ? '' : 's'}<br />{used} utilized</p>
+                      </div>
+                      <div className="flex h-1 rounded-full overflow-hidden mt-2 bg-gray-800">
+                        {UTIL_TIERS.map(k => { const n = lt.filter(t => utilTier(t) === k).length; return n ? <div key={k} className={k === 'S' ? 'bg-violet-500' : k === 'A' ? 'bg-emerald-500' : k === 'B' ? 'bg-sky-500' : 'bg-gray-500'} style={{ width: `${(n / lt.length) * 100}%` }} /> : null })}
+                      </div>
+                    </button>
+                  )
+                })}
+              </div>
+
+              {/* ===== Toolbar ===== */}
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="relative min-w-[240px] flex-1 max-w-md">
+                  <input className={inputClass + ' w-full pl-9'} placeholder="Search people, queues, notes…" value={utilSearch} onChange={e => setUtilSearch(e.target.value)} />
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-sm pointer-events-none">🔍</span>
+                  {utilSearch && <button onClick={() => setUtilSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300 text-sm">✕</button>}
+                </div>
+                {chip('all', 'All', all.length)}
+                {chip('utilized', '● Utilized', counts.utilized)}
+                {chip('under', '◐ Under-utilized', counts.under)}
+                {chip('not', '○ Not utilized', counts.not)}
+                {utilLead && <button onClick={() => setUtilLead('')} className="text-xs text-sky-400 hover:text-sky-300">Lead: {utilLead === '__none__' ? 'No lead' : utilLead} ✕</button>}
+                <div className="flex items-center gap-2 ml-auto">
+                  <button onClick={addUtilTeam} className="text-xs px-3 py-1.5 rounded-lg border border-gray-700 text-gray-300 hover:text-white hover:border-gray-500 transition-colors">+ Add team</button>
+                  {importBtn()}
+                  <button onClick={exportUtilCSV} className="text-xs px-3 py-1.5 rounded-lg border border-gray-700 text-gray-300 hover:text-white hover:border-gray-500 transition-colors">⬇ Export CSV</button>
+                </div>
+              </div>
+
+              {/* ===== Teams table ===== */}
+              <div className="border border-gray-800 rounded-xl bg-gray-900/40 overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-left text-gray-500 border-b border-gray-800 text-[11px] uppercase tracking-wider">
+                      <th className="py-3 pl-4 pr-2 font-medium w-8">#</th>
+                      <th className="py-3 px-1 font-medium" colSpan={4}>
+                        <span className="text-gray-600 normal-case tracking-normal">Configuration —</span> Lead · Supervisor · STO · Ops
+                      </th>
+                      <th className="py-3 px-1 font-medium whitespace-nowrap">Team complexity</th>
+                      <th className="py-3 px-1 font-medium border-l border-gray-800 pl-3">Current assignment</th>
+                      <th className="py-3 px-1 font-medium whitespace-nowrap">Queue complexity</th>
+                      <th className="py-3 px-1 font-medium min-w-[220px]">Utilization status · why</th>
+                      <th className="py-3 px-1 font-medium text-center" title="S / A / B / C">Score</th>
+                      <th className="py-3 px-1 font-medium text-center whitespace-nowrap" title="Priority on giving this team an assignment">Assign prio</th>
+                      <th className="py-3 px-1 font-medium min-w-[180px]">Notes</th>
+                      <th className="py-3 pr-3 w-6" />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {groups.length === 0 && (
+                      <tr><td colSpan={13} className="py-10 text-center text-sm text-gray-600">No teams match these filters.</td></tr>
+                    )}
+                    {groups.map(g => {
+                      const r = utilRating(g.teams)
+                      return (
+                        <Fragment key={g.lead || '__none__'}>
+                          <tr className="bg-gray-800/30 border-y border-gray-800">
+                            <td colSpan={13} className="py-2 pl-4 pr-4">
+                              <div className="flex items-center gap-3">
+                                <span className="text-sm font-semibold text-gray-100">{g.lead || 'No lead'}</span>
+                                <span className="text-xs text-gray-500">{g.teams.length} team{g.teams.length === 1 ? '' : 's'}</span>
+                                <span className="text-xs text-gray-500">· rating <span className={`font-semibold ${ratingTone(r)}`}>{r == null ? '—' : r.toFixed(1)}</span></span>
+                              </div>
+                            </td>
+                          </tr>
+                          {g.teams.map(t => {
+                            const st = statusOf.get(t.id)!
+                            const isFree = utilIsFree(t)
+                            return (
+                              <tr key={t.id} className={`border-b border-gray-800/50 last:border-0 align-top hover:bg-gray-800/20 ${st.status === 'not' ? 'bg-red-500/[0.03]' : ''}`}>
+                                <td className="py-2 pl-4 pr-2 text-xs text-gray-600 pt-3">{all.indexOf(t) + 1}</td>
+                                <td className="py-1.5 px-1 w-[11%]">{textCell(t, 'lead', { muted: true, list: true })}</td>
+                                <td className="py-1.5 px-1 w-[11%]">{textCell(t, 'supervisor', { list: true })}</td>
+                                <td className="py-1.5 px-1 w-[12%]">{textCell(t, 'sto', { list: true })}</td>
+                                <td className="py-1.5 px-1 w-[11%]">{textCell(t, 'ops', { list: true })}</td>
+                                <td className="py-2 px-1 pt-2.5">{complexityCell(t, 'queue_complexity')}</td>
+                                <td className="py-1.5 px-1 border-l border-gray-800 pl-3 w-[14%]">
+                                  <input
+                                    key={`${t.id}-an-${t.assignment_name ?? ''}`}
+                                    defaultValue={isFree ? '' : (t.assignment_name ?? '')}
+                                    placeholder="Free"
+                                    onBlur={e => { const v = e.target.value.trim() || 'Free'; if (v !== (t.assignment_name ?? 'Free')) updateUtilTeam(t.id, { assignment_name: v }) }}
+                                    onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
+                                    className={`w-full min-w-0 bg-transparent px-1.5 py-1 rounded text-sm hover:bg-gray-800/60 focus:bg-gray-800 focus:outline-none focus:ring-1 focus:ring-[#193a29] ${isFree ? 'placeholder-red-400/70 italic' : 'text-gray-100 font-medium'}`}
+                                  />
+                                </td>
+                                <td className="py-2 px-1 pt-2.5">{complexityCell(t, 'assignment_complexity', isFree)}</td>
+                                <td className="py-2 px-1">{statusCell(t)}</td>
+                                <td className="py-2 px-1 text-center">{tierCell(t)}</td>
+                                <td className="py-2 px-1 pt-2.5 text-center">{prioCell(t)}</td>
+                                <td className="py-1.5 px-1">{textCell(t, 'notes', { placeholder: 'Add a note…', muted: true })}</td>
+                                <td className="py-2 pr-3 pt-2.5 text-right">
+                                  <button className={btnDanger} onClick={() => deleteUtilTeam(t)} title="Remove team">×</button>
+                                </td>
+                              </tr>
+                            )
+                          })}
+                        </Fragment>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+              <p className="text-xs text-gray-600">
+                Status is automatic: <span className="text-red-400">Not utilized</span> = no assignment (Free) · <span className="text-amber-400">Under-utilized</span> = C-tier work, or a team assigned to a less complex queue than it can handle · <span className="text-emerald-400">Utilized</span> = everything else. Type in the “why” line to override the explanation. Click a lead card to filter.
+              </p>
+            </div>
+          )
+        })()}
+
         {/* Org Chart Tab */}
         {tab === 'orgchart' && (() => {
           const inChart = new Set(orgChart.map(n => n.staff_id))
@@ -5192,6 +5702,32 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
           </div>
         </div>
       )}
+
+      {utilImport && (() => {
+        const n = utilImport.rows.length
+        const free = utilImport.rows.filter(r => !r.assignment_name || r.assignment_name.trim().toLowerCase() === 'free').length
+        const leadsN = new Set(utilImport.rows.map(r => r.lead ?? '')).size
+        return (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-6" onClick={() => setUtilImport(null)}>
+            <div className="bg-gray-900 border border-gray-700 rounded-xl p-6 w-[420px] max-w-full shadow-xl" onClick={e => e.stopPropagation()}>
+              <p className="text-sm font-semibold text-gray-100 mb-1">Import utilization sheet</p>
+              <p className="text-xs text-gray-500 mb-4 truncate">{utilImport.fileName}</p>
+              <p className="text-sm text-gray-300 mb-5">
+                Found <span className="font-semibold text-gray-100">{n}</span> team{n === 1 ? '' : 's'} across <span className="font-semibold text-gray-100">{leadsN}</span> lead{leadsN === 1 ? '' : 's'} — <span className="text-red-400">{free} free</span>, {n - free} assigned.
+              </p>
+              <div className="flex flex-col gap-2">
+                <button className={btnPrimary} style={{ backgroundColor: '#193a29' }} onClick={() => importUtilTeams('replace')}>
+                  {utilTeams.length > 0 ? `Replace the current ${utilTeams.length} teams` : 'Import'}
+                </button>
+                {utilTeams.length > 0 && (
+                  <button className="text-sm font-medium px-4 py-2 rounded-lg border border-gray-700 text-gray-300 hover:text-gray-100 hover:border-gray-600 transition-colors" onClick={() => importUtilTeams('append')}>Add to the existing teams</button>
+                )}
+                <button className={btnCancel + ' mt-1'} onClick={() => setUtilImport(null)}>Cancel</button>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
 
       {manageTypesOpen && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-6" onClick={() => setManageTypesOpen(false)}>
