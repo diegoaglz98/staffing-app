@@ -1371,7 +1371,8 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
       const openMs = [...milestones.filter(m => m.project_id === p.id && !m.done)]
         .sort((a, b) => priorityRank(a.priority) - priorityRank(b.priority) || a.created_at.localeCompare(b.created_at))
       const hasPP = p.weekly_target != null
-      if (openMs.length === 0 && !hasPP) continue
+      // Skip projects with nothing to report: no open milestones and no PP (unset or 0)
+      if (openMs.length === 0 && !p.weekly_target) continue
       const stoTag = assignments
         .filter(a => a.project_id === p.id && a.assignment_role === 'STO')
         .map(a => staff.find(s => s.id === a.staff_id))
