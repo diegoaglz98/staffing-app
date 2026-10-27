@@ -96,6 +96,11 @@ function utilSeed(): Omit<UtilTeam, 'id'>[] {
 
 const PROJECT_EMOJIS = ['📁', '🚀', '🎯', '🔥', '⭐', '🧪', '🤖', '🛡️', '📊', '💡', '⚙️', '🧠', '🌐', '📈', '🏆', '🐛', '🔒', '📝', '🎨', '⚡', '🧩', '📦', '🔧', '🩺', '💬', '🎓', '🗂️', '✅', '🔬', '🛰️', '📡', '💻', '📱', '☁️', '🔑', '🧵', '📐', '🕹️', '🎬', '🎧', '📷', '🏗️', '🚦', '🧭', '⏱️', '📅', '💰', '🏦', '⚖️', '🩹', '🧬', '🔭', '🌟', '💎', '🎲', '🃏', '🐙', '🦾', '👾', '🦉']
 
+// "Confirm assignments with leads": projects whose leads are fixed by name (key = project name, lowercase)
+const LEAD_CONFIRMATION_OVERRIDES: Record<string, string[]> = {
+  'cua v3': ['Rafael Cruz', 'Ivan Guevara'],
+}
+
 // The person who owns this tool — always cc'd on update requests
 const REQUESTER_SLACK_MENTION = '<@U020EEUSPPT>'
 
@@ -1465,7 +1470,20 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
   function leadsForConfirmation() {
     const activeProjects = projects.filter(p => p.status === 'active')
     const map = new Map<string, { id: string; name: string; projects: string[] }>()
+    const add = (id: string, name: string, project: string) => {
+      if (!map.has(id)) map.set(id, { id, name, projects: [] })
+      map.get(id)!.projects.push(project)
+    }
     activeProjects.forEach(p => {
+      // Hard-coded leads for specific projects (replace the usual Lead → Supervisor → STO pick)
+      const forced = LEAD_CONFIRMATION_OVERRIDES[p.name.trim().toLowerCase()]
+      if (forced) {
+        forced.forEach(name => {
+          const s = staff.find(x => x.name.trim().toLowerCase() === name.toLowerCase())
+          add(s ? s.id : `override:${name}`, s ? s.name : name, p.name)
+        })
+        return
+      }
       const pa = assignments.filter(a => a.project_id === p.id)
       const tierRole = pa.some(a => a.assignment_role === 'Lead') ? 'Lead'
         : pa.some(a => a.assignment_role === 'Supervisor') ? 'Supervisor'
@@ -1475,8 +1493,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
       pa.filter(a => a.assignment_role === tierRole).forEach(h => {
         const s = staff.find(x => x.id === h.staff_id)
         if (!s) return
-        if (!map.has(s.id)) map.set(s.id, { id: s.id, name: s.name, projects: [] })
-        map.get(s.id)!.projects.push(p.name)
+        add(s.id, s.name, p.name)
       })
     })
     return Array.from(map.values())
@@ -1503,7 +1520,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
   function handleConfirmLeads() {
     const leads = leadsForConfirmation()
     if (leads.length === 0) { setLeadStatus('empty'); return }
-    const missing = leads.filter(l => !staff.find(s => s.id === l.id)?.slack_user_id)
+    const missing = leads.filter(l => !l.id.startsWith('override:') && !staff.find(s => s.id === l.id)?.slack_user_id)
     if (missing.length > 0) {
       setLeadIdInputs({})
       setLeadIdPrompt(missing.map(l => ({ id: l.id, name: l.name })))
