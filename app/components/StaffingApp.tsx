@@ -1512,6 +1512,25 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
       l.projects.forEach(p => lines.push(`  • ${p}`))
       lines.push('')
     })
+    // FYI summary of projects that aren't active yet / anymore (names only — nobody is tagged)
+    const ownerNames = (p: Project) => {
+      const forced = LEAD_CONFIRMATION_OVERRIDES[p.name.trim().toLowerCase()]
+      if (forced) return forced
+      const pa = assignments.filter(a => a.project_id === p.id)
+      const tier = ['Lead', 'Supervisor', 'STO'].find(r => pa.some(a => a.assignment_role === r))
+      return tier ? pa.filter(a => a.assignment_role === tier).map(a => staff.find(s => s.id === a.staff_id)?.name).filter((n): n is string => !!n) : []
+    }
+    const fyi: [string, string, string][] = [
+      ['starting-soon', ':hourglass_flowing_sand:', 'Starting soon'],
+      ['paused', ':double_vertical_bar:', 'Paused'],
+    ]
+    fyi.forEach(([status, emoji, title]) => {
+      const list = projects.filter(p => p.status === status).sort((a, b) => a.name.localeCompare(b.name))
+      if (list.length === 0) return
+      lines.push(`${emoji} *${title}* (${list.length})`)
+      list.forEach(p => { const o = ownerNames(p); lines.push(`  • ${p.name}${o.length ? ` — ${o.join(', ')}` : ''}`) })
+      lines.push('')
+    })
     lines.push('If it looks accurate then please confirm! If a project or assignment is missing please comment on the thread.')
     lines.push('')
     lines.push(`cc: ${mode === 'send' ? REQUESTER_SLACK_MENTION : 'you'}`)
