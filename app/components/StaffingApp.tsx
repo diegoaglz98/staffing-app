@@ -1738,6 +1738,40 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
     )
   }
 
+  // Project emoji picker (Milestones summarized view + Consolidated Manager)
+  function renderProjectEmojiPicker(p: Project) {
+    return (
+            <div className="relative">
+              <button onClick={() => setEmojiPickerProjectId(emojiPickerProjectId === p.id ? null : p.id)} title="Set project emoji" className="text-lg leading-none hover:scale-110 transition-transform">
+                {p.emoji || '📁'}
+              </button>
+              {emojiPickerProjectId === p.id && (
+                <>
+                  <div className="fixed inset-0 z-10" onClick={() => setEmojiPickerProjectId(null)} />
+                  <div className="absolute left-0 top-8 z-20 bg-gray-900 border border-gray-700 rounded-lg p-2 shadow-xl w-60">
+                    <div className="grid grid-cols-6 gap-1 max-h-48 overflow-y-auto">
+                      {PROJECT_EMOJIS.map(em => (
+                        <button key={em} onClick={() => { updateProjectEmoji(p.id, em); setEmojiPickerProjectId(null) }} className="text-lg hover:bg-gray-800 rounded p-1">{em}</button>
+                      ))}
+                    </div>
+                    <div className="flex gap-1 mt-2 pt-2 border-t border-gray-800">
+                      <input
+                        className={inputSmClass + ' flex-1'}
+                        placeholder="Paste any emoji…"
+                        value={customEmoji}
+                        onChange={e => setCustomEmoji(e.target.value)}
+                        onKeyDown={e => { if (e.key === 'Enter' && customEmoji.trim()) { updateProjectEmoji(p.id, customEmoji.trim()); setCustomEmoji(''); setEmojiPickerProjectId(null) } }}
+                      />
+                      <button className="text-xs px-2 py-1 rounded bg-gray-700 text-gray-300 hover:text-white transition-colors" onClick={() => { if (customEmoji.trim()) { updateProjectEmoji(p.id, customEmoji.trim()); setCustomEmoji(''); setEmojiPickerProjectId(null) } }}>Set</button>
+                    </div>
+                    <button onClick={() => { updateProjectEmoji(p.id, null); setEmojiPickerProjectId(null) }} className="w-full text-xs text-gray-500 hover:text-gray-300 mt-2">Reset to default</button>
+                  </div>
+                </>
+              )}
+            </div>
+          )
+  }
+
   // Production-plan stepper (Milestones tab + Consolidated Manager)
   function ppStepper(p: Project) {
     return (
@@ -4056,7 +4090,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                   activeProjects.length === 0 ? (
                     <p className="text-gray-600 text-sm">No active projects.</p>
                   ) : (
-                    <div className="border border-gray-800 rounded-xl bg-gray-900/40 overflow-hidden">
+                    <div className="border border-gray-800 rounded-xl bg-gray-900/40">
                       <table className="w-full text-sm">
                         <thead>
                           <tr className="text-left text-gray-500 border-b border-gray-800">
@@ -4069,7 +4103,9 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                           {activeProjects.map((p, i) => (
                             <tr key={p.id} className="border-b border-gray-800/60 last:border-0 hover:bg-gray-800/20">
                               <td className="py-2.5 pl-5 pr-3 text-gray-600 text-xs">{i + 1}</td>
-                              <td className="py-2.5 pr-3 text-gray-100">{p.emoji || '📁'} {p.name}</td>
+                              <td className="py-2.5 pr-3 text-gray-100">
+                                <div className="flex items-center gap-2">{renderProjectEmojiPicker(p)}<span>{p.name}</span></div>
+                              </td>
                               <td className="py-2.5 pr-5 text-right">{ppStepper(p)}</td>
                             </tr>
                           ))}
@@ -4309,36 +4345,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
               {st === 'understaffed' ? 'Potentially understaffed' : st === 'overstaffed' ? 'Potentially overstaffed' : 'Well staffed'}
             </span>
           )
-          const emojiPicker = (p: Project) => (
-            <div className="relative">
-              <button onClick={() => setEmojiPickerProjectId(emojiPickerProjectId === p.id ? null : p.id)} title="Set project emoji" className="text-lg leading-none hover:scale-110 transition-transform">
-                {p.emoji || '📁'}
-              </button>
-              {emojiPickerProjectId === p.id && (
-                <>
-                  <div className="fixed inset-0 z-10" onClick={() => setEmojiPickerProjectId(null)} />
-                  <div className="absolute left-0 top-8 z-20 bg-gray-900 border border-gray-700 rounded-lg p-2 shadow-xl w-60">
-                    <div className="grid grid-cols-6 gap-1 max-h-48 overflow-y-auto">
-                      {PROJECT_EMOJIS.map(em => (
-                        <button key={em} onClick={() => { updateProjectEmoji(p.id, em); setEmojiPickerProjectId(null) }} className="text-lg hover:bg-gray-800 rounded p-1">{em}</button>
-                      ))}
-                    </div>
-                    <div className="flex gap-1 mt-2 pt-2 border-t border-gray-800">
-                      <input
-                        className={inputSmClass + ' flex-1'}
-                        placeholder="Paste any emoji…"
-                        value={customEmoji}
-                        onChange={e => setCustomEmoji(e.target.value)}
-                        onKeyDown={e => { if (e.key === 'Enter' && customEmoji.trim()) { updateProjectEmoji(p.id, customEmoji.trim()); setCustomEmoji(''); setEmojiPickerProjectId(null) } }}
-                      />
-                      <button className="text-xs px-2 py-1 rounded bg-gray-700 text-gray-300 hover:text-white transition-colors" onClick={() => { if (customEmoji.trim()) { updateProjectEmoji(p.id, customEmoji.trim()); setCustomEmoji(''); setEmojiPickerProjectId(null) } }}>Set</button>
-                    </div>
-                    <button onClick={() => { updateProjectEmoji(p.id, null); setEmojiPickerProjectId(null) }} className="w-full text-xs text-gray-500 hover:text-gray-300 mt-2">Reset to default</button>
-                  </div>
-                </>
-              )}
-            </div>
-          )
+          const emojiPicker = renderProjectEmojiPicker
           const leadEmojiPicker = (staffId: string) => (
             <span className="relative">
               <button onClick={() => setEmojiPickerStaffId(emojiPickerStaffId === staffId ? null : staffId)} title="Set lead emoji" className="text-lg leading-none hover:scale-110 transition-transform">
