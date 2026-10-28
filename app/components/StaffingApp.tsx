@@ -3103,7 +3103,20 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                                       >
                                         <div className="flex items-center gap-3">
                                           <span className="font-medium text-gray-200">{member?.name ?? 'Unknown'}</span>
-                                          {a.assignment_role && <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${roleColor(a.assignment_role)}`}>{a.assignment_role}</span>}
+                                          <select
+                                            value={a.assignment_role ?? ''}
+                                            onChange={e => updateAssignmentRole(a.id, e.target.value)}
+                                            onClick={e => e.stopPropagation()}
+                                            title="Change role"
+                                            className={`text-xs font-medium px-2 py-0.5 pr-5 rounded-full cursor-pointer appearance-none focus:outline-none focus:ring-1 focus:ring-gray-500 ${a.assignment_role ? roleColor(a.assignment_role) : 'bg-gray-700/60 text-gray-400'}`}
+                                            style={{ backgroundImage: 'none' }}
+                                          >
+                                            <option value="" className="bg-gray-900 text-gray-100">No role</option>
+                                            <option value="Lead" className="bg-gray-900 text-gray-100">Lead</option>
+                                            <option value="Supervisor" className="bg-gray-900 text-gray-100">Supervisor</option>
+                                            <option value="STO" className="bg-gray-900 text-gray-100">STO</option>
+                                            <option value="Ops Support" className="bg-gray-900 text-gray-100">Ops Support</option>
+                                          </select>
                                           {member?.position && <span className="text-xs text-gray-500">{member.position}</span>}
                                         </div>
                                         <button className={btnDanger} onClick={() => removeAssignment(a.id)}>×</button>
