@@ -4307,18 +4307,6 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
             return g.sort((a, b) => a.key === '__none__' ? 1 : b.key === '__none__' ? -1 : a.name.localeCompare(b.name))
           })()
 
-          // ---- Pulse (right rail) numbers — active projects ----
-          const activeAll = projects.filter(p => p.status === 'active')
-          const activeInfo = activeAll.map(p => ({ p, i: info(p) }))
-          const ppTotal = activeAll.reduce((n, p) => n + (p.weekly_target ?? 0), 0)
-          const ppSet = activeAll.filter(p => p.weekly_target != null).length
-          const activeMs = milestones.filter(m => activeAll.some(p => p.id === m.project_id))
-          const msDone = activeMs.filter(m => m.done).length
-          const msPct = activeMs.length ? Math.round((msDone / activeMs.length) * 100) : 0
-          const peopleOnActive = new Set(assignments.filter(a => activeAll.some(p => p.id === a.project_id)).map(a => a.staff_id)).size
-          const openP0All = activeMs.filter(m => !m.done && (m.priority === 'P00' || m.priority === 'P0'))
-            .sort((a, b) => (a.due_date ?? '9999').localeCompare(b.due_date ?? '9999'))
-
           const jumpTo = (pid: string) => {
             if (!shown.some(p => p.id === pid)) { setCmFilter('all'); setCmSearch('') }
             setCmView('cards')
@@ -4944,74 +4932,6 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                   )}
                 </div>
 
-                {/* Pulse rail */}
-                <div className="w-72 shrink-0 sticky top-6 flex flex-col gap-4">
-                  <div className="grid grid-cols-2 gap-3">
-                    {[
-                      { label: 'Active projects', value: activeAll.length, sub: `${peopleOnActive} people on them` },
-                      { label: 'PP this week', value: ppTotal, sub: `${ppSet}/${activeAll.length} with a plan` },
-                      { label: 'Milestones done', value: `${msPct}%`, sub: `${msDone} of ${activeMs.length}` },
-                      { label: 'Open P0', value: openP0All.length, sub: openP0All.length ? 'see below' : 'all clear' },
-                    ].map(k => (
-                      <div key={k.label} className="bg-gray-900 border border-gray-800 rounded-xl p-3">
-                        <p className="text-[10px] text-gray-500 uppercase tracking-wider">{k.label}</p>
-                        <p className="text-2xl font-bold text-gray-100 leading-tight mt-1">{k.value}</p>
-                        <p className="text-[11px] text-gray-600">{k.sub}</p>
-                      </div>
-                    ))}
-                  </div>
-
-                  <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
-                    <p className="text-xs text-gray-500 uppercase tracking-wider mb-3">Needs attention <span className="normal-case text-gray-600">— active</span></p>
-                    <div className="space-y-1">
-                      {([
-                        ['flagged', '🚩 Flagged'], ['understaffed', '🟠 Potentially understaffed'], ['nopp', '📉 No production plan'],
-                        ['overdue', '⏰ Overdue milestones'], ['p0', '🔥 Open P0 / P00'], ['noteam', '👻 No team'],
-                      ] as const).map(([k, label]) => {
-                        const n = activeInfo.filter(x => x.i.flags[k]).length
-                        return (
-                          <button key={k} onClick={() => setCmFilter(k)} className={`w-full flex items-center justify-between text-xs px-2 py-1.5 rounded-md transition-colors ${cmFilter === k ? 'bg-gray-800 text-white' : 'text-gray-400 hover:bg-gray-800/60 hover:text-gray-200'}`}>
-                            <span>{label}</span>
-                            <span className={`font-semibold ${n > 0 ? 'text-gray-100' : 'text-gray-600'}`}>{n}</span>
-                          </button>
-                        )
-                      })}
-                    </div>
-                    <div className="flex h-2 rounded-full overflow-hidden mt-3 bg-gray-800">
-                      {(['red', 'amber', 'green'] as const).map(h => {
-                        const n = activeInfo.filter(x => x.i.health === h).length
-                        return n > 0 ? <div key={h} title={`${n} ${h}`} className={h === 'red' ? 'bg-red-500' : h === 'amber' ? 'bg-amber-400' : 'bg-emerald-500'} style={{ width: `${(n / Math.max(activeAll.length, 1)) * 100}%` }} /> : null
-                      })}
-                    </div>
-                    <p className="text-[11px] text-gray-600 mt-1.5">Health mix across {activeAll.length} active projects</p>
-                  </div>
-
-                  <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
-                    <div className="flex items-center justify-between mb-3">
-                      <p className="text-xs text-gray-500 uppercase tracking-wider">P00 / P0 — needs attention</p>
-                      <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${openP0All.length > 0 ? 'bg-red-500/10 text-red-400' : 'bg-emerald-500/10 text-emerald-400'}`}>{openP0All.length}</span>
-                    </div>
-                    {openP0All.length === 0 ? (
-                      <p className="text-xs text-gray-600">No open P0 milestones. 🎉</p>
-                    ) : (
-                      <div className="space-y-2 max-h-[40vh] overflow-y-auto">
-                        {openP0All.map(m => {
-                          const proj = projects.find(p => p.id === m.project_id)
-                          const overdue = m.due_date && m.due_date < today
-                          return (
-                            <button key={m.id} onClick={() => jumpTo(m.project_id)} className="w-full text-left border border-gray-800 rounded-lg px-3 py-2 hover:border-gray-600 transition-colors">
-                              <p className="text-sm text-gray-200 leading-tight">{m.title}</p>
-                              <div className="flex items-center justify-between mt-1">
-                                <span className="text-xs text-gray-500">{proj?.name}</span>
-                                {m.due_date && <span className={`text-xs ${overdue ? 'text-red-400 font-medium' : 'text-gray-500'}`}>{overdue ? '⚠ overdue · ' : 'due '}{m.due_date}</span>}
-                              </div>
-                            </button>
-                          )
-                        })}
-                      </div>
-                    )}
-                  </div>
-                </div>
               </div>
             </div>
           )
