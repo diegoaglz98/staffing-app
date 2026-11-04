@@ -313,6 +313,8 @@ export default function StaffingApp() {
   const [hideAssignedInDropdown, setHideAssignedInDropdown] = useState(false)
   const [projectSort, setProjectSort] = useState<{ col: string; dir: 'az' | 'za' }>({ col: 'status', dir: 'az' })
   const [projectSearch, setProjectSearch] = useState('')
+  const [projectLeadFilter, setProjectLeadFilter] = useState('')
+  const [projectCustomerFilter, setProjectCustomerFilter] = useState('')
   const [assignmentSearch, setAssignmentSearch] = useState('')
   const [showSupervisorsInChart, setShowSupervisorsInChart] = useState(false)
   const [customerActiveOnly, setCustomerActiveOnly] = useState(false)
@@ -1617,6 +1619,27 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
     setProjectSort(prev => prev.col === col ? { col, dir: prev.dir === 'az' ? 'za' : 'az' } : { col, dir: 'az' })
   }
 
+  // Lead / Supervisor shown on the Projects tab: the Lead(s) if any, otherwise the Supervisor(s)
+  function projectLeadInfo(p: Project): { role: 'Lead' | 'Supervisor' | null; people: Staff[] } {
+    const pa = assignments.filter(a => a.project_id === p.id)
+    const role = pa.some(a => a.assignment_role === 'Lead') ? 'Lead' : pa.some(a => a.assignment_role === 'Supervisor') ? 'Supervisor' : null
+    if (!role) return { role: null, people: [] }
+    const people = pa.filter(a => a.assignment_role === role).map(a => staff.find(s => s.id === a.staff_id)).filter((s): s is Staff => !!s)
+    return { role, people }
+  }
+  function projectsTabFilter(p: Project) {
+    if (!visibleStatuses[p.status]) return false
+    if (!p.name.toLowerCase().includes(projectSearch.trim().toLowerCase())) return false
+    if (projectCustomerFilter) {
+      if (projectCustomerFilter === '__none__' ? !!p.customer_codename : p.customer_codename !== projectCustomerFilter) return false
+    }
+    if (projectLeadFilter) {
+      const li = projectLeadInfo(p)
+      if (projectLeadFilter === '__none__' ? li.people.length > 0 : !li.people.some(x => x.id === projectLeadFilter)) return false
+    }
+    return true
+  }
+
   function sortedProjects(list: Project[]) {
     const { col, dir } = projectSort
     const mult = dir === 'az' ? 1 : -1
@@ -1625,6 +1648,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
       let valB: string | number = ''
       if (col === 'name')     { valA = a.name; valB = b.name }
       else if (col === 'customer') { valA = a.customer_codename ?? ''; valB = b.customer_codename ?? '' }
+      else if (col === 'lead')     { valA = projectLeadInfo(a).people.map(x => x.name).join(', ') || '\uffff'; valB = projectLeadInfo(b).people.map(x => x.name).join(', ') || '\uffff' }
       else if (col === 'type')     { valA = a.project_type ?? '\uffff'; valB = b.project_type ?? '\uffff' }
       else if (col === 'status')   { valA = statusRank(a.status); valB = statusRank(b.status) }
       else if (col === 'start')    { valA = a.start_date ?? ''; valB = b.start_date ?? '' }
@@ -2234,7 +2258,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
         </div>
       </div>
 
-      <div className={`${tab === 'orgchart' ? 'max-w-none' : tab === 'consolidated' || tab === 'utilization' ? 'max-w-[1720px]' : 'max-w-4xl'} mx-auto px-8 py-8`}>
+      <div className={`${tab === 'orgchart' ? 'max-w-none' : tab === 'consolidated' || tab === 'utilization' ? 'max-w-[1720px]' : tab === 'projects' ? 'max-w-6xl' : 'max-w-4xl'} mx-auto px-8 py-8`}>
         {/* Tabs */}
         <div className="flex flex-wrap gap-1 mb-8 bg-gray-900 rounded-xl p-1 w-fit max-w-full">
           {([
@@ -2337,6 +2361,36 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                   <button onClick={() => setProjectSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300 text-sm">✕</button>
                 )}
               </div>
+              <select
+                value={projectLeadFilter}
+                onChange={e => setProjectLeadFilter(e.target.value)}
+                title="Filter by lead / supervisor"
+                className={`text-xs px-3 py-2 rounded-lg border bg-gray-900 transition-colors cursor-pointer max-w-[190px] ${projectLeadFilter ? 'text-emerald-400' : 'border-gray-700 text-gray-400 hover:text-gray-200'}`}
+                style={projectLeadFilter ? { borderColor: '#193a29' } : {}}
+              >
+                <option value="">All leads / supervisors</option>
+                <option value="__none__">No lead or supervisor</option>
+                {staff
+                  .filter(s => projects.some(p => projectLeadInfo(p).people.some(x => x.id === s.id)))
+                  .sort((a, b) => a.name.localeCompare(b.name))
+                  .map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+              </select>
+              <select
+                value={projectCustomerFilter}
+                onChange={e => setProjectCustomerFilter(e.target.value)}
+                title="Filter by customer"
+                className={`text-xs px-3 py-2 rounded-lg border bg-gray-900 transition-colors cursor-pointer max-w-[190px] ${projectCustomerFilter ? 'text-emerald-400' : 'border-gray-700 text-gray-400 hover:text-gray-200'}`}
+                style={projectCustomerFilter ? { borderColor: '#193a29' } : {}}
+              >
+                <option value="">All customers</option>
+                <option value="__none__">No codename</option>
+                {[...new Set(projects.map(p => p.customer_codename).filter((c): c is string => !!c))]
+                  .sort((a, b) => a.localeCompare(b))
+                  .map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
+              {(projectLeadFilter || projectCustomerFilter) && (
+                <button onClick={() => { setProjectLeadFilter(''); setProjectCustomerFilter('') }} className="text-xs text-sky-400 hover:text-sky-300 whitespace-nowrap">Clear</button>
+              )}
               <button
                 onClick={() => setProjectCsvPrompt(true)}
                 className="text-xs px-3 py-2 rounded-lg border border-gray-700 text-gray-400 hover:text-gray-200 transition-colors whitespace-nowrap"
@@ -2358,6 +2412,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                     {[
                       { key: 'name', label: 'Name' },
                       { key: 'customer', label: 'Customer' },
+                      { key: 'lead', label: 'Lead / Supervisor' },
                       { key: 'type', label: 'Project Type' },
                       { key: 'status', label: 'Status' },
                       { key: 'start', label: 'Start' },
@@ -2375,7 +2430,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                   </tr>
                 </thead>
                 <tbody>
-                  {sortedProjects(projects.filter(p => visibleStatuses[p.status] && p.name.toLowerCase().includes(projectSearch.trim().toLowerCase()))).map((p, idx) => {
+                  {sortedProjects(projects.filter(projectsTabFilter)).map((p, idx) => {
                     const count = assignments.filter(a => a.project_id === p.id).length
                     const isEditing = editingProjectId === p.id
                     return (
@@ -2403,6 +2458,15 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                           <>
                             <td className="py-2 pr-2"><input className={inputSmClass} value={editProject.name} onChange={e => setEditProject({ ...editProject, name: e.target.value })} /></td>
                             <td className="py-2 pr-2"><input className={inputSmClass} value={editProject.customer_codename} onChange={e => setEditProject({ ...editProject, customer_codename: e.target.value })} /></td>
+<td className="py-2 pr-2">{(() => {
+                              const li = projectLeadInfo(p)
+                              return li.people.length === 0 ? <span className="text-gray-600">—</span> : (
+                                <span className="flex items-center gap-1.5 flex-wrap">
+                                  <span className="text-gray-300">{li.people.map(x => x.name).join(', ')}</span>
+                                  {li.role === 'Supervisor' && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-violet-500/10 text-violet-300" title="No Lead assigned — showing the Supervisor">Sup.</span>}
+                                </span>
+                              )
+                            })()}</td>
                             <td className="py-2 pr-2">{projectTypeSelect(p)}</td>
                             <td className="py-2 pr-2">
                               <select className={selectSmClass} value={editProject.status} onChange={e => setEditProject({ ...editProject, status: e.target.value })}>
@@ -2427,6 +2491,15 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                           <>
                             <td className="py-3.5 font-medium text-gray-100">{p.name}</td>
                             <td className="py-3.5 text-gray-500">{p.customer_codename ?? '—'}</td>
+<td className="py-3.5 pr-3">{(() => {
+                              const li = projectLeadInfo(p)
+                              return li.people.length === 0 ? <span className="text-gray-600">—</span> : (
+                                <span className="flex items-center gap-1.5 flex-wrap">
+                                  <span className="text-gray-300">{li.people.map(x => x.name).join(', ')}</span>
+                                  {li.role === 'Supervisor' && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-violet-500/10 text-violet-300" title="No Lead assigned — showing the Supervisor">Sup.</span>}
+                                </span>
+                              )
+                            })()}</td>
                             <td className="py-3.5 pr-3">{projectTypeSelect(p)}</td>
                             <td className="py-3.5">
                               <select
@@ -2466,7 +2539,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                   })}
                 </tbody>
               </table>
-              <p className="text-xs text-gray-500 mt-4">Total projects in list: <span className="text-gray-300 font-medium">{projects.filter(p => visibleStatuses[p.status] && p.name.toLowerCase().includes(projectSearch.trim().toLowerCase())).length}</span></p>
+              <p className="text-xs text-gray-500 mt-4">Total projects in list: <span className="text-gray-300 font-medium">{projects.filter(projectsTabFilter).length}</span></p>
               </>
             )}
           </div>
