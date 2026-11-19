@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 
 const CHANNEL_FALLBACK = 'C0968BGH8RZ' // #code_pod
 
-// Posts a short parent message, then the full staffing breakdown as a threaded reply
+// Posts a short parent message, then the full text as a threaded reply (staffing update + milestones & PP overview)
 export async function POST(request: Request) {
   const token = process.env.SLACK_BOT_TOKEN
   const channel = process.env.SLACK_CHANNEL_ID || CHANNEL_FALLBACK

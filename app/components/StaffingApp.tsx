@@ -1452,7 +1452,9 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
       'Any questions? Drop them in this thread. :point_down:',
       ...(ccLine ? ['', `cc: ${ccLine}`] : []),
     ].join('\n')
-    return { text, missing: Array.from(missingMap.values()) }
+    // Posted as a short thread title, with the full overview as the first reply
+    const parent = `:thread: *Milestones & PP for Week of ${weekStart.getMonth() + 1}/${weekStart.getDate()}*`
+    return { parent, text, missing: Array.from(missingMap.values()) }
   }
 
   // Staffing update for #code_pod: queue → people with their role (no position/title)
@@ -1551,10 +1553,10 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
     setOverviewStatus('sending')
     setOverviewPermalink(null)
     try {
-      const res = await fetch('/api/slack/overview', {
+      const res = await fetch('/api/slack/staffing-update', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: built.text }),
+        body: JSON.stringify({ parent: built.parent, thread: built.text }),
       })
       const data = await res.json().catch(() => ({}))
       if (res.ok && data.ok) {
@@ -5770,6 +5772,9 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
             <div className="bg-gray-900 border border-gray-700 rounded-xl p-6 w-[560px] max-w-full shadow-xl" onClick={e => e.stopPropagation()}>
               <p className="text-sm font-semibold text-gray-100 mb-1">Preview — Milestones &amp; PP overview</p>
               <p className="text-xs text-gray-500 mb-3">This will post to <span className="text-gray-300">#code_pod</span>. STOs, plus supervisors &amp; leads in the cc, are @-mentioned in Slack (names shown here). Review before sending.</p>
+              <p className="text-[11px] text-gray-500 uppercase tracking-wider mb-1">Message</p>
+              <pre className="text-xs text-gray-200 bg-gray-800/60 border border-gray-700 rounded-lg p-3 mb-3 whitespace-pre-wrap">{live?.parent}</pre>
+              <p className="text-[11px] text-gray-500 uppercase tracking-wider mb-1">In the thread</p>
               <pre className="text-xs text-gray-200 bg-gray-800/60 border border-gray-700 rounded-lg p-3 max-h-[40vh] overflow-y-auto whitespace-pre-wrap">{live?.text}</pre>
               {missing.length > 0 && (
                 <div className="mt-4">
