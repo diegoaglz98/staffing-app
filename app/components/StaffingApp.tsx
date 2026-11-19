@@ -1455,7 +1455,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
     return { text, missing: Array.from(missingMap.values()) }
   }
 
-  // Staffing update for #code_pod: queue → people (names only, no roles/positions)
+  // Staffing update for #code_pod: queue → people with their role (no position/title)
   function buildStaffingUpdate(mode: 'preview' | 'send', override: Record<string, string> = {}) {
     const missing = new Map<string, { id: string; name: string }>()
     const tag = (s: Staff) => {
@@ -1465,11 +1465,15 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
     }
     const sections: string[] = []
     ;[...projects].filter(p => p.status === 'active').sort((a, b) => a.name.localeCompare(b.name)).forEach(p => {
-      const people = [...new Set(assignments.filter(a => a.project_id === p.id).map(a => a.staff_id))]
-        .map(id => staff.find(s => s.id === id)).filter((s): s is Staff => !!s)
-        .sort((a, b) => a.name.localeCompare(b.name))
+      const ROLE_ORDER = ['Lead', 'Supervisor', 'STO', 'Ops Support']
+      const rank = (r: string | null) => { const i = ROLE_ORDER.indexOf(r ?? ''); return i === -1 ? 99 : i }
+      const seen = new Set<string>()
+      const people = assignments.filter(a => a.project_id === p.id)
+        .map(a => ({ s: staff.find(x => x.id === a.staff_id), role: a.assignment_role }))
+        .filter((x): x is { s: Staff; role: string | null } => !!x.s && !seen.has(x.s.id) && !!seen.add(x.s.id))
+        .sort((a, b) => rank(a.role) - rank(b.role) || a.s.name.localeCompare(b.s.name))
       if (people.length === 0) return
-      sections.push(`*${p.emoji || '📁'} ${p.name}*\n${people.map(s => `  • ${tag(s)}`).join('\n')}`)
+      sections.push(`*${p.emoji || '📁'} ${p.name}*\n${people.map(({ s, role }) => `  • ${tag(s)}${role ? ` — ${role}` : ''}`).join('\n')}`)
     })
     if (sections.length === 0) return null
     const weekStart = new Date()
@@ -1478,7 +1482,9 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
     const thread = [
       sections.join('\n\n'),
       '',
-      "If anything looks off, reply in this thread and we'll fix it.",
+      `If you have any questions please reach out to ${mode === 'send' ? REQUESTER_SLACK_MENTION : '@Diego'} or your manager.`,
+      '',
+      `cc: ${mode === 'send' ? REQUESTER_SLACK_MENTION : 'you'}`,
     ].join('\n')
     return { parent, thread, missing: Array.from(missing.values()) }
   }
