@@ -277,6 +277,10 @@ export default function StaffingApp() {
   const [overviewStatus, setOverviewStatus] = useState<'idle' | 'sending' | 'sent' | 'error' | 'empty'>('idle')
   const [overviewPermalink, setOverviewPermalink] = useState<string | null>(null)
   const [overviewOpen, setOverviewOpen] = useState(false)
+  const [staffUpdateOpen, setStaffUpdateOpen] = useState(false)
+  const [staffUpdateIds, setStaffUpdateIds] = useState<Record<string, string>>({})
+  const [staffUpdateStatus, setStaffUpdateStatus] = useState<'idle' | 'sending' | 'sent' | 'error' | 'empty'>('idle')
+  const [staffUpdatePermalink, setStaffUpdatePermalink] = useState<string | null>(null)
   const [overviewIdInputs, setOverviewIdInputs] = useState<Record<string, string>>({})
   const [addingMilestoneProjectId, setAddingMilestoneProjectId] = useState<string | null>(null)
   const [editingMilestoneId, setEditingMilestoneId] = useState<string | null>(null)
@@ -874,7 +878,7 @@ export default function StaffingApp() {
     downloadCSV(`staff-${new Date().toISOString().split('T')[0]}.csv`, rows)
   }
 
-  function exportAssignmentsHTML() {
+  function buildAssignmentsHTML() {
     const rows = [...projects].filter(p => p.status === 'active').sort((a, b) => a.name.localeCompare(b.name)).map(p => {
       const pa = assignments.filter(a => a.project_id === p.id)
       if (pa.length === 0) return `<h2>${p.name}</h2><p><em>No staff assigned.</em></p>`
@@ -897,7 +901,11 @@ export default function StaffingApp() {
 <p style="color:#666">Exported ${new Date().toLocaleDateString()}</p>
 ${rows}
 </body></html>`
+    return html
+  }
 
+  function exportAssignmentsHTML() {
+    const html = buildAssignmentsHTML()
     const blob = new Blob([html], { type: 'text/html' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
@@ -964,6 +972,28 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
     a.download = `milestones-${new Date().toISOString().split('T')[0]}.html`
     a.click()
     URL.revokeObjectURL(url)
+  }
+
+  // Opens the print dialog on the staffing summary → "Save as PDF"
+  function exportAssignmentsPDF() {
+    const iframe = document.createElement('iframe')
+    iframe.style.position = 'fixed'
+    iframe.style.right = '0'
+    iframe.style.bottom = '0'
+    iframe.style.width = '0'
+    iframe.style.height = '0'
+    iframe.style.border = '0'
+    document.body.appendChild(iframe)
+    const doc = iframe.contentWindow?.document
+    if (!doc) { document.body.removeChild(iframe); return }
+    doc.open()
+    doc.write(buildAssignmentsHTML().replace('</style>', '@page{margin:16mm}h2{page-break-after:avoid}table{page-break-inside:avoid}</style>'))
+    doc.close()
+    iframe.contentWindow?.focus()
+    setTimeout(() => {
+      iframe.contentWindow?.print()
+      setTimeout(() => document.body.removeChild(iframe), 1000)
+    }, 300)
   }
 
   function exportMilestonesPDF() {
@@ -1423,6 +1453,71 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
       ...(ccLine ? ['', `cc: ${ccLine}`] : []),
     ].join('\n')
     return { text, missing: Array.from(missingMap.values()) }
+  }
+
+  // Staffing update for #code_pod: queue → people (names only, no roles/positions)
+  function buildStaffingUpdate(mode: 'preview' | 'send', override: Record<string, string> = {}) {
+    const missing = new Map<string, { id: string; name: string }>()
+    const tag = (s: Staff) => {
+      const sid = override[s.id] ?? s.slack_user_id
+      if (!sid) { missing.set(s.id, { id: s.id, name: s.name }); return s.name }
+      return mode === 'send' ? `<@${sid}>` : s.name
+    }
+    const sections: string[] = []
+    ;[...projects].filter(p => p.status === 'active').sort((a, b) => a.name.localeCompare(b.name)).forEach(p => {
+      const people = [...new Set(assignments.filter(a => a.project_id === p.id).map(a => a.staff_id))]
+        .map(id => staff.find(s => s.id === id)).filter((s): s is Staff => !!s)
+        .sort((a, b) => a.name.localeCompare(b.name))
+      if (people.length === 0) return
+      sections.push(`*${p.emoji || '📁'} ${p.name}*\n${people.map(s => `  • ${tag(s)}`).join('\n')}`)
+    })
+    if (sections.length === 0) return null
+    const weekStart = new Date()
+    weekStart.setDate(weekStart.getDate() - ((weekStart.getDay() - 2 + 7) % 7))
+    const parent = `:thread: *Code Pod staffing allocation — week of ${weekStart.getMonth() + 1}/${weekStart.getDate()}*\nBreakdown of who's on which queue in the thread :point_down:`
+    const thread = [
+      sections.join('\n\n'),
+      '',
+      "If anything looks off, reply in this thread and we'll fix it.",
+    ].join('\n')
+    return { parent, thread, missing: Array.from(missing.values()) }
+  }
+  function openStaffingUpdate() {
+    if (!buildStaffingUpdate('preview')) { setStaffUpdateStatus('empty'); return }
+    setStaffUpdateIds({})
+    setStaffUpdateStatus('idle')
+    setStaffUpdateOpen(true)
+  }
+  async function sendStaffingUpdate() {
+    const override: Record<string, string> = {}
+    for (const [id, raw] of Object.entries(staffUpdateIds)) {
+      const val = raw.trim()
+      if (!val) continue
+      override[id] = val
+      const { data } = await supabase.from('staff').update({ slack_user_id: val }).eq('id', id).select().single()
+      if (data) setStaff(prev => prev.map(s => s.id === id ? data : s))
+    }
+    const built = buildStaffingUpdate('send', override)
+    setStaffUpdateOpen(false)
+    if (!built) { setStaffUpdateStatus('empty'); return }
+    setStaffUpdateStatus('sending')
+    setStaffUpdatePermalink(null)
+    try {
+      const res = await fetch('/api/slack/staffing-update', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ parent: built.parent, thread: built.thread }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (res.ok && data.ok) {
+        setStaffUpdateStatus('sent')
+        setStaffUpdatePermalink(data.permalink ?? null)
+      } else {
+        setStaffUpdateStatus('error')
+      }
+    } catch {
+      setStaffUpdateStatus('error')
+    }
   }
 
   function giveTeamOverview() {
@@ -2834,6 +2929,31 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                 >
                   Download as DOCX
                 </button>
+                <button
+                  onClick={exportAssignmentsPDF}
+                  className="text-xs px-3 py-1.5 rounded-lg border border-gray-700 text-gray-400 hover:text-gray-200 transition-colors"
+                >
+                  Download as PDF
+                </button>
+                <button
+                  onClick={openStaffingUpdate}
+                  disabled={staffUpdateStatus === 'sending'}
+                  className={`text-xs px-3 py-1.5 rounded-lg border transition-colors whitespace-nowrap ${
+                    staffUpdateStatus === 'sent' ? 'border-emerald-500/40 text-emerald-400' :
+                    staffUpdateStatus === 'error' || staffUpdateStatus === 'empty' ? 'border-red-500/40 text-red-400' :
+                    'border-gray-700 text-gray-300 hover:text-white hover:border-gray-500'
+                  }`}
+                  title="Post who's on which queue to #code_pod (you'll see a preview first)"
+                >
+                  {staffUpdateStatus === 'sending' ? 'Posting…' :
+                   staffUpdateStatus === 'sent' ? '✓ Posted to #code_pod' :
+                   staffUpdateStatus === 'error' ? '⚠ Failed — retry' :
+                   staffUpdateStatus === 'empty' ? 'No staffing on active projects' :
+                   '🧵 Send staffing update to #code_pod'}
+                </button>
+                {staffUpdateStatus === 'sent' && staffUpdatePermalink && (
+                  <a href={staffUpdatePermalink} target="_blank" rel="noopener noreferrer" className="text-xs text-sky-400 hover:text-sky-300 whitespace-nowrap">View thread ↗</a>
+                )}
                 {toggleSwitch(hideAssignedInDropdown, () => setHideAssignedInDropdown(!hideAssignedInDropdown), 'Unassigned only')}
                 <select
                   value={supervisorFilter}
@@ -4919,6 +5039,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                   >⚡ Quick assign</button>
                   {menuBtn('slack', '💬 Slack', [
                     { label: leadStatus === 'sending' ? 'Posting…' : leadStatus === 'sent' ? '✓ Sent to #code_leads_plus — send again' : leadStatus === 'error' ? '⚠ Confirm with leads failed — retry' : leadStatus === 'empty' ? 'Confirm with leads (no leads on active projects)' : '✅ Confirm assignments with leads', onClick: handleConfirmLeads },
+                    { label: staffUpdateStatus === 'sending' ? 'Posting…' : staffUpdateStatus === 'sent' ? '✓ Staffing update posted — post again' : staffUpdateStatus === 'error' ? '⚠ Staffing update failed — retry' : staffUpdateStatus === 'empty' ? 'Staffing update (no staffing on active projects)' : '🧵 Send staffing update to #code_pod', onClick: openStaffingUpdate },
                     { label: overviewStatus === 'sending' ? 'Posting…' : overviewStatus === 'sent' ? '✓ Overview posted — post again' : overviewStatus === 'error' ? '⚠ Overview failed — retry' : overviewStatus === 'empty' ? 'Milestones & PP overview (nothing to share)' : '📣 Give milestones & PP update to the whole team', onClick: giveTeamOverview },
                   ])}
                   {leadStatus === 'sent' && leadPermalink && <a href={leadPermalink} target="_blank" rel="noopener noreferrer" className="text-xs text-sky-400 hover:text-sky-300 whitespace-nowrap">Leads post ↗</a>}
@@ -4926,6 +5047,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                   {menuBtn('export', '⬇ Export', [
                     { label: 'Assignments — HTML', onClick: exportAssignmentsHTML },
                     { label: 'Assignments — DOCX', onClick: exportAssignmentsDOCX },
+                    { label: 'Assignments — PDF', onClick: exportAssignmentsPDF },
                     { label: 'Milestones — HTML', onClick: exportMilestonesHTML },
                     { label: 'Milestones — PDF', onClick: exportMilestonesPDF },
                   ])}
@@ -5591,6 +5713,47 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
       </div>{/* end spin wrapper */}
 
       {renderDropModals()}
+
+      {staffUpdateOpen && (() => {
+        const missing = buildStaffingUpdate('preview')?.missing ?? []
+        const live = buildStaffingUpdate('preview', staffUpdateIds)
+        return (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-6" onClick={() => setStaffUpdateOpen(false)}>
+            <div className="bg-gray-900 border border-gray-700 rounded-xl p-6 w-[580px] max-w-full shadow-xl" onClick={e => e.stopPropagation()}>
+              <p className="text-sm font-semibold text-gray-100 mb-1">Preview — Staffing update</p>
+              <p className="text-xs text-gray-500 mb-3">Posts to <span className="text-gray-300">#code_pod</span> as a short message, with the breakdown inside its thread. Everyone is @-mentioned in Slack (names shown here).</p>
+              <p className="text-[11px] text-gray-500 uppercase tracking-wider mb-1">Message</p>
+              <pre className="text-xs text-gray-200 bg-gray-800/60 border border-gray-700 rounded-lg p-3 mb-3 whitespace-pre-wrap">{live?.parent}</pre>
+              <p className="text-[11px] text-gray-500 uppercase tracking-wider mb-1">In the thread</p>
+              <pre className="text-xs text-gray-200 bg-gray-800/60 border border-gray-700 rounded-lg p-3 max-h-[36vh] overflow-y-auto whitespace-pre-wrap">{live?.thread}</pre>
+              {missing.length > 0 && (
+                <div className="mt-4">
+                  <p className="text-xs text-gray-400 mb-2">
+                    {missing.length} {missing.length === 1 ? 'person has' : 'people have'} no Slack ID yet — add to tag them (Slack profile → ⋮ → Copy member ID). Saved to their staff profile. Leave blank to post their name instead.
+                  </p>
+                  <div className="space-y-2 max-h-[22vh] overflow-y-auto pr-1">
+                    {missing.map(person => (
+                      <div key={person.id} className="flex items-center gap-2">
+                        <span className="text-xs text-gray-300 w-40 truncate">{person.name}</span>
+                        <input
+                          className={inputSmClass + ' flex-1'}
+                          placeholder="U012ABC… (Slack member ID)"
+                          value={staffUpdateIds[person.id] ?? ''}
+                          onChange={e => setStaffUpdateIds(prev => ({ ...prev, [person.id]: e.target.value }))}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              <div className="flex gap-2 justify-end mt-5">
+                <button className={btnCancel} onClick={() => setStaffUpdateOpen(false)}>Cancel</button>
+                <button className={btnPrimary} style={{ backgroundColor: '#193a29' }} onClick={sendStaffingUpdate}>Post to #code_pod</button>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
 
       {overviewOpen && (() => {
         const original = buildOverview('preview')
