@@ -153,6 +153,16 @@ type OrgNode = {
   parent_staff_id: string | null
 }
 
+// Org planning (password-protected): its own roster, independent of Staff
+type PlanPerson = {
+  id: string
+  name: string
+  position: string | null
+  team_name: string | null
+  parent_id: string | null
+  in_chart: boolean
+}
+
 const PRIORITIES = ['P00', 'P0', 'P1', 'P2']
 const priorityRank = (p: string) => { const i = PRIORITIES.indexOf(p); return i === -1 ? 99 : i }
 const priorityColor = (p: string) =>
@@ -191,7 +201,7 @@ function parseCSVLine(line: string): string[] {
 }
 
 export default function StaffingApp() {
-  const [tab, setTab] = useState<'projects' | 'staff' | 'assignments' | 'dashboard' | 'scenarios' | 'milestones' | 'orgchart' | 'consolidated' | 'utilization'>('dashboard')
+  const [tab, setTab] = useState<'projects' | 'staff' | 'assignments' | 'dashboard' | 'scenarios' | 'milestones' | 'orgchart' | 'consolidated' | 'utilization' | 'orgplanning'>('dashboard')
   const [projects, setProjects] = useState<Project[]>([])
   const [staff, setStaff] = useState<Staff[]>([])
   const [assignments, setAssignments] = useState<Assignment[]>([])
@@ -209,6 +219,22 @@ export default function StaffingApp() {
   const [manageTypesOpen, setManageTypesOpen] = useState(false)
   const [newTypeName, setNewTypeName] = useState('')
   const [orgChart, setOrgChart] = useState<OrgNode[]>([])
+  // Org planning
+  const [opState, setOpState] = useState<'unknown' | 'locked' | 'ready' | 'setup'>('unknown')
+  const [opSetupMsg, setOpSetupMsg] = useState('')
+  const [opPeople, setOpPeople] = useState<PlanPerson[]>([])
+  const [opPassword, setOpPassword] = useState('')
+  const [opPwError, setOpPwError] = useState('')
+  const [opNew, setOpNew] = useState({ name: '', position: '' })
+  const [opRosterSearch, setOpRosterSearch] = useState('')
+  const [opUnplacedOnly, setOpUnplacedOnly] = useState(true)
+  const [opCollapsed, setOpCollapsed] = useState<Record<string, boolean>>({})
+  const [opDragOver, setOpDragOver] = useState<string | null>(null)
+  const [opZoom, setOpZoom] = useState(1)
+  const [opLayout, setOpLayout] = useState<'horizontal' | 'vertical'>('horizontal')
+  const [opColorsOn, setOpColorsOn] = useState(true)
+  const [opEditTeam, setOpEditTeam] = useState<string | null>(null)
+  const [opImportMsg, setOpImportMsg] = useState('')
   const [orgUnassignedOnly, setOrgUnassignedOnly] = useState(true)
   const [dragOverOrgId, setDragOverOrgId] = useState<string | null>(null)
   const [collapsedOrg, setCollapsedOrg] = useState<Record<string, boolean>>({})
@@ -380,6 +406,8 @@ export default function StaffingApp() {
   }, [theme])
 
   useEffect(() => { loadAll() }, [])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { if (tab === 'orgplanning' && opState === 'unknown') opLoad() }, [tab])
 
   async function loadAll() {
     setLoading(true)
@@ -1278,8 +1306,102 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
       .map(n => n.parent_staff_id === staffId ? { ...n, parent_staff_id: newParent } : n))
   }
 
-  async function exportOrgChart(mode: 'download' | 'print') {
-    const el = document.getElementById('org-chart-capture')
+  // --- Org planning (all data goes through /api/org-planning, which checks the planning password) ---
+  async function opApi(body: Record<string, unknown>) {
+    const res = await fetch('/api/org-planning', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+    const data = await res.json().catch(() => ({}))
+    if (res.status === 401 && body.action !== 'unlock') { setOpState('locked'); throw new Error('locked') }
+    if (!res.ok) { if (String(data.error ?? '').startsWith('setup:')) { setOpSetupMsg(data.error.slice(6).trim()); setOpState('setup') } else alert(data.error ?? 'Something went wrong'); throw new Error(data.error) }
+    return data
+  }
+  async function opLoad() {
+    const res = await fetch('/api/org-planning')
+    const data = await res.json().catch(() => ({}))
+    if (res.status === 401) { setOpState('locked'); return }
+    if (!res.ok) { setOpSetupMsg(String(data.error ?? '').replace(/^setup:\s*/, '')); setOpState('setup'); return }
+    setOpPeople(data.people ?? [])
+    setOpState('ready')
+  }
+  async function opUnlock() {
+    setOpPwError('')
+    const res = await fetch('/api/org-planning', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'unlock', password: opPassword }) })
+    if (!res.ok) { setOpPwError('Wrong password'); return }
+    setOpPassword('')
+    await opLoad()
+  }
+  async function opLock() {
+    await fetch('/api/org-planning', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'lock' }) })
+    setOpPeople([])
+    setOpState('locked')
+  }
+  async function opUpdate(id: string, patch: Partial<PlanPerson>) {
+    setOpPeople(prev => prev.map(p => p.id === id ? { ...p, ...patch } : p))
+    try { await opApi({ action: 'update', id, patch }) } catch { opLoad() }
+  }
+  async function opAddPerson() {
+    const name = opNew.name.trim()
+    if (!name) return
+    if (opPeople.some(p => p.name.toLowerCase() === name.toLowerCase())) { alert(`${name} is already on the roster.`); return }
+    const { person } = await opApi({ action: 'add', person: { name, position: opNew.position } })
+    setOpPeople(prev => [...prev, person].sort((a, b) => a.name.localeCompare(b.name)))
+    setOpNew({ name: '', position: '' })
+  }
+  // Take someone off the chart; their direct reports move up to their manager
+  async function opRemoveFromChart(id: string) {
+    const me = opPeople.find(p => p.id === id)
+    if (!me) return
+    const kids = opPeople.filter(p => p.parent_id === id && p.in_chart)
+    if (kids.length > 0 && !me.parent_id && kids.length > 1) {
+      alert(`${me.name} is at the top and has ${kids.length} direct reports. Move someone else to the top first (drag them onto the top drop zone).`)
+      return
+    }
+    const updates = [
+      ...kids.map(k => ({ id: k.id, patch: { parent_id: me.parent_id } })),
+      { id, patch: { in_chart: false, parent_id: null } },
+    ]
+    setOpPeople(prev => prev.map(p => p.parent_id === id && p.in_chart ? { ...p, parent_id: me.parent_id } : p.id === id ? { ...p, in_chart: false, parent_id: null } : p))
+    try { await opApi({ action: 'updateMany', updates }) } catch { opLoad() }
+  }
+  async function opDeletePerson(id: string) {
+    const me = opPeople.find(p => p.id === id)
+    if (!me || !confirm(`Remove ${me.name} from the roster${me.in_chart ? ' and the chart' : ''}?`)) return
+    if (me.in_chart) {
+      const kids = opPeople.filter(p => p.parent_id === id && p.in_chart)
+      if (kids.length > 1 && !me.parent_id) { alert(`${me.name} is at the top with ${kids.length} reports — move someone else to the top first.`); return }
+      if (kids.length) await opApi({ action: 'updateMany', updates: kids.map(k => ({ id: k.id, patch: { parent_id: me.parent_id } })) })
+    }
+    await opApi({ action: 'delete', id })
+    setOpPeople(prev => prev.filter(p => p.id !== id).map(p => p.parent_id === id ? { ...p, parent_id: me.parent_id } : p))
+  }
+  async function opImportCSV(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file) return
+    const lines = (await file.text()).split(/\r?\n/).filter(l => l.trim())
+    if (lines.length === 0) return
+    const head = parseCSVLine(lines[0]).map(h => h.toLowerCase())
+    let nameIdx = head.findIndex(h => h === 'name' || h.includes('name'))
+    let posIdx = head.findIndex(h => h.includes('position') || h.includes('title') || h.includes('role'))
+    const hasHeader = nameIdx !== -1
+    if (!hasHeader) { nameIdx = 0; posIdx = 1 }
+    const rows = (hasHeader ? lines.slice(1) : lines).map(l => {
+      const c = parseCSVLine(l)
+      return { name: (c[nameIdx] ?? '').trim(), position: posIdx >= 0 ? (c[posIdx] ?? '').trim() : '' }
+    }).filter(r => r.name)
+    if (rows.length === 0) { alert("Couldn't find any names in that CSV. Use a 'Name' column (and optionally 'Position')."); return }
+    const r = await opApi({ action: 'import', rows })
+    setOpImportMsg(`Imported ${file.name}: ${r.added} added, ${r.updated} updated.`)
+    setTimeout(() => setOpImportMsg(''), 6000)
+    await opLoad()
+  }
+  async function opClearAll() {
+    if (!confirm(`Delete all ${opPeople.length} people from the Org planning roster and chart? This can't be undone.`)) return
+    await opApi({ action: 'clear' })
+    setOpPeople([])
+  }
+
+  async function exportOrgChart(mode: 'download' | 'print', elId = 'org-chart-capture', filePrefix = 'org-chart') {
+    const el = document.getElementById(elId)
     if (!el) return
     const { toPng } = await import('html-to-image')
     const bg = document.documentElement.classList.contains('light') ? '#ffffff' : '#030712'
@@ -1297,7 +1419,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
     if (mode === 'download') {
       const a = document.createElement('a')
       a.href = dataUrl
-      a.download = `org-chart-${new Date().toISOString().split('T')[0]}.png`
+      a.download = `${filePrefix}-${new Date().toISOString().split('T')[0]}.png`
       a.click()
     } else {
       const w = window.open('')
@@ -2361,7 +2483,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
         </div>
       </div>
 
-      <div className={`${tab === 'orgchart' ? 'max-w-none' : tab === 'consolidated' || tab === 'utilization' ? 'max-w-[1720px]' : tab === 'projects' ? 'max-w-6xl' : 'max-w-4xl'} mx-auto px-8 py-8`}>
+      <div className={`${tab === 'orgchart' || tab === 'orgplanning' ? 'max-w-none' : tab === 'consolidated' || tab === 'utilization' ? 'max-w-[1720px]' : tab === 'projects' ? 'max-w-6xl' : 'max-w-4xl'} mx-auto px-8 py-8`}>
         {/* Tabs */}
         <div className="flex flex-wrap gap-1 mb-8 bg-gray-900 rounded-xl p-1 w-fit max-w-full">
           {([
@@ -2374,6 +2496,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
             { key: 'orgchart', label: 'Org Chart' },
             { key: 'consolidated', label: '✨ Consolidated Manager' },
             { key: 'utilization', label: 'Utilization' },
+            { key: 'orgplanning', label: '🔒 Org planning' },
           ] as const).map(({ key, label }) => (
             <button
               key={key}
@@ -5717,6 +5840,252 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
             </div>
           )
         })()}
+        {/* Org Planning Tab — password-protected, own roster */}
+        {tab === 'orgplanning' && (() => {
+          if (opState === 'unknown') return <p className="text-sm text-gray-500">Loading…</p>
+
+          if (opState === 'locked') return (
+            <div className="max-w-sm mx-auto mt-16 bg-gray-900 border border-gray-800 rounded-2xl p-8 text-center">
+              <p className="text-3xl mb-3">🔒</p>
+              <p className="text-gray-100 font-semibold mb-1">Org planning is locked</p>
+              <p className="text-xs text-gray-500 mb-5">Enter the planning password to continue.</p>
+              <form onSubmit={e => { e.preventDefault(); opUnlock() }} className="space-y-3">
+                <input
+                  type="password"
+                  autoFocus
+                  className={inputClass + ' w-full text-center'}
+                  placeholder="Password"
+                  value={opPassword}
+                  onChange={e => { setOpPassword(e.target.value); setOpPwError('') }}
+                />
+                {opPwError && <p className="text-xs text-red-400">{opPwError}</p>}
+                <button type="submit" className={btnPrimary + ' w-full'} style={{ backgroundColor: '#193a29' }}>Unlock</button>
+              </form>
+            </div>
+          )
+
+          if (opState === 'setup') return (
+            <div className="max-w-xl mx-auto mt-10 border border-amber-500/30 bg-amber-500/5 rounded-2xl p-6">
+              <p className="text-amber-300 font-semibold mb-1">Org planning needs a one-time setup</p>
+              <p className="text-sm text-gray-400 mb-3">{opSetupMsg}</p>
+              <p className="text-xs text-gray-500">Create the <code className="text-gray-300">org_plan_people</code> table and add <code className="text-gray-300">SUPABASE_SERVICE_ROLE_KEY</code> to the Vercel environment variables, redeploy, then refresh.</p>
+              <div className="flex gap-2 mt-4">
+                <button onClick={opLoad} className="text-xs px-3 py-1.5 rounded-lg border border-gray-700 text-gray-300 hover:text-white">Retry</button>
+                <button onClick={opLock} className="text-xs px-3 py-1.5 rounded-lg border border-gray-700 text-gray-400 hover:text-white">🔒 Lock</button>
+              </div>
+            </div>
+          )
+
+          // ---- Chart structure ----
+          const byId = new Map(opPeople.map(p => [p.id, p]))
+          const placed = opPeople.filter(p => p.in_chart)
+          const placedIds = new Set(placed.map(p => p.id))
+          const parentOf = (id: string) => { const p = byId.get(id)?.parent_id ?? null; return p && placedIds.has(p) ? p : null }
+          const childrenOf = (id: string) => placed.filter(p => parentOf(p.id) === id).sort((a, b) => a.name.localeCompare(b.name))
+          const roots = placed.filter(p => !parentOf(p.id)).sort((a, b) => a.name.localeCompare(b.name))
+          const depthOf = (id: string) => { let d = 0, cur = parentOf(id); while (cur && d < 50) { d++; cur = parentOf(cur) } return d }
+          const descendantCount = (id: string): number => childrenOf(id).reduce((n, c) => n + 1 + descendantCount(c.id), 0)
+          const isAncestorOrSelf = (anc: string, node: string) => { let cur: string | null = node; while (cur) { if (cur === anc) return true; cur = parentOf(cur) } return false }
+          const teamOf = (id: string) => { let cur: string | null = id; while (cur) { const t = byId.get(cur)?.team_name; if (t && depthOf(cur) < 3) return t; cur = parentOf(cur) } return null }
+          const LEVEL = [
+            { cls: 'border-amber-500/60 bg-amber-500/15', dot: 'bg-amber-500/70 border-amber-500', label: 'Level 1' },
+            { cls: 'border-emerald-500/50 bg-emerald-500/15', dot: 'bg-emerald-500/70 border-emerald-500', label: 'Level 2' },
+            { cls: 'border-sky-500/50 bg-sky-500/15', dot: 'bg-sky-500/70 border-sky-500', label: 'Level 3' },
+          ]
+          const colorFor = (d: number) => !opColorsOn ? 'border-gray-700 bg-gray-900' : d < 3 ? LEVEL[d].cls : 'border-gray-700 bg-gray-900'
+
+          const onDropTo = (targetId: string | null) => (e: React.DragEvent) => {
+            e.preventDefault(); e.stopPropagation(); setOpDragOver(null)
+            const type = e.dataTransfer.getData('type')
+            const id = e.dataTransfer.getData('id')
+            if (!id || (type !== 'op-add' && type !== 'op-move')) return
+            if (targetId && (id === targetId || isAncestorOrSelf(id, targetId))) return
+            opUpdate(id, { in_chart: true, parent_id: targetId })
+          }
+
+          const teamEditor = (p: PlanPerson, d: number) => {
+            if (d >= 3) {
+              const inherited = teamOf(p.id)
+              return inherited ? <p className="text-[10px] text-gray-500 whitespace-nowrap mt-0.5">{inherited}</p> : null
+            }
+            if (opEditTeam === p.id) return (
+              <input
+                autoFocus
+                defaultValue={p.team_name ?? ''}
+                placeholder="Team name"
+                onClick={e => e.stopPropagation()}
+                onBlur={e => { setOpEditTeam(null); const v = e.target.value.trim() || null; if (v !== p.team_name) opUpdate(p.id, { team_name: v }) }}
+                onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); if (e.key === 'Escape') setOpEditTeam(null) }}
+                className="mt-1 w-full min-w-[140px] bg-gray-950/70 border border-gray-600 rounded px-1.5 py-0.5 text-[11px] text-gray-100 focus:outline-none focus:ring-1 focus:ring-[#193a29]"
+              />
+            )
+            return p.team_name ? (
+              <button onClick={() => setOpEditTeam(p.id)} title="Edit team name" className="mt-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-gray-950/50 text-gray-100 border border-gray-600/60 hover:border-gray-400 whitespace-nowrap">
+                🏷 {p.team_name}
+              </button>
+            ) : (
+              <button onClick={() => setOpEditTeam(p.id)} className="mt-1 text-[10px] text-gray-500 hover:text-gray-200 whitespace-nowrap">+ team name</button>
+            )
+          }
+
+          const card = (p: PlanPerson) => {
+            const d = depthOf(p.id)
+            const kids = childrenOf(p.id)
+            const collapsed = !!opCollapsed[p.id]
+            const over = opDragOver === p.id
+            return (
+              <div
+                draggable
+                onDragStart={e => { e.dataTransfer.setData('type', 'op-move'); e.dataTransfer.setData('id', p.id) }}
+                onDragOver={e => { e.preventDefault(); setOpDragOver(p.id) }}
+                onDragLeave={() => setOpDragOver(null)}
+                onDrop={onDropTo(p.id)}
+                className={`org-node inline-block text-left rounded-lg border px-3 py-2 cursor-grab active:cursor-grabbing transition-all ${over ? 'border-[#193a29] bg-[#193a29]/30 scale-105' : colorFor(d)}`}
+              >
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-medium text-gray-100 whitespace-nowrap">{p.name}</span>
+                  {kids.length > 0 && <span className="text-[10px] text-gray-500" title={`${descendantCount(p.id)} people below`}>({descendantCount(p.id)})</span>}
+                  <button onClick={() => opRemoveFromChart(p.id)} title="Remove from chart (reports move up)" className="text-gray-500 hover:text-red-400 leading-none text-xs">✕</button>
+                </div>
+                {p.position && <p className="text-[11px] text-gray-500 whitespace-nowrap">{p.position}</p>}
+                {teamEditor(p, d)}
+                {kids.length > 0 && (
+                  <button onClick={() => setOpCollapsed(prev => ({ ...prev, [p.id]: !prev[p.id] }))} className="block mt-1 text-[10px] text-gray-500 hover:text-gray-200">
+                    {collapsed ? `▸ ${kids.length} report${kids.length === 1 ? '' : 's'}` : '▾ collapse'}
+                  </button>
+                )}
+              </div>
+            )
+          }
+          const renderH = (p: PlanPerson) => {
+            const kids = childrenOf(p.id)
+            return <li key={p.id}>{card(p)}{kids.length > 0 && !opCollapsed[p.id] && <ul>{kids.map(renderH)}</ul>}</li>
+          }
+          const renderV = (p: PlanPerson) => {
+            const kids = childrenOf(p.id)
+            return <div key={p.id} className="org-vrow">{card(p)}{kids.length > 0 && !opCollapsed[p.id] && <div className="org-vchildren">{kids.map(renderV)}</div>}</div>
+          }
+
+          const q = opRosterSearch.trim().toLowerCase()
+          const roster = opPeople
+            .filter(p => !opUnplacedOnly || !p.in_chart)
+            .filter(p => !q || p.name.toLowerCase().includes(q) || (p.position ?? '').toLowerCase().includes(q))
+            .sort((a, b) => a.name.localeCompare(b.name))
+          const teams = placed.filter(p => p.team_name && depthOf(p.id) < 3)
+
+          return (
+            <div className="flex gap-6 items-start">
+              {/* Left: roster */}
+              <div className="w-64 shrink-0 sticky top-6 space-y-3">
+                <div className="flex items-center justify-between">
+                  <p className="text-xs text-gray-500 uppercase tracking-wider">Roster · {opPeople.length}</p>
+                  <button onClick={opLock} className="text-[11px] text-gray-500 hover:text-gray-200" title="Lock Org planning">🔒 Lock</button>
+                </div>
+                <div className="bg-gray-900 border border-gray-800 rounded-lg p-2 space-y-1.5">
+                  <input className={inputSmClass} placeholder="Name *" value={opNew.name} onChange={e => setOpNew({ ...opNew, name: e.target.value })} onKeyDown={e => e.key === 'Enter' && opAddPerson()} />
+                  <input className={inputSmClass} placeholder="Position" value={opNew.position} onChange={e => setOpNew({ ...opNew, position: e.target.value })} onKeyDown={e => e.key === 'Enter' && opAddPerson()} />
+                  <button onClick={opAddPerson} className="w-full text-xs py-1 rounded text-white hover:brightness-125" style={{ backgroundColor: '#193a29' }}>+ Add person</button>
+                </div>
+                <div className="flex items-center gap-2">
+                  <label className="flex-1 text-center cursor-pointer text-xs text-gray-300 border border-gray-700 rounded-lg px-2 py-1.5 hover:text-white hover:border-gray-500">
+                    ⬆ Import CSV
+                    <input type="file" accept=".csv" className="hidden" onChange={opImportCSV} />
+                  </label>
+                  {opPeople.length > 0 && <button onClick={opClearAll} className="text-xs text-red-400/80 hover:text-red-400 border border-red-500/30 rounded-lg px-2 py-1.5">Clear all</button>}
+                </div>
+                <p className="text-[10px] text-gray-600 leading-snug">CSV needs a <span className="text-gray-400">Name</span> column (optional <span className="text-gray-400">Position</span>). Existing names get their position updated.</p>
+                {opImportMsg && <p className="text-[11px] text-emerald-400">{opImportMsg}</p>}
+                <input className={inputSmClass} placeholder="Search roster…" value={opRosterSearch} onChange={e => setOpRosterSearch(e.target.value)} />
+                {toggleSwitch(opUnplacedOnly, () => setOpUnplacedOnly(v => !v), 'Not on chart only')}
+                <div className="flex flex-col gap-1.5 max-h-[52vh] overflow-y-auto pr-1">
+                  {opPeople.length === 0 ? (
+                    <p className="text-xs text-gray-600">Roster is empty — add people or import a CSV.</p>
+                  ) : roster.length === 0 ? (
+                    <p className="text-xs text-gray-600">{opUnplacedOnly ? 'Everyone is on the chart.' : 'No matches.'}</p>
+                  ) : roster.map(p => (
+                    <div
+                      key={p.id}
+                      draggable={!p.in_chart}
+                      onDragStart={e => { if (p.in_chart) return; e.dataTransfer.setData('type', 'op-add'); e.dataTransfer.setData('id', p.id) }}
+                      className={`group flex items-start justify-between gap-2 border rounded-lg px-3 py-2 text-sm ${p.in_chart ? 'border-gray-800 bg-gray-900/40 text-gray-600' : 'border-gray-700 bg-gray-900 text-gray-200 cursor-grab active:cursor-grabbing hover:border-gray-500'}`}
+                    >
+                      <div className="min-w-0">
+                        <p className="font-medium leading-tight truncate">{p.name}{p.in_chart && <span className="text-[10px] ml-1">· on chart</span>}</p>
+                        <input
+                          key={`${p.id}-${p.position ?? ''}`}
+                          defaultValue={p.position ?? ''}
+                          placeholder="Position"
+                          onBlur={e => { const v = e.target.value.trim() || null; if (v !== p.position) opUpdate(p.id, { position: v }) }}
+                          onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
+                          className="w-full bg-transparent text-xs text-gray-500 placeholder-gray-700 focus:text-gray-200 focus:outline-none mt-0.5"
+                        />
+                      </div>
+                      <button onClick={() => opDeletePerson(p.id)} title="Remove from roster" className="text-gray-600 hover:text-red-400 text-xs opacity-0 group-hover:opacity-100">✕</button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Right: chart */}
+              <div className="flex-1 min-w-0 overflow-x-auto">
+                <div className="flex justify-between items-center gap-4 mb-3 flex-wrap">
+                  <div className="flex items-center gap-4 flex-wrap text-[11px] text-gray-500">
+                    {opColorsOn && LEVEL.map(l => <span key={l.label} className="flex items-center gap-1.5"><span className={`w-2.5 h-2.5 rounded-full border ${l.dot}`} /> {l.label}</span>)}
+                    <span className="text-gray-600">· team names on levels 1–3</span>
+                  </div>
+                  <div className="flex items-center gap-3 flex-wrap">
+                    {toggleSwitch(opColorsOn, () => setOpColorsOn(v => !v), 'Colors')}
+                    {toggleSwitch(opLayout === 'vertical', () => setOpLayout(m => m === 'vertical' ? 'horizontal' : 'vertical'), 'Vertical')}
+                    <button onClick={() => { const c: Record<string, boolean> = {}; placed.forEach(p => { if (childrenOf(p.id).length) c[p.id] = true }); setOpCollapsed(c) }} className="text-xs px-3 py-1.5 rounded-lg border border-gray-700 text-gray-400 hover:text-gray-200">Collapse all</button>
+                    <button onClick={() => setOpCollapsed({})} className="text-xs px-3 py-1.5 rounded-lg border border-gray-700 text-gray-400 hover:text-gray-200">Expand all</button>
+                    <div className="flex items-center border border-gray-700 rounded-lg overflow-hidden">
+                      <button onClick={() => setOpZoom(z => Math.max(0.4, Math.round((z - 0.1) * 10) / 10))} className="px-2.5 py-1 text-gray-400 hover:text-white hover:bg-gray-800 leading-none">−</button>
+                      <button onClick={() => setOpZoom(1)} className="px-2 py-1 text-xs text-gray-400 hover:text-white tabular-nums leading-none">{Math.round(opZoom * 100)}%</button>
+                      <button onClick={() => setOpZoom(z => Math.min(2, Math.round((z + 0.1) * 10) / 10))} className="px-2.5 py-1 text-gray-400 hover:text-white hover:bg-gray-800 leading-none">+</button>
+                    </div>
+                    {roots.length > 0 && <>
+                      <button onClick={() => exportOrgChart('download', 'org-plan-capture', 'org-plan')} className="text-xs px-3 py-1.5 rounded-lg border border-gray-700 text-gray-400 hover:text-gray-200">Download PNG</button>
+                      <button onClick={() => exportOrgChart('print', 'org-plan-capture', 'org-plan')} className="text-xs px-3 py-1.5 rounded-lg border border-gray-700 text-gray-400 hover:text-gray-200">Print</button>
+                    </>}
+                  </div>
+                </div>
+
+                {teams.length > 0 && (
+                  <div className="flex items-center gap-1.5 flex-wrap mb-3">
+                    <span className="text-[11px] text-gray-500 mr-1">Teams:</span>
+                    {teams.map(t => (
+                      <span key={t.id} className="text-[11px] px-2 py-0.5 rounded-full bg-gray-800 text-gray-300" title={`Led by ${t.name}`}>🏷 {t.team_name} <span className="text-gray-500">· {descendantCount(t.id) + 1}</span></span>
+                    ))}
+                  </div>
+                )}
+
+                <div
+                  onDragOver={e => { e.preventDefault(); setOpDragOver('__top__') }}
+                  onDragLeave={() => setOpDragOver(null)}
+                  onDrop={onDropTo(null)}
+                  className={`rounded-xl border-2 border-dashed flex items-center justify-center text-center transition-all mb-4 ${roots.length ? 'min-h-[44px]' : 'min-h-[240px]'} ${opDragOver === '__top__' ? 'border-[#193a29] bg-[#193a29]/10' : 'border-gray-700'}`}
+                >
+                  <p className="text-sm text-gray-500 px-6">
+                    {roots.length
+                      ? <span className="text-xs">Drop here to put someone at the top level</span>
+                      : <>Drag the top person here to start the plan.<br /><span className="text-xs text-gray-600">Then drop others onto a card to place them underneath.</span></>}
+                  </p>
+                </div>
+
+                {roots.length > 0 && (
+                  <div style={{ zoom: opZoom }}>
+                    {opLayout === 'vertical' ? (
+                      <div id="org-plan-capture" className="org-vtree py-2 pl-2 pr-4">{roots.map(renderV)}</div>
+                    ) : (
+                      <div id="org-plan-capture" className="org-tree py-4 pr-4"><ul>{roots.map(renderH)}</ul></div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          )
+        })()}
+
       </div>
       </div>{/* end spin wrapper */}
 
