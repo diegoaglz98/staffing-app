@@ -47,7 +47,7 @@ export async function GET() {
   return NextResponse.json({ people: data })
 }
 
-type Person = { id?: string; name?: string; position?: string | null; team_name?: string | null; parent_id?: string | null; in_chart?: boolean }
+type Person = { id?: string; name?: string; position?: string | null; team_name?: string | null; parent_id?: string | null; in_chart?: boolean; sort_order?: number | null }
 
 export async function POST(request: Request) {
   const body = await request.json().catch(() => ({}))
@@ -79,6 +79,7 @@ export async function POST(request: Request) {
     if (p.team_name !== undefined) out.team_name = (p.team_name ?? '').toString().trim() || null
     if (p.parent_id !== undefined) out.parent_id = p.parent_id || null
     if (p.in_chart !== undefined) out.in_chart = !!p.in_chart
+    if (p.sort_order !== undefined) out.sort_order = p.sort_order == null ? null : Number(p.sort_order)
     return out
   }
 

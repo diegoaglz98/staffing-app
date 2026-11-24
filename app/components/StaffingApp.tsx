@@ -161,6 +161,7 @@ type PlanPerson = {
   team_name: string | null
   parent_id: string | null
   in_chart: boolean
+  sort_order?: number | null
 }
 
 const PRIORITIES = ['P00', 'P0', 'P1', 'P2']
@@ -5902,11 +5903,33 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
           const placed = opPeople.filter(p => p.in_chart)
           const placedIds = new Set(placed.map(p => p.id))
           const parentOf = (id: string) => { const p = byId.get(id)?.parent_id ?? null; return p && placedIds.has(p) ? p : null }
-          const childrenOf = (id: string) => placed.filter(p => parentOf(p.id) === id).sort((a, b) => a.name.localeCompare(b.name))
+          // Reports directly under a top-level person follow their manual order (sort_order); everyone else is alphabetical
+          const childrenOf = (id: string) => {
+            const kids = placed.filter(p => parentOf(p.id) === id)
+            if (parentOf(id)) return kids.sort((a, b) => a.name.localeCompare(b.name))
+            return kids.sort((a, b) => (a.sort_order ?? 1e9) - (b.sort_order ?? 1e9) || a.name.localeCompare(b.name))
+          }
           const roots = placed.filter(p => !parentOf(p.id)).sort((a, b) => a.name.localeCompare(b.name))
           // Hidden consultants (and anyone under them) drop out of the drawn chart only
           const shownKids = (id: string) => childrenOf(id).filter(k => opShowConsultants || !isConsultant(k))
           const shownRoots = roots.filter(r => opShowConsultants || !isConsultant(r))
+          // Move a 2nd-line report one step left/right among its siblings, then save the whole order
+          const moveSibling = async (p: PlanPerson, dir: -1 | 1) => {
+            const parent = parentOf(p.id)
+            if (!parent) return
+            const list = childrenOf(parent)
+            const shown = shownKids(parent)
+            const k = shown.findIndex(x => x.id === p.id)
+            const other = shown[k + dir]
+            if (k < 0 || !other) return
+            // swap with the next *visible* sibling (hidden consultants keep their place)
+            const i = list.findIndex(x => x.id === p.id)
+            const j = list.findIndex(x => x.id === other.id)
+            ;[list[i], list[j]] = [list[j], list[i]]
+            const order = new Map(list.map((x, n) => [x.id, n]))
+            setOpPeople(prev => prev.map(x => order.has(x.id) ? { ...x, sort_order: order.get(x.id)! } : x))
+            try { await opApi({ action: 'updateMany', updates: list.map((x, n) => ({ id: x.id, patch: { sort_order: n } })) }) } catch { opLoad() }
+          }
           const depthOf = (id: string) => { let d = 0, cur = parentOf(id); while (cur && d < 50) { d++; cur = parentOf(cur) } return d }
           const descendantCount = (id: string): number => childrenOf(id).reduce((n, c) => n + 1 + descendantCount(c.id), 0)
           const isAncestorOrSelf = (anc: string, node: string) => { let cur: string | null = node; while (cur) { if (cur === anc) return true; cur = parentOf(cur) } return false }
@@ -5983,6 +6006,18 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                   {kids.length > 0 && <span className="text-[10px] text-gray-500" title={`${descendantCount(p.id)} people below`}>({descendantCount(p.id)})</span>}
                   <button onClick={() => opRemoveFromChart(p.id)} title="Remove from chart (reports move up)" className="text-gray-500 hover:text-red-400 leading-none text-xs">✕</button>
                 </div>
+                {d === 1 && (() => {
+                  const sibs = shownKids(parentOf(p.id)!)
+                  const i = sibs.findIndex(x => x.id === p.id)
+                  const vertical = opLayout === 'vertical'
+                  const btn = 'w-5 h-5 flex items-center justify-center rounded text-[10px] text-gray-400 hover:text-white hover:bg-gray-800 disabled:opacity-25 disabled:hover:bg-transparent'
+                  return sibs.length > 1 ? (
+                    <div className="flex items-center gap-0.5 mt-1" title="Reorder">
+                      <button className={btn} disabled={i <= 0} onClick={() => moveSibling(p, -1)}>{vertical ? '▲' : '◀'}</button>
+                      <button className={btn} disabled={i >= sibs.length - 1} onClick={() => moveSibling(p, 1)}>{vertical ? '▼' : '▶'}</button>
+                    </div>
+                  ) : null
+                })()}
                 {p.position && <p className="text-[11px] text-gray-500 whitespace-nowrap">{p.position}</p>}
                 {teamEditor(p, d)}
                 {kids.length > 0 && (
