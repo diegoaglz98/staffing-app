@@ -5976,7 +5976,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                 <button
                   key={k}
                   onClick={() => setOpSub(k)}
-                  className={`text-sm px-4 py-2 -mb-px border-b-2 transition-colors ${opSub === k ? 'border-emerald-400 text-white font-medium' : 'border-transparent text-gray-500 hover:text-gray-200'}`}
+                  className={`text-sm px-4 py-2 -mb-px border-b-2 transition-colors ${opSub === k ? 'border-emerald-400 text-gray-100 font-medium' : 'border-transparent text-gray-500 hover:text-gray-200'}`}
                 >{label}</button>
               ))}
               <div className="flex-1" />
