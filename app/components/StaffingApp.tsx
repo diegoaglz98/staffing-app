@@ -5916,7 +5916,8 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
             { cls: 'border-emerald-500/50 bg-emerald-500/15', dot: 'bg-emerald-500/70 border-emerald-500', label: 'Level 2' },
             { cls: 'border-sky-500/50 bg-sky-500/15', dot: 'bg-sky-500/70 border-sky-500', label: 'Level 3' },
           ]
-          const colorFor = (d: number) => !opColorsOn ? 'border-gray-700 bg-gray-900' : d < 3 ? LEVEL[d].cls : 'border-gray-700 bg-gray-900'
+          // Consultants get their own color (violet), overriding the level color
+          const colorFor = (d: number, p?: PlanPerson) => !opColorsOn ? 'border-gray-700 bg-gray-900' : p && isConsultant(p) ? 'border-violet-500/50 bg-violet-500/15' : d < 3 ? LEVEL[d].cls : 'border-gray-700 bg-gray-900'
 
           const onDropTo = (targetId: string | null) => (e: React.DragEvent) => {
             e.preventDefault(); e.stopPropagation(); setOpDragOver(null)
@@ -5964,7 +5965,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                 onDragOver={e => { e.preventDefault(); setOpDragOver(p.id) }}
                 onDragLeave={() => setOpDragOver(null)}
                 onDrop={onDropTo(p.id)}
-                className={`org-node inline-block text-left rounded-lg border px-3 py-2 cursor-grab active:cursor-grabbing transition-all ${over ? 'border-[#193a29] bg-[#193a29]/30 scale-105' : colorFor(d)}`}
+                className={`org-node inline-block text-left rounded-lg border px-3 py-2 cursor-grab active:cursor-grabbing transition-all ${over ? 'border-[#193a29] bg-[#193a29]/30 scale-105' : colorFor(d, p)}`}
               >
                 <div className="flex items-center gap-2">
                   {opEditTeam === `name:${p.id}` ? (
@@ -6077,6 +6078,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                 <div className="flex justify-between items-center gap-4 mb-3 flex-wrap">
                   <div className="flex items-center gap-4 flex-wrap text-[11px] text-gray-500">
                     {opColorsOn && LEVEL.map(l => <span key={l.label} className="flex items-center gap-1.5"><span className={`w-2.5 h-2.5 rounded-full border ${l.dot}`} /> {l.label}</span>)}
+                    {opColorsOn && consultantSet.size > 0 && <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full border bg-violet-500/70 border-violet-500" /> Consultants</span>}
                     <span className="text-gray-600">· team names on levels 1–3</span>
                   </div>
                   <div className="flex items-center gap-3 flex-wrap">
