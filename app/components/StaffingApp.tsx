@@ -235,6 +235,12 @@ export default function StaffingApp() {
   const [opColorsOn, setOpColorsOn] = useState(true)
   const [opEditTeam, setOpEditTeam] = useState<string | null>(null)
   const [opImportMsg, setOpImportMsg] = useState('')
+  const [opShowConsultants, setOpShowConsultants] = useState(true)
+  // Which positions count as "consultants" (null = default: any position containing "consultant"); remembered per browser
+  const [opConsultantPositions, setOpConsultantPositions] = useState<string[] | null>(() => {
+    try { const v = typeof window !== 'undefined' ? localStorage.getItem('op-consultant-positions') : null; return v ? JSON.parse(v) : null } catch { return null }
+  })
+  const [opConsultantMenu, setOpConsultantMenu] = useState(false)
   const [orgUnassignedOnly, setOrgUnassignedOnly] = useState(true)
   const [dragOverOrgId, setDragOverOrgId] = useState<string | null>(null)
   const [collapsedOrg, setCollapsedOrg] = useState<Record<string, boolean>>({})
@@ -5884,12 +5890,23 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
           )
 
           // ---- Chart structure ----
+          const allPositions = [...new Set(opPeople.map(p => p.position).filter((x): x is string => !!x))].sort((a, b) => a.localeCompare(b))
+          const consultantSet = new Set(opConsultantPositions ?? allPositions.filter(x => x.toLowerCase().includes('consultant')))
+          const isConsultant = (p: PlanPerson) => !!p.position && consultantSet.has(p.position)
+          const consultantCount = opPeople.filter(isConsultant).length
+          const setConsultantPositions = (list: string[]) => {
+            setOpConsultantPositions(list)
+            try { localStorage.setItem('op-consultant-positions', JSON.stringify(list)) } catch { /* ignore */ }
+          }
           const byId = new Map(opPeople.map(p => [p.id, p]))
           const placed = opPeople.filter(p => p.in_chart)
           const placedIds = new Set(placed.map(p => p.id))
           const parentOf = (id: string) => { const p = byId.get(id)?.parent_id ?? null; return p && placedIds.has(p) ? p : null }
           const childrenOf = (id: string) => placed.filter(p => parentOf(p.id) === id).sort((a, b) => a.name.localeCompare(b.name))
           const roots = placed.filter(p => !parentOf(p.id)).sort((a, b) => a.name.localeCompare(b.name))
+          // Hidden consultants (and anyone under them) drop out of the drawn chart only
+          const shownKids = (id: string) => childrenOf(id).filter(k => opShowConsultants || !isConsultant(k))
+          const shownRoots = roots.filter(r => opShowConsultants || !isConsultant(r))
           const depthOf = (id: string) => { let d = 0, cur = parentOf(id); while (cur && d < 50) { d++; cur = parentOf(cur) } return d }
           const descendantCount = (id: string): number => childrenOf(id).reduce((n, c) => n + 1 + descendantCount(c.id), 0)
           const isAncestorOrSelf = (anc: string, node: string) => { let cur: string | null = node; while (cur) { if (cur === anc) return true; cur = parentOf(cur) } return false }
@@ -5937,7 +5954,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
 
           const card = (p: PlanPerson) => {
             const d = depthOf(p.id)
-            const kids = childrenOf(p.id)
+            const kids = shownKids(p.id)
             const collapsed = !!opCollapsed[p.id]
             const over = opDragOver === p.id
             return (
@@ -5976,17 +5993,18 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
             )
           }
           const renderH = (p: PlanPerson) => {
-            const kids = childrenOf(p.id)
+            const kids = shownKids(p.id)
             return <li key={p.id}>{card(p)}{kids.length > 0 && !opCollapsed[p.id] && <ul>{kids.map(renderH)}</ul>}</li>
           }
           const renderV = (p: PlanPerson) => {
-            const kids = childrenOf(p.id)
+            const kids = shownKids(p.id)
             return <div key={p.id} className="org-vrow">{card(p)}{kids.length > 0 && !opCollapsed[p.id] && <div className="org-vchildren">{kids.map(renderV)}</div>}</div>
           }
 
           const q = opRosterSearch.trim().toLowerCase()
           const roster = opPeople
             .filter(p => !opUnplacedOnly || !p.in_chart)
+            .filter(p => opShowConsultants || !isConsultant(p))
             .filter(p => !q || p.name.toLowerCase().includes(q) || (p.position ?? '').toLowerCase().includes(q))
             .sort((a, b) => a.name.localeCompare(b.name))
           const teams = placed.filter(p => p.team_name && depthOf(p.id) < 3)
@@ -6062,6 +6080,38 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                     <span className="text-gray-600">· team names on levels 1–3</span>
                   </div>
                   <div className="flex items-center gap-3 flex-wrap">
+                    <div className="relative flex items-center gap-1">
+                      {toggleSwitch(opShowConsultants, () => setOpShowConsultants(v => !v), `Show consultants${consultantCount ? ` (${consultantCount})` : ''}`)}
+                      <button onClick={() => setOpConsultantMenu(v => !v)} title="Choose which positions count as consultants" className="text-xs text-gray-500 hover:text-gray-200 px-1">⚙</button>
+                      {opConsultantMenu && (
+                        <>
+                          <div className="fixed inset-0 z-10" onClick={() => setOpConsultantMenu(false)} />
+                          <div className="absolute right-0 top-8 z-20 bg-gray-900 border border-gray-700 rounded-lg shadow-xl p-3 w-72">
+                            <p className="text-xs font-semibold text-gray-200 mb-1">Positions that count as consultants</p>
+                            <p className="text-[11px] text-gray-500 mb-2">Hidden from the roster and chart when “Show consultants” is off.</p>
+                            {allPositions.length === 0 ? <p className="text-xs text-gray-600">No positions on the roster yet.</p> : (
+                              <div className="max-h-64 overflow-y-auto space-y-1 pr-1">
+                                {allPositions.map(pos => {
+                                  const n = opPeople.filter(p => p.position === pos).length
+                                  return (
+                                    <label key={pos} className="flex items-center gap-2 text-xs text-gray-300 cursor-pointer hover:text-white">
+                                      <input
+                                        type="checkbox"
+                                        className="accent-[#193a29]"
+                                        checked={consultantSet.has(pos)}
+                                        onChange={e => setConsultantPositions(e.target.checked ? [...consultantSet, pos] : [...consultantSet].filter(x => x !== pos))}
+                                      />
+                                      <span className="flex-1 truncate">{pos}</span>
+                                      <span className="text-gray-600">{n}</span>
+                                    </label>
+                                  )
+                                })}
+                              </div>
+                            )}
+                          </div>
+                        </>
+                      )}
+                    </div>
                     {toggleSwitch(opColorsOn, () => setOpColorsOn(v => !v), 'Colors')}
                     {toggleSwitch(opLayout === 'vertical', () => setOpLayout(m => m === 'vertical' ? 'horizontal' : 'vertical'), 'Vertical')}
                     <button onClick={() => { const c: Record<string, boolean> = {}; placed.forEach(p => { if (childrenOf(p.id).length) c[p.id] = true }); setOpCollapsed(c) }} className="text-xs px-3 py-1.5 rounded-lg border border-gray-700 text-gray-400 hover:text-gray-200">Collapse all</button>
@@ -6103,9 +6153,9 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                 {roots.length > 0 && (
                   <div style={{ zoom: opZoom }}>
                     {opLayout === 'vertical' ? (
-                      <div id="org-plan-capture" className="org-vtree py-2 pl-2 pr-4">{roots.map(renderV)}</div>
+                      <div id="org-plan-capture" className="org-vtree py-2 pl-2 pr-4">{shownRoots.map(renderV)}</div>
                     ) : (
-                      <div id="org-plan-capture" className="org-tree py-4 pr-4"><ul>{roots.map(renderH)}</ul></div>
+                      <div id="org-plan-capture" className="org-tree py-4 pr-4"><ul>{shownRoots.map(renderH)}</ul></div>
                     )}
                   </div>
                 )}
