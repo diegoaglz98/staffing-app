@@ -16,18 +16,32 @@ async function unlocked() {
   const t = token()
   return v.length === t.length && timingSafeEqual(Buffer.from(v), Buffer.from(t))
 }
+// Only a service-role / secret key bypasses RLS. Returns why the configured key won't work, or null.
+function keyProblem(key: string) {
+  if (key.startsWith('sb_secret_')) return null
+  if (key.startsWith('sb_publishable_')) return 'SUPABASE_SERVICE_ROLE_KEY is set to the publishable key — it needs the secret key (sb_secret_…).'
+  try {
+    const role = JSON.parse(Buffer.from(key.split('.')[1], 'base64url').toString()).role
+    if (role === 'service_role') return null
+    return `SUPABASE_SERVICE_ROLE_KEY is set to the "${role}" key — it needs the service_role key.`
+  } catch {
+    return "SUPABASE_SERVICE_ROLE_KEY doesn't look like a Supabase key."
+  }
+}
 function db() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY
-  if (!url || !key) return null
-  return createClient(url, key, { auth: { persistSession: false } })
+  const key = (process.env.SUPABASE_SERVICE_ROLE_KEY ?? '').trim()
+  if (!url || !key) return { error: 'SUPABASE_SERVICE_ROLE_KEY is not configured on the server.' }
+  const problem = keyProblem(key)
+  if (problem) return { error: problem }
+  return { sb: createClient(url, key, { auth: { persistSession: false } }) }
 }
 const fail = (error: string, status = 500) => NextResponse.json({ error }, { status })
 
 export async function GET() {
   if (!(await unlocked())) return fail('locked', 401)
-  const sb = db()
-  if (!sb) return fail('setup: SUPABASE_SERVICE_ROLE_KEY is not configured on the server.')
+  const { sb, error: keyError } = db()
+  if (!sb) return fail(`setup: ${keyError}`)
   const { data, error } = await sb.from(TABLE).select('*').order('name', { ascending: true })
   if (error) return fail(`setup: ${error.message}`)
   return NextResponse.json({ people: data })
@@ -56,8 +70,8 @@ export async function POST(request: Request) {
   }
 
   if (!(await unlocked())) return fail('locked', 401)
-  const sb = db()
-  if (!sb) return fail('setup: SUPABASE_SERVICE_ROLE_KEY is not configured on the server.')
+  const { sb, error: keyError } = db()
+  if (!sb) return fail(`setup: ${keyError}`)
   const clean = (p: Person) => {
     const out: Person = {}
     if (p.name !== undefined) out.name = String(p.name).trim()
