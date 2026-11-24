@@ -154,6 +154,7 @@ type OrgNode = {
 }
 
 // Org planning (password-protected): its own roster, independent of Staff
+type PlanPod = { id: string; name: string; description: string | null; sort_order?: number | null; created_at?: string }
 type PlanPerson = {
   id: string
   name: string
@@ -224,6 +225,12 @@ export default function StaffingApp() {
   const [opState, setOpState] = useState<'unknown' | 'locked' | 'ready' | 'setup'>('unknown')
   const [opSetupMsg, setOpSetupMsg] = useState('')
   const [opPeople, setOpPeople] = useState<PlanPerson[]>([])
+  const [opSub, setOpSub] = useState<'planning' | 'definition'>('planning')
+  const [opPods, setOpPods] = useState<PlanPod[]>([])
+  const [opPodsState, setOpPodsState] = useState<'idle' | 'loading' | 'ready' | 'setup'>('idle')
+  const [opPodsSetupMsg, setOpPodsSetupMsg] = useState('')
+  const [opNewPod, setOpNewPod] = useState({ name: '', description: '' })
+  const [opPodEdit, setOpPodEdit] = useState<{ id: string; name: string; description: string } | null>(null)
   const [opPassword, setOpPassword] = useState('')
   const [opPwError, setOpPwError] = useState('')
   const [opNew, setOpNew] = useState({ name: '', position: '' })
@@ -415,6 +422,7 @@ export default function StaffingApp() {
   useEffect(() => { loadAll() }, [])
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { if (tab === 'orgplanning' && opState === 'unknown') opLoad() }, [tab])
+  useEffect(() => { if (tab === 'orgplanning' && opState === 'ready' && opSub === 'definition' && opPodsState === 'idle') opLoadPods() }, [tab, opState, opSub, opPodsState])
 
   async function loadAll() {
     setLoading(true)
@@ -1339,6 +1347,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
   async function opLock() {
     await fetch('/api/org-planning', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'lock' }) })
     setOpPeople([])
+    setOpPods([]); setOpPodsState('idle')
     setOpState('locked')
   }
   async function opUpdate(id: string, patch: Partial<PlanPerson>) {
@@ -1439,6 +1448,45 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
     const rows: (string | number | boolean | null)[][] = [['Employee Name', 'Position', 'Manager', 'Team']]
     for (const p of order) rows.push([p.name, p.position ?? '', placed(p) ? parentOf(p)?.name ?? '' : '', teamOf(p)])
     downloadCSV(`org-planning-${new Date().toISOString().split('T')[0]}.csv`, rows)
+  }
+  // --- Pods definition ---
+  async function opLoadPods() {
+    setOpPodsState('loading')
+    const res = await fetch('/api/org-planning', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'pods' }) })
+    const data = await res.json().catch(() => ({}))
+    if (res.status === 401) { setOpState('locked'); setOpPodsState('idle'); return }
+    if (!res.ok) { setOpPodsSetupMsg(String(data.error ?? '').replace(/^(pods-)?setup:\s*/, '')); setOpPodsState('setup'); return }
+    setOpPods(data.pods ?? [])
+    setOpPodsState('ready')
+  }
+  async function opAddPod() {
+    const name = opNewPod.name.trim()
+    if (!name) return
+    const nextOrder = opPods.reduce((m, p) => Math.max(m, p.sort_order ?? -1), -1) + 1
+    const { pod } = await opApi({ action: 'podAdd', pod: { name, description: opNewPod.description, sort_order: nextOrder } })
+    setOpPods(prev => [...prev, pod])
+    setOpNewPod({ name: '', description: '' })
+  }
+  async function opSavePodEdit() {
+    if (!opPodEdit) return
+    const name = opPodEdit.name.trim()
+    if (!name) { alert('Pod name is required'); return }
+    const { pod } = await opApi({ action: 'podUpdate', id: opPodEdit.id, patch: { name, description: opPodEdit.description } })
+    setOpPods(prev => prev.map(p => p.id === pod.id ? pod : p))
+    setOpPodEdit(null)
+  }
+  async function opDeletePod(p: PlanPod) {
+    if (!confirm(`Delete the pod "${p.name}"?`)) return
+    await opApi({ action: 'podDelete', id: p.id })
+    setOpPods(prev => prev.filter(x => x.id !== p.id))
+  }
+  async function opMovePod(idx: number, dir: -1 | 1) {
+    const j = idx + dir
+    if (j < 0 || j >= opPods.length) return
+    const list = [...opPods];
+    [list[idx], list[j]] = [list[j], list[idx]]
+    setOpPods(list.map((p, n) => ({ ...p, sort_order: n })))
+    await Promise.all(list.map((p, n) => opApi({ action: 'podUpdate', id: p.id, patch: { sort_order: n } })))
   }
   async function opClearAll() {
     if (!confirm(`Delete all ${opPeople.length} people from the Org planning roster and chart? This can't be undone.`)) return
@@ -5922,6 +5970,84 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
             </div>
           )
 
+          const opSubTabs = (
+            <div className="flex items-center gap-1 mb-5 border-b border-gray-800">
+              {([['planning', 'Pods Planning'], ['definition', 'Pods Definition']] as const).map(([k, label]) => (
+                <button
+                  key={k}
+                  onClick={() => setOpSub(k)}
+                  className={`text-sm px-4 py-2 -mb-px border-b-2 transition-colors ${opSub === k ? 'border-emerald-400 text-white font-medium' : 'border-transparent text-gray-500 hover:text-gray-200'}`}
+                >{label}</button>
+              ))}
+              <div className="flex-1" />
+              {opSub === 'definition' && <button onClick={opLock} className="text-[11px] text-gray-500 hover:text-gray-200 mb-1" title="Lock Org planning">🔒 Lock</button>}
+            </div>
+          )
+
+          if (opSub === 'definition') return (
+            <div>
+              {opSubTabs}
+              {opPodsState === 'setup' ? (
+                <div className="max-w-xl border border-amber-500/30 bg-amber-500/5 rounded-2xl p-6">
+                  <p className="text-amber-300 font-semibold mb-1">Pods Definition needs a one-time setup</p>
+                  <p className="text-sm text-gray-400 mb-3">{opPodsSetupMsg}</p>
+                  <p className="text-xs text-gray-500">Create the <code className="text-gray-300">org_plan_pods</code> table in Supabase, then retry.</p>
+                  <button onClick={opLoadPods} className="mt-4 text-xs px-3 py-1.5 rounded-lg border border-gray-700 text-gray-300 hover:text-white">Retry</button>
+                </div>
+              ) : opPodsState !== 'ready' ? (
+                <p className="text-sm text-gray-500">Loading…</p>
+              ) : (
+                <div className="max-w-6xl space-y-5">
+                  <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 space-y-2 max-w-xl">
+                    <p className="text-xs text-gray-500 uppercase tracking-wider">New pod</p>
+                    <input className={inputClass + ' w-full'} placeholder="Pod name *" value={opNewPod.name} onChange={e => setOpNewPod({ ...opNewPod, name: e.target.value })} onKeyDown={e => e.key === 'Enter' && opAddPod()} />
+                    <textarea className={inputClass + ' w-full min-h-[80px]'} placeholder="Pod description" value={opNewPod.description} onChange={e => setOpNewPod({ ...opNewPod, description: e.target.value })} />
+                    <button onClick={opAddPod} disabled={!opNewPod.name.trim()} className="text-xs px-3 py-1.5 rounded-lg text-white hover:brightness-125 disabled:opacity-40" style={{ backgroundColor: '#193a29' }}>+ Add pod</button>
+                  </div>
+
+                  {opPods.length === 0 ? (
+                    <p className="text-sm text-gray-500">No pods yet — add the first one above.</p>
+                  ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                      {opPods.map((p, i) => {
+                        const editing = opPodEdit?.id === p.id
+                        return (
+                          <div key={p.id} className="group bg-gray-900 border border-gray-800 rounded-xl p-4 flex flex-col">
+                            {editing ? (
+                              <div className="space-y-2">
+                                <input autoFocus className={inputClass + ' w-full'} value={opPodEdit.name} onChange={e => setOpPodEdit({ ...opPodEdit, name: e.target.value })} onKeyDown={e => { if (e.key === 'Escape') setOpPodEdit(null) }} />
+                                <textarea className={inputClass + ' w-full min-h-[120px]'} value={opPodEdit.description} onChange={e => setOpPodEdit({ ...opPodEdit, description: e.target.value })} onKeyDown={e => { if (e.key === 'Escape') setOpPodEdit(null) }} />
+                                <div className="flex gap-2">
+                                  <button onClick={opSavePodEdit} className="text-xs px-3 py-1 rounded-lg text-white hover:brightness-125" style={{ backgroundColor: '#193a29' }}>Save</button>
+                                  <button onClick={() => setOpPodEdit(null)} className="text-xs px-3 py-1 rounded-lg border border-gray-700 text-gray-400 hover:text-white">Cancel</button>
+                                </div>
+                              </div>
+                            ) : (
+                              <>
+                                <div className="flex items-start gap-2">
+                                  <h3 className="flex-1 text-gray-100 font-semibold leading-snug">{p.name}</h3>
+                                  <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                    <button onClick={() => opMovePod(i, -1)} disabled={i === 0} className="text-xs text-gray-500 hover:text-white disabled:opacity-30 px-1" title="Move earlier">◀</button>
+                                    <button onClick={() => opMovePod(i, 1)} disabled={i === opPods.length - 1} className="text-xs text-gray-500 hover:text-white disabled:opacity-30 px-1" title="Move later">▶</button>
+                                    <button onClick={() => setOpPodEdit({ id: p.id, name: p.name, description: p.description ?? '' })} className="text-xs text-gray-500 hover:text-white px-1" title="Edit">✎</button>
+                                    <button onClick={() => opDeletePod(p)} className="text-xs text-gray-500 hover:text-red-400 px-1" title="Delete">✕</button>
+                                  </div>
+                                </div>
+                                {p.description
+                                  ? <p className="mt-2 text-sm text-gray-400 whitespace-pre-wrap leading-relaxed">{p.description}</p>
+                                  : <p className="mt-2 text-sm text-gray-600 italic">No description</p>}
+                              </>
+                            )}
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )
+
           // ---- Chart structure ----
           const allPositions = [...new Set(opPeople.map(p => p.position).filter((x): x is string => !!x))].sort((a, b) => a.localeCompare(b))
           const consultantSet = new Set(opConsultantPositions ?? allPositions.filter(x => x.toLowerCase().includes('consultant')))
@@ -6078,6 +6204,8 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
           const teams = placed.filter(p => p.team_name && depthOf(p.id) < 3)
 
           return (
+            <div>
+            {opSubTabs}
             <div className="flex gap-6 items-start">
               {/* Left: roster */}
               <div className="w-64 shrink-0 sticky top-6 space-y-3">
@@ -6230,6 +6358,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                   </div>
                 )}
               </div>
+            </div>
             </div>
           )
         })()}

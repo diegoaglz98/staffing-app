@@ -9,6 +9,7 @@ import { createHash, timingSafeEqual } from 'crypto'
 const PASSWORD = process.env.ORG_PLANNING_PASSWORD || 'SpartanPlanning2027'
 const COOKIE = 'org_planning'
 const TABLE = 'org_plan_people'
+const PODS = 'org_plan_pods'
 const token = () => createHash('sha256').update(`org-planning:${PASSWORD}`).digest('hex')
 
 async function unlocked() {
@@ -84,6 +85,29 @@ export async function POST(request: Request) {
   }
 
   switch (body.action) {
+    // ---- Pods definition (separate table: org_plan_pods) ----
+    case 'pods': {
+      const { data, error } = await sb.from(PODS).select('*').order('sort_order', { ascending: true, nullsFirst: false }).order('created_at', { ascending: true })
+      return error ? fail(`pods-setup: ${error.message}`) : NextResponse.json({ pods: data })
+    }
+    case 'podAdd': {
+      const name = String(body.pod?.name ?? '').trim()
+      if (!name) return fail('Pod name is required', 400)
+      const { data, error } = await sb.from(PODS).insert([{ name, description: String(body.pod?.description ?? '').trim() || null, sort_order: body.pod?.sort_order ?? null }]).select().single()
+      return error ? fail(error.message) : NextResponse.json({ pod: data })
+    }
+    case 'podUpdate': {
+      const patch: Record<string, unknown> = {}
+      if (body.patch?.name !== undefined) { patch.name = String(body.patch.name).trim(); if (!patch.name) return fail('Pod name is required', 400) }
+      if (body.patch?.description !== undefined) patch.description = String(body.patch.description ?? '').trim() || null
+      if (body.patch?.sort_order !== undefined) patch.sort_order = body.patch.sort_order == null ? null : Number(body.patch.sort_order)
+      const { data, error } = await sb.from(PODS).update(patch).eq('id', body.id).select().single()
+      return error ? fail(error.message) : NextResponse.json({ pod: data })
+    }
+    case 'podDelete': {
+      const { error } = await sb.from(PODS).delete().eq('id', body.id)
+      return error ? fail(error.message) : NextResponse.json({ ok: true })
+    }
     case 'add': {
       const row = clean(body.person ?? {})
       if (!row.name) return fail('Name is required', 400)
