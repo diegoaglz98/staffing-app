@@ -1338,6 +1338,13 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
     setOpPeople(prev => prev.map(p => p.id === id ? { ...p, ...patch } : p))
     try { await opApi({ action: 'update', id, patch }) } catch { opLoad() }
   }
+  async function opRename(p: PlanPerson, raw: string) {
+    const name = raw.trim()
+    if (!name || name === p.name) return false
+    if (opPeople.some(x => x.id !== p.id && x.name.toLowerCase() === name.toLowerCase())) { alert(`${name} is already on the roster.`); return false }
+    await opUpdate(p.id, { name })
+    return true
+  }
   async function opAddPerson() {
     const name = opNew.name.trim()
     if (!name) return
@@ -5943,7 +5950,18 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                 className={`org-node inline-block text-left rounded-lg border px-3 py-2 cursor-grab active:cursor-grabbing transition-all ${over ? 'border-[#193a29] bg-[#193a29]/30 scale-105' : colorFor(d)}`}
               >
                 <div className="flex items-center gap-2">
-                  <span className="text-sm font-medium text-gray-100 whitespace-nowrap">{p.name}</span>
+                  {opEditTeam === `name:${p.id}` ? (
+                    <input
+                      autoFocus
+                      defaultValue={p.name}
+                      onClick={e => e.stopPropagation()}
+                      onBlur={e => { setOpEditTeam(null); opRename(p, e.target.value) }}
+                      onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); if (e.key === 'Escape') setOpEditTeam(null) }}
+                      className="min-w-[160px] bg-gray-950/70 border border-gray-600 rounded px-1.5 py-0.5 text-sm text-gray-100 focus:outline-none focus:ring-1 focus:ring-[#193a29]"
+                    />
+                  ) : (
+                    <span onDoubleClick={() => setOpEditTeam(`name:${p.id}`)} title="Double-click to rename" className="text-sm font-medium text-gray-100 whitespace-nowrap cursor-text">{p.name}</span>
+                  )}
                   {kids.length > 0 && <span className="text-[10px] text-gray-500" title={`${descendantCount(p.id)} people below`}>({descendantCount(p.id)})</span>}
                   <button onClick={() => opRemoveFromChart(p.id)} title="Remove from chart (reports move up)" className="text-gray-500 hover:text-red-400 leading-none text-xs">✕</button>
                 </div>
@@ -6010,7 +6028,17 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                       className={`group flex items-start justify-between gap-2 border rounded-lg px-3 py-2 text-sm ${p.in_chart ? 'border-gray-800 bg-gray-900/40 text-gray-600' : 'border-gray-700 bg-gray-900 text-gray-200 cursor-grab active:cursor-grabbing hover:border-gray-500'}`}
                     >
                       <div className="min-w-0">
-                        <p className="font-medium leading-tight truncate">{p.name}{p.in_chart && <span className="text-[10px] ml-1">· on chart</span>}</p>
+                        <div className="flex items-center gap-1">
+                          <input
+                            key={`${p.id}-name-${p.name}`}
+                            defaultValue={p.name}
+                            title="Click to rename"
+                            onBlur={async e => { const el = e.target; if (!(await opRename(p, el.value))) el.value = p.name }}
+                            onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); if (e.key === 'Escape') { (e.target as HTMLInputElement).value = p.name; (e.target as HTMLInputElement).blur() } }}
+                            className={`w-full min-w-0 bg-transparent font-medium leading-tight rounded px-0.5 -mx-0.5 hover:bg-gray-800/60 focus:bg-gray-800 focus:outline-none focus:ring-1 focus:ring-[#193a29] ${p.in_chart ? 'text-gray-500' : 'text-gray-200'}`}
+                          />
+                          {p.in_chart && <span className="text-[10px] whitespace-nowrap">· on chart</span>}
+                        </div>
                         <input
                           key={`${p.id}-${p.position ?? ''}`}
                           defaultValue={p.position ?? ''}
