@@ -1408,6 +1408,38 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
     setTimeout(() => setOpImportMsg(''), 6000)
     await opLoad()
   }
+  function exportOrgPlanningCSV() {
+    const byId = new Map(opPeople.map(p => [p.id, p]))
+    const placed = (p: PlanPerson) => p.in_chart
+    const parentOf = (p: PlanPerson) => (p.parent_id && byId.get(p.parent_id)?.in_chart ? byId.get(p.parent_id) : undefined)
+    // Team: own team name, otherwise inherited from the closest manager that has one.
+    const teamOf = (p: PlanPerson) => {
+      let cur: PlanPerson | undefined = p
+      const seen = new Set<string>()
+      while (cur && !seen.has(cur.id)) {
+        if (cur.team_name) return cur.team_name
+        seen.add(cur.id)
+        cur = placed(cur) ? parentOf(cur) : undefined
+      }
+      return ''
+    }
+    // Chart order (top-down, respecting the manual order), then people not on the chart.
+    const order: PlanPerson[] = []
+    const visited = new Set<string>()
+    const kids = (id: string | null) => opPeople
+      .filter(p => placed(p) && (id === null ? !parentOf(p) : p.parent_id === id))
+      .sort((a, b) => (a.sort_order ?? 1e9) - (b.sort_order ?? 1e9) || a.name.localeCompare(b.name))
+    const walk = (p: PlanPerson) => {
+      if (visited.has(p.id)) return
+      visited.add(p.id); order.push(p)
+      kids(p.id).forEach(walk)
+    }
+    kids(null).forEach(walk)
+    opPeople.filter(p => !visited.has(p.id)).sort((a, b) => a.name.localeCompare(b.name)).forEach(p => order.push(p))
+    const rows: (string | number | boolean | null)[][] = [['Employee Name', 'Position', 'Manager', 'Team']]
+    for (const p of order) rows.push([p.name, p.position ?? '', placed(p) ? parentOf(p)?.name ?? '' : '', teamOf(p)])
+    downloadCSV(`org-planning-${new Date().toISOString().split('T')[0]}.csv`, rows)
+  }
   async function opClearAll() {
     if (!confirm(`Delete all ${opPeople.length} people from the Org planning roster and chart? This can't be undone.`)) return
     await opApi({ action: 'clear' })
@@ -6063,6 +6095,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                     ⬆ Import CSV
                     <input type="file" accept=".csv" className="hidden" onChange={opImportCSV} />
                   </label>
+                  {opPeople.length > 0 && <button onClick={exportOrgPlanningCSV} className="flex-1 text-xs text-gray-300 border border-gray-700 rounded-lg px-2 py-1.5 hover:text-white hover:border-gray-500">⬇ CSV</button>}
                   {opPeople.length > 0 && <button onClick={opClearAll} className="text-xs text-red-400/80 hover:text-red-400 border border-red-500/30 rounded-lg px-2 py-1.5">Clear all</button>}
                 </div>
                 <p className="text-[10px] text-gray-600 leading-snug">CSV needs a <span className="text-gray-400">Name</span> column (optional <span className="text-gray-400">Position</span>). Existing names get their position updated.</p>
