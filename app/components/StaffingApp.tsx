@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef, Fragment } from 'react'
+import { createPortal } from 'react-dom'
 import { supabase } from '@/lib/supabase'
 import { Document, Packer, Paragraph, Table, TableRow, TableCell, TextRun, HeadingLevel, WidthType, BorderStyle } from 'docx'
 
@@ -7131,8 +7132,8 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                   {opPeople.length > 0 && <button onClick={() => setOpCsvAsk(true)} className="flex-1 text-xs text-gray-300 border border-gray-700 rounded-lg px-2 py-1.5 hover:text-gray-100 hover:border-gray-500">⬇ CSV</button>}
                   {opCsvAsk && (() => {
                     const nC = opPeople.filter(opIsConsultant).length
-                    return (
-                      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setOpCsvAsk(false)} onKeyDown={e => { if (e.key === 'Escape') setOpCsvAsk(false) }}>
+                    return createPortal(
+                      <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/50 p-4" onClick={() => setOpCsvAsk(false)} onKeyDown={e => { if (e.key === 'Escape') setOpCsvAsk(false) }}>
                         <div role="dialog" aria-modal="true" className="w-full max-w-sm bg-gray-900 border border-gray-700 rounded-2xl p-5 shadow-xl" onClick={e => e.stopPropagation()}>
                           <p className="text-gray-100 font-semibold mb-1">Download roster CSV</p>
                           <p className="text-xs text-gray-500 mb-4">Include consultants? There {nC === 1 ? 'is' : 'are'} {nC} consultant{nC === 1 ? '' : 's'} out of {opPeople.length} people in this version.</p>
@@ -7142,7 +7143,8 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                             <button onClick={() => setOpCsvAsk(false)} className="text-xs text-gray-500 hover:text-gray-200 mt-1">Cancel</button>
                           </div>
                         </div>
-                      </div>
+                      </div>,
+                      document.body
                     )
                   })()}
                   {opPeople.length > 0 && <button onClick={opClearAll} className="text-xs text-red-400/80 hover:text-red-400 border border-red-500/30 rounded-lg px-2 py-1.5">Clear all</button>}
