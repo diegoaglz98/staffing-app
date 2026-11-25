@@ -6751,6 +6751,36 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
             opUpdate(id, { in_chart: true, parent_id: targetId })
           }
 
+          // Actual vs target for each lead's team(s), shown as a small line on the lead's card
+          const leadHc = (() => {
+            const cPos = new Set(opConsultantPositions ?? [...new Set(opPeople.map(p => p.position).filter((x): x is string => !!x))].filter(x => x.toLowerCase().includes('consultant')))
+            const hc = computeHeadcountVsTarget(opPeople, opTargets, p => !!p.position && cPos.has(p.position))
+            const m = new Map<string, TargetRow[]>()
+            for (const r of hc.rows) for (const src of r.sources) {
+              if (src.depth !== 1) continue
+              const list = m.get(src.leader) ?? []
+              if (!list.includes(r)) list.push(r)
+              m.set(src.leader, list)
+            }
+            return m
+          })()
+          const leadTargetNote = (p: PlanPerson) => {
+            const rows = leadHc.get(p.name)
+            if (!rows?.length) return null
+            return (
+              <div className="mt-1 space-y-0.5">
+                {rows.map(r => {
+                  const tone = r.delta < 0 ? 'text-red-400' : r.delta > 0 ? 'text-amber-400' : 'text-emerald-400'
+                  return (
+                    <p key={r.name} className="text-[10px] text-gray-500 whitespace-nowrap" title={`${r.name}: ${r.actual} actual vs ${r.target} target (excludes the lead)`}>
+                      {rows.length > 1 && <>{r.name} · </>}{r.actual} / {r.target} target <span className={`font-semibold ${tone}`}>({r.delta > 0 ? `+${r.delta}` : r.delta})</span>
+                    </p>
+                  )
+                })}
+              </div>
+            )
+          }
+
           const teamEditor = (p: PlanPerson, d: number) => {
             if (d >= 3) {
               const inherited = teamOf(p.id)
@@ -6828,6 +6858,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                 })()}
                 {p.position && <p className="text-[11px] text-gray-500 whitespace-nowrap">{p.position}</p>}
                 {teamEditor(p, d)}
+                {d === 1 && leadTargetNote(p)}
                 {opEditTeam === `note:${p.id}` ? (
                   <textarea
                     autoFocus
