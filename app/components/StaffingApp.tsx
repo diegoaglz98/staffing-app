@@ -212,7 +212,7 @@ function targetAssumptionText(t: PlanTarget | undefined) {
   const raw = Math.round(t.queues_per_week * t.hc_per_queue * 100) / 100
   return `Assumptions\n• Queues / week: ${t.queues_per_week}\n• Headcount per queue: ${t.hc_per_queue}\n= ${raw} HC → target ${t.target}`
 }
-type TeamCount = { team: string; leader: string; depth: number; count: number; contractors: number; isPod: boolean }
+type TeamCount = { team: string; leader: string; depth: number; count: number; contractors: number; isPod: boolean; includes: string[] }
 type TargetRow = { name: string; target: number; actual: number; delta: number; contractors: number; ftePct: number | null; contractorPct: number | null; fteOfTarget: number | null; contractorOfTarget: number | null; pctOfTarget: number | null; sources: TeamCount[] }
 // A team = someone on the top 3 levels (below the top person) with a team name. Its headcount is everyone
 // below them, minus nested named teams; sub-leads (level 3) count toward their own team, level-2 leads don't
@@ -240,17 +240,29 @@ function computeHeadcountVsTarget(people: PlanPerson[], targets: PlanTarget[], i
     return { ftePct: 100 - c, contractorPct: c }
   }
 
-  const teams = placed.filter(isTeam).map(t => {
-    // walk the subtree, stopping at nested named teams
+  // A sub-team stands on its own only if it has its own target or its lead's team name calls it out
+  // (e.g. "Safety" under "Code/Safety"). Any other sub-team (e.g. "Generalists") rolls up into its lead's team.
+  const standsAlone = (p: PlanPerson) => {
+    if (depth(p) === 1) return true
+    const n = norm(p.team_name!)
+    const parent = parentOf(p)
+    return targetByName.has(n) || (!!parent?.team_name && tokens(parent.team_name).includes(n))
+  }
+  const teams = placed.filter(p => isTeam(p) && standsAlone(p)).map(t => {
+    // walk the subtree, stopping at nested teams that stand on their own
     let count = depth(t) === 2 ? 1 : 0
     let contractors = depth(t) === 2 && isContractor(t) ? 1 : 0
     const nested: PlanPerson[] = []
+    const includes: string[] = []
     const st = [...kids(t.id)]; const seen = new Set([t.id])
     while (st.length) {
       const c = st.pop()!
       if (seen.has(c.id)) continue
       seen.add(c.id)
-      if (isTeam(c)) { nested.push(c); continue }
+      if (isTeam(c)) {
+        if (standsAlone(c)) { nested.push(c); continue }
+        includes.push(c.team_name!.trim())
+      }
       count++; if (isContractor(c)) contractors++
       st.push(...kids(c.id))
     }
@@ -261,11 +273,7 @@ function computeHeadcountVsTarget(people: PlanPerson[], targets: PlanTarget[], i
       const left = tokens(name).filter(k => !covered.has(k) && targetByName.has(k))
       if (left.length === 1) target = targetByName.get(left[0])
     }
-    // A sub-team is its own pod only when the parent team's name calls it out (e.g. "Safety" under "Code/Safety");
-    // other sub-teams (e.g. "Generalists") are just part of their lead's team.
-    const parent = parentOf(t)
-    const isPod = depth(t) === 1 || (!!parent?.team_name && tokens(parent.team_name).includes(norm(name)))
-    return { tc: { team: name, leader: t.name, depth: depth(t), count, contractors, isPod } as TeamCount, target }
+    return { tc: { team: name, leader: t.name, depth: depth(t), count, contractors, isPod: true, includes } as TeamCount, target }
   })
 
   const rows: TargetRow[] = targets.map(t => {
@@ -375,7 +383,7 @@ function buildOrgPlanningViewerHTML(d: { versions: PlanVersionX[]; people: PlanP
     if (!hc.rows.length) return ''
     const rows = hc.rows.map(r => {
       const pct = r.target ? Math.min(100, Math.round((r.actual / r.target) * 100)) : 0
-      const from = r.sources.length ? r.sources.map(x => `${esc(x.team)} <span class="muted">(${esc(x.leader)}${x.depth === 2 ? ', sub-team' : ''}: ${x.count})</span>`).join(', ') : '<span class="muted">No matching team on this chart</span>'
+      const from = r.sources.length ? r.sources.map(x => `${esc(x.team)} <span class="muted">(${esc(x.leader)}${x.depth === 2 ? ', sub-team' : ''}: ${x.count}${x.includes.length ? `, incl. ${esc(x.includes.join(', '))}` : ''})</span>`).join(', ') : '<span class="muted">No matching team on this chart</span>'
       const tip = targetAssumptionText((d.targets ?? []).find(t => t.name === r.name))
       return `<tr><th scope="row">${tip ? `<span class="tip" title="${esc(tip)}">${esc(r.name)}</span>` : esc(r.name)}<div class="muted small fw4">${from}</div></th><td class="n">${r.actual}</td><td class="n">${r.target}</td><td class="n"><span class="delta ${deltaCls(r.delta)}">${signed(r.delta)}</span></td><td class="n">${pct2(r.pctOfTarget)}</td><td class="n">${pct2(r.ftePct)}</td><td class="n">${pct2(r.contractorPct)}</td><td class="n">${ofT(r.actual - r.contractors, r.fteOfTarget)}</td><td class="n">${ofT(r.contractors, r.contractorOfTarget)}</td><td class="meter"><span class="track"><span class="fill ${deltaCls(r.delta)}" style="width:${pct}%"></span></span></td></tr>`
     }).join('')
@@ -6845,7 +6853,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                                       </div>
                                     )}
                                     <p className="text-[11px] text-gray-500 mt-0.5">
-                                      {r.sources.length ? r.sources.map(x => `${x.team} (${x.leader}${x.depth === 2 ? ', sub-team' : ''}: ${x.count})`).join(' · ') : <span className="italic text-gray-600">No team named “{r.name}” on this chart</span>}
+                                      {r.sources.length ? r.sources.map(x => `${x.team} (${x.leader}${x.depth === 2 ? ', sub-team' : ''}: ${x.count}${x.includes.length ? `, incl. ${x.includes.join(', ')}` : ''})`).join(' · ') : <span className="italic text-gray-600">No team named “{r.name}” on this chart</span>}
                                     </p>
                                   </td>
                                   <td className="py-2 text-right tabular-nums text-gray-100 font-semibold">{r.actual}</td>
