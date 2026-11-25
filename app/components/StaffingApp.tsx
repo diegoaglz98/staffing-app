@@ -264,9 +264,11 @@ function buildOrgPlanningViewerHTML(d: { versions: PlanVersionX[]; people: PlanP
       const leads: LeadRow[] = kids(root.id).map(lead => {
         const all = below(lead.id)
         const directs = kids(lead.id)
-        const subLeads = directs.filter(x => kids(x.id).length > 0 || !!x.team_name)
-        const subs = subLeads.map(s => ({ name: s.team_name || `${s.name}'s team`, lead: s, count: 1 + below(s.id).length }))
-        const mainPeople = directs.filter(x => !subLeads.includes(x))
+        // Only a direct report with a team name forms a sub-team; everyone else rolls up into the main team.
+        const subLeads = directs.filter(x => !!x.team_name?.trim())
+        const subs = subLeads.map(s => ({ name: s.team_name!.trim(), lead: s, count: 1 + below(s.id).length }))
+        const inSub = new Set(subLeads.flatMap(s => [s.id, ...below(s.id).map(x => x.id)]))
+        const mainPeople = all.filter(x => !inSub.has(x.id))
         return { lead, team: lead.team_name ?? '', overall: all.length, consultants: all.filter(isC).length, main: mainPeople.length, mainPeople, subs }
       })
       return { root, leads, total: 1 + below(root.id).length }
@@ -281,7 +283,7 @@ function buildOrgPlanningViewerHTML(d: { versions: PlanVersionX[]; people: PlanP
       <div class="big"><span class="num">${r.overall}</span><span class="muted small">people below${r.consultants ? ` · incl. ${plural(r.consultants, 'consultant')}` : ''}</span></div>
       ${r.overall ? `<div class="bar" aria-hidden="true">${seg(r.main, 'main', 'Main team')}${r.subs.map((s, i) => seg(s.count, 'sub s' + (i % 4), s.name)).join('')}</div>` : ''}
       <table class="hc"><tbody>
-        <tr><td><span class="dot main"></span>Main team <span class="muted small">(reports directly to ${esc(r.lead.name.split(' ')[0])})</span></td><td class="n">${r.main}</td></tr>
+        <tr><td><span class="dot main"></span>Main team${r.subs.length ? ' <span class="muted small">(not in a sub-team)</span>' : ''}</td><td class="n">${r.main}</td></tr>
         ${r.subs.map((s, i) => `<tr><td><span class="dot sub s${i % 4}"></span>${esc(s.name)} <span class="muted small">· sub-lead ${esc(s.lead.name)}</span></td><td class="n">${s.count}</td></tr>`).join('')}
         <tr class="tot"><td>Overall team</td><td class="n">${r.overall}</td></tr>
       </tbody></table>
@@ -355,7 +357,7 @@ footer{color:var(--muted);font-size:12px;border-top:1px solid var(--line);paddin
 ${podsSection}
 ${compare}
 ${versionSections}
-<footer><p><b>How headcount is counted:</b> <i>Overall team</i> is everyone below a lead (the lead isn't counted). A <i>sub-team</i> is led by a direct report who has reports of their own or a team name; its count includes the sub-lead. <i>Main team</i> is the lead's other direct reports. Main team + sub-teams = overall team.</p><p>Confidential: contains planning data. Don't share outside the intended audience.</p></footer>
+<footer><p><b>How headcount is counted:</b> <i>Overall team</i> is everyone below a lead (the lead isn't counted). A <i>sub-team</i> is led by a direct report who has a team name; its count includes the sub-lead and everyone below them. <i>Main team</i> is everyone else below the lead (including people under direct reports without a team name). Main team + sub-teams = overall team.</p><p>Confidential: contains planning data. Don't share outside the intended audience.</p></footer>
 </div></body></html>`
 }
 
