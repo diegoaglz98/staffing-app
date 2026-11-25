@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
 import { createClient } from '@supabase/supabase-js'
-import { createHash, timingSafeEqual } from 'crypto'
+import { createHash, randomUUID, timingSafeEqual } from 'crypto'
 
 // Org planning is behind its own password. Its table has RLS on with no policies, so the
 // browser's anon key can't read it — every read/write goes through this route using the
@@ -10,6 +10,7 @@ const PASSWORD = process.env.ORG_PLANNING_PASSWORD || 'SpartanPlanning2027'
 const COOKIE = 'org_planning'
 const TABLE = 'org_plan_people'
 const PODS = 'org_plan_pods'
+const VERSIONS = 'org_plan_versions'
 const token = () => createHash('sha256').update(`org-planning:${PASSWORD}`).digest('hex')
 
 async function unlocked() {
@@ -39,16 +40,27 @@ function db() {
 }
 const fail = (error: string, status = 500) => NextResponse.json({ error }, { status })
 
-export async function GET() {
+export async function GET(request: Request) {
   if (!(await unlocked())) return fail('locked', 401)
   const { sb, error: keyError } = db()
   if (!sb) return fail(`setup: ${keyError}`)
-  const { data, error } = await sb.from(TABLE).select('*').order('name', { ascending: true })
+  // Versions: each one is a full, independent copy of the roster + chart.
+  let { data: versions, error: vErr } = await sb.from(VERSIONS).select('*').order('created_at', { ascending: true })
+  if (vErr) return fail(`setup: ${vErr.message}`)
+  if (!versions?.length) {
+    const { data: v, error } = await sb.from(VERSIONS).insert([{ name: 'Version 1' }]).select().single()
+    if (error) return fail(`setup: ${error.message}`)
+    await sb.from(TABLE).update({ version_id: v.id }).is('version_id', null)
+    versions = [v]
+  }
+  const wanted = new URL(request.url).searchParams.get('version')
+  const versionId = versions.some(v => v.id === wanted) ? wanted! : versions[0].id
+  const { data, error } = await sb.from(TABLE).select('*').eq('version_id', versionId).order('name', { ascending: true })
   if (error) return fail(`setup: ${error.message}`)
-  return NextResponse.json({ people: data })
+  return NextResponse.json({ people: data, versions, versionId })
 }
 
-type Person = { id?: string; name?: string; position?: string | null; team_name?: string | null; parent_id?: string | null; in_chart?: boolean; sort_order?: number | null }
+type Person = { id?: string; version_id?: string; name?: string; position?: string | null; team_name?: string | null; parent_id?: string | null; in_chart?: boolean; sort_order?: number | null }
 
 export async function POST(request: Request) {
   const body = await request.json().catch(() => ({}))
@@ -84,7 +96,61 @@ export async function POST(request: Request) {
     return out
   }
 
+  const vid = String(body.versionId ?? '')
+  const needsVersion = ['add', 'update', 'updateMany', 'delete', 'import', 'clear'].includes(body.action)
+  if (needsVersion && !vid) return fail('No version selected', 400)
+
   switch (body.action) {
+    // ---- Versions ----
+    case 'versionCreate': {
+      const name = String(body.name ?? '').trim() || 'New version'
+      const { data, error } = await sb.from(VERSIONS).insert([{ name }]).select().single()
+      return error ? fail(error.message) : NextResponse.json({ version: data })
+    }
+    case 'versionRename': {
+      const name = String(body.name ?? '').trim()
+      if (!name) return fail('Version name is required', 400)
+      const { data, error } = await sb.from(VERSIONS).update({ name }).eq('id', body.id).select().single()
+      return error ? fail(error.message) : NextResponse.json({ version: data })
+    }
+    case 'versionDelete': {
+      const { count } = await sb.from(VERSIONS).select('id', { count: 'exact', head: true })
+      if ((count ?? 0) <= 1) return fail("Can't delete the only version", 400)
+      const { error: e1 } = await sb.from(TABLE).delete().eq('version_id', body.id)
+      if (e1) return fail(e1.message)
+      const { error } = await sb.from(VERSIONS).delete().eq('id', body.id)
+      return error ? fail(error.message) : NextResponse.json({ ok: true })
+    }
+    case 'versionClone': {
+      // Copy every person in the source version with fresh ids, remapping manager links.
+      const name = String(body.name ?? '').trim() || 'Copy'
+      const { data: src, error: e1 } = await sb.from(TABLE).select('*').eq('version_id', body.sourceId)
+      if (e1) return fail(e1.message)
+      const { data: v, error: e2 } = await sb.from(VERSIONS).insert([{ name }]).select().single()
+      if (e2) return fail(e2.message)
+      const idMap = new Map((src ?? []).map(p => [p.id as string, randomUUID()]))
+      const rows = (src ?? []).map(p => ({
+        id: idMap.get(p.id)!, version_id: v.id, name: p.name, position: p.position, team_name: p.team_name,
+        parent_id: p.parent_id ? idMap.get(p.parent_id) ?? null : null, in_chart: p.in_chart, sort_order: p.sort_order ?? null,
+      }))
+      // Insert managers before their reports so the self-reference is always satisfied.
+      const byId = new Map(rows.map(r => [r.id, r]))
+      const ordered: typeof rows = []
+      const done = new Set<string>()
+      const visit = (r: (typeof rows)[number], guard = new Set<string>()) => {
+        if (done.has(r.id) || guard.has(r.id)) return
+        guard.add(r.id)
+        const parent = r.parent_id ? byId.get(r.parent_id) : undefined
+        if (parent) visit(parent, guard)
+        done.add(r.id); ordered.push(r)
+      }
+      rows.forEach(r => visit(r))
+      if (ordered.length) {
+        const { error } = await sb.from(TABLE).insert(ordered)
+        if (error) { await sb.from(VERSIONS).delete().eq('id', v.id); return fail(error.message) }
+      }
+      return NextResponse.json({ version: v })
+    }
     // ---- Pods definition (separate table: org_plan_pods) ----
     case 'pods': {
       const { data, error } = await sb.from(PODS).select('*').order('sort_order', { ascending: true, nullsFirst: false }).order('created_at', { ascending: true })
@@ -111,29 +177,29 @@ export async function POST(request: Request) {
     case 'add': {
       const row = clean(body.person ?? {})
       if (!row.name) return fail('Name is required', 400)
-      const { data, error } = await sb.from(TABLE).insert([row]).select().single()
+      const { data, error } = await sb.from(TABLE).insert([{ ...row, version_id: vid }]).select().single()
       return error ? fail(error.message) : NextResponse.json({ person: data })
     }
     case 'update': {
-      const { data, error } = await sb.from(TABLE).update(clean(body.patch ?? {})).eq('id', body.id).select().single()
+      const { data, error } = await sb.from(TABLE).update(clean(body.patch ?? {})).eq('id', body.id).eq('version_id', vid).select().single()
       return error ? fail(error.message) : NextResponse.json({ person: data })
     }
     case 'updateMany': {
       // [{ id, patch }] — used for reattaching reports / removing branches
       for (const u of (body.updates ?? []) as { id: string; patch: Person }[]) {
-        const { error } = await sb.from(TABLE).update(clean(u.patch)).eq('id', u.id)
+        const { error } = await sb.from(TABLE).update(clean(u.patch)).eq('id', u.id).eq('version_id', vid)
         if (error) return fail(error.message)
       }
       return NextResponse.json({ ok: true })
     }
     case 'delete': {
-      const { error } = await sb.from(TABLE).delete().eq('id', body.id)
+      const { error } = await sb.from(TABLE).delete().eq('id', body.id).eq('version_id', vid)
       return error ? fail(error.message) : NextResponse.json({ ok: true })
     }
     case 'import': {
       // [{ name, position }] — new names are added, existing names (case-insensitive) get their position updated
       const rows = ((body.rows ?? []) as Person[]).map(clean).filter(r => r.name)
-      const { data: existing, error: e1 } = await sb.from(TABLE).select('id,name')
+      const { data: existing, error: e1 } = await sb.from(TABLE).select('id,name').eq('version_id', vid)
       if (e1) return fail(e1.message)
       const byName = new Map((existing ?? []).map(r => [String(r.name).toLowerCase(), r.id as string]))
       const inserts: Person[] = []
@@ -143,7 +209,7 @@ export async function POST(request: Request) {
         if (id) {
           if (r.position) { await sb.from(TABLE).update({ position: r.position }).eq('id', id); updated++ }
         } else {
-          inserts.push(r)
+          inserts.push({ ...r, version_id: vid })
           byName.set(r.name!.toLowerCase(), 'pending')
         }
       }
@@ -154,7 +220,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ added: inserts.length, updated })
     }
     case 'clear': {
-      const { error } = await sb.from(TABLE).delete().neq('id', '00000000-0000-0000-0000-000000000000')
+      const { error } = await sb.from(TABLE).delete().eq('version_id', vid)
       return error ? fail(error.message) : NextResponse.json({ ok: true })
     }
     default:

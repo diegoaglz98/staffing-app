@@ -154,6 +154,7 @@ type OrgNode = {
 }
 
 // Org planning (password-protected): its own roster, independent of Staff
+type PlanVersion = { id: string; name: string; created_at?: string }
 type PlanPod = { id: string; name: string; description: string | null; sort_order?: number | null; created_at?: string }
 type PlanPerson = {
   id: string
@@ -226,6 +227,9 @@ export default function StaffingApp() {
   const [opSetupMsg, setOpSetupMsg] = useState('')
   const [opPeople, setOpPeople] = useState<PlanPerson[]>([])
   const [opSub, setOpSub] = useState<'planning' | 'definition'>('planning')
+  const [opVersions, setOpVersions] = useState<PlanVersion[]>([])
+  const [opVersionId, setOpVersionId] = useState<string>('')
+  const opVersionRef = useRef('')
   const [opPods, setOpPods] = useState<PlanPod[]>([])
   const [opPodsState, setOpPodsState] = useState<'idle' | 'loading' | 'ready' | 'setup'>('idle')
   const [opPodsSetupMsg, setOpPodsSetupMsg] = useState('')
@@ -1323,19 +1327,59 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
 
   // --- Org planning (all data goes through /api/org-planning, which checks the planning password) ---
   async function opApi(body: Record<string, unknown>) {
-    const res = await fetch('/api/org-planning', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+    const res = await fetch('/api/org-planning', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ versionId: opVersionRef.current, ...body }) })
     const data = await res.json().catch(() => ({}))
     if (res.status === 401 && body.action !== 'unlock') { setOpState('locked'); throw new Error('locked') }
     if (!res.ok) { if (String(data.error ?? '').startsWith('setup:')) { setOpSetupMsg(data.error.slice(6).trim()); setOpState('setup') } else alert(data.error ?? 'Something went wrong'); throw new Error(data.error) }
     return data
   }
-  async function opLoad() {
-    const res = await fetch('/api/org-planning')
+  async function opLoad(versionId?: string) {
+    let wanted = versionId ?? opVersionRef.current
+    if (!wanted) { try { wanted = localStorage.getItem('op-version') ?? '' } catch {} }
+    const res = await fetch('/api/org-planning' + (wanted ? `?version=${encodeURIComponent(wanted)}` : ''))
     const data = await res.json().catch(() => ({}))
     if (res.status === 401) { setOpState('locked'); return }
     if (!res.ok) { setOpSetupMsg(String(data.error ?? '').replace(/^setup:\s*/, '')); setOpState('setup'); return }
+    opVersionRef.current = data.versionId ?? ''
+    setOpVersionId(data.versionId ?? '')
+    try { localStorage.setItem('op-version', data.versionId ?? '') } catch {}
+    setOpVersions(data.versions ?? [])
     setOpPeople(data.people ?? [])
     setOpState('ready')
+  }
+  async function opSwitchVersion(id: string) {
+    if (!id || id === opVersionRef.current) return
+    await opLoad(id)
+  }
+  async function opCloneVersion() {
+    const cur = opVersions.find(v => v.id === opVersionRef.current)
+    const name = prompt(`Name for the copy of "${cur?.name ?? 'this version'}":`, `${cur?.name ?? 'Version'} (copy)`)
+    if (name === null) return
+    const { version } = await opApi({ action: 'versionClone', sourceId: opVersionRef.current, name })
+    await opLoad(version.id)
+  }
+  async function opNewVersion() {
+    const name = prompt('Name for the new (empty) version:', `Version ${opVersions.length + 1}`)
+    if (name === null) return
+    const { version } = await opApi({ action: 'versionCreate', name })
+    await opLoad(version.id)
+  }
+  async function opRenameVersion() {
+    const cur = opVersions.find(v => v.id === opVersionRef.current)
+    if (!cur) return
+    const name = prompt('Rename version:', cur.name)
+    if (name === null || !name.trim() || name.trim() === cur.name) return
+    const { version } = await opApi({ action: 'versionRename', id: cur.id, name })
+    setOpVersions(prev => prev.map(v => v.id === version.id ? version : v))
+  }
+  async function opDeleteVersion() {
+    const cur = opVersions.find(v => v.id === opVersionRef.current)
+    if (!cur || opVersions.length <= 1) return
+    if (!confirm(`Delete the version "${cur.name}" and its whole roster/chart (${opPeople.length} people)? This can't be undone.`)) return
+    await opApi({ action: 'versionDelete', id: cur.id })
+    const next = opVersions.find(v => v.id !== cur.id)!
+    opVersionRef.current = ''
+    await opLoad(next.id)
   }
   async function opUnlock() {
     setOpPwError('')
@@ -1447,7 +1491,8 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
     opPeople.filter(p => !visited.has(p.id)).sort((a, b) => a.name.localeCompare(b.name)).forEach(p => order.push(p))
     const rows: (string | number | boolean | null)[][] = [['Employee Name', 'Position', 'Manager', 'Team']]
     for (const p of order) rows.push([p.name, p.position ?? '', placed(p) ? parentOf(p)?.name ?? '' : '', teamOf(p)])
-    downloadCSV(`org-planning-${new Date().toISOString().split('T')[0]}.csv`, rows)
+    const vName = (opVersions.find(v => v.id === opVersionId)?.name ?? '').replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '').toLowerCase()
+    downloadCSV(`org-planning-${vName ? vName + '-' : ''}${new Date().toISOString().split('T')[0]}.csv`, rows)
   }
   // --- Pods definition ---
   async function opLoadPods() {
@@ -5964,7 +6009,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
               <p className="text-sm text-gray-400 mb-3">{opSetupMsg}</p>
               <p className="text-xs text-gray-500">Create the <code className="text-gray-300">org_plan_people</code> table and add <code className="text-gray-300">SUPABASE_SERVICE_ROLE_KEY</code> to the Vercel environment variables, redeploy, then refresh.</p>
               <div className="flex gap-2 mt-4">
-                <button onClick={opLoad} className="text-xs px-3 py-1.5 rounded-lg border border-gray-700 text-gray-300 hover:text-white">Retry</button>
+                <button onClick={() => opLoad()} className="text-xs px-3 py-1.5 rounded-lg border border-gray-700 text-gray-300 hover:text-white">Retry</button>
                 <button onClick={opLock} className="text-xs px-3 py-1.5 rounded-lg border border-gray-700 text-gray-400 hover:text-white">🔒 Lock</button>
               </div>
             </div>
@@ -6206,6 +6251,17 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
           return (
             <div>
             {opSubTabs}
+            <div className="flex flex-wrap items-center gap-2 mb-5">
+              <span className="text-xs text-gray-500 uppercase tracking-wider">Version</span>
+              <select className={inputSmClass + ' !w-auto min-w-[200px]'} value={opVersionId} onChange={e => opSwitchVersion(e.target.value)}>
+                {opVersions.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
+              </select>
+              <button onClick={opCloneVersion} className="text-xs px-2.5 py-1.5 rounded-lg text-white hover:brightness-125" style={{ backgroundColor: '#193a29' }} title="Copy this version (roster, chart, teams, order) into a new one">⧉ Clone</button>
+              <button onClick={opNewVersion} className="text-xs px-2.5 py-1.5 rounded-lg border border-gray-700 text-gray-300 hover:text-white hover:border-gray-500">+ New empty</button>
+              <button onClick={opRenameVersion} className="text-xs px-2.5 py-1.5 rounded-lg border border-gray-700 text-gray-300 hover:text-white hover:border-gray-500">✎ Rename</button>
+              <button onClick={opDeleteVersion} disabled={opVersions.length <= 1} className="text-xs px-2.5 py-1.5 rounded-lg border border-red-500/30 text-red-400/80 hover:text-red-400 disabled:opacity-30 disabled:cursor-not-allowed" title={opVersions.length <= 1 ? "Can't delete the only version" : 'Delete this version'}>Delete</button>
+              <span className="text-[11px] text-gray-600 ml-1">{opVersions.length} version{opVersions.length === 1 ? '' : 's'} · each has its own roster & chart</span>
+            </div>
             <div className="flex gap-6 items-start">
               {/* Left: roster */}
               <div className="w-64 shrink-0 sticky top-6 space-y-3">
