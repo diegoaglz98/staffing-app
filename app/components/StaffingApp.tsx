@@ -215,7 +215,7 @@ function targetAssumptionText(t: PlanTarget | undefined) {
 type TeamCount = { team: string; leader: string; depth: number; count: number; contractors: number; isPod: boolean; includes: string[] }
 type TargetRow = { name: string; target: number; actual: number; delta: number; contractors: number; ftePct: number | null; contractorPct: number | null; fteOfTarget: number | null; contractorOfTarget: number | null; pctOfTarget: number | null; sources: TeamCount[] }
 // A team = someone on the top 3 levels (below the top person) with a team name. Its headcount is everyone
-// below them plus the lead themself, minus nested teams that stand on their own; leads and sub-leads count toward their team
+// below them, minus nested teams that stand on their own. Sub-leads count toward their team; 2nd-line leads are reported separately
 // (same rule as the viewer's "people below"). Teams map to a target by name; a combined name like
 // "Code/Safety" maps to whichever part isn't already covered by one of its own sub-teams.
 // Contractors = GenAI Consultants (the consultant positions); everyone else is an FTE.
@@ -250,9 +250,10 @@ function computeHeadcountVsTarget(people: PlanPerson[], targets: PlanTarget[], i
   }
   const teams = placed.filter(p => isTeam(p) && standsAlone(p)).map(t => {
     // walk the subtree, stopping at nested teams that stand on their own
-    // the team's own lead / sub-lead counts toward the team
-    let count = 1
-    let contractors = isContractor(t) ? 1 : 0
+    // targets cover the people below the leads: sub-leads count toward their team, 2nd-line leads don't
+    // (they get their own "Leads" row)
+    let count = depth(t) === 2 ? 1 : 0
+    let contractors = depth(t) === 2 && isContractor(t) ? 1 : 0
     const nested: PlanPerson[] = []
     const includes: string[] = []
     const st = [...kids(t.id)]; const seen = new Set([t.id])
@@ -286,8 +287,10 @@ function computeHeadcountVsTarget(people: PlanPerson[], targets: PlanTarget[], i
   const untargeted = teams.filter(x => !x.target).map(x => x.tc)
   const tActual = rows.reduce((a, r) => a + r.actual, 0), tContr = rows.reduce((a, r) => a + r.contractors, 0)
   const tTarget = rows.reduce((a, r) => a + r.target, 0)
+  const leadPeople = placed.filter(p => depth(p) === 1)
+  const leads = { count: leadPeople.length, contractors: leadPeople.filter(isContractor).length, names: leadPeople.map(p => p.name) }
   const totals = { target: tTarget, actual: tActual, contractors: tContr, ...pcts(tActual, tContr), ...ofTarget(tActual, tContr, tTarget) }
-  return { rows, untargeted, totals }
+  return { rows, untargeted, totals, leads }
 }
 
 // ---- Org planning: standalone HTML viewer export ----
@@ -399,12 +402,15 @@ function buildOrgPlanningViewerHTML(d: { versions: PlanVersionX[]; people: PlanP
       const from = g.sources.map(x => `${esc(x.team)} <span class="muted">(${esc(x.leader)}${x.depth === 2 ? ', sub-team' : ''}: ${x.count})</span>`).join(', ')
       return `<tr class="notarget"><th scope="row">${esc(g.team)}<div class="muted small fw4">${from}</div></th><td class="n">${g.count}</td>${dash}${dash}${dash}<td class="n">${pct2(cp == null ? null : 100 - cp)}</td><td class="n">${pct2(cp)}</td><td class="n">${g.count - g.contractors}<span class="muted fw4"> · —</span></td><td class="n">${g.contractors}<span class="muted fw4"> · —</span></td><td></td></tr>`
     }).join('')
-    const allN = t.actual + [...groups.values()].reduce((a, g) => a + g.count, 0)
-    const allC = t.contractors + [...groups.values()].reduce((a, g) => a + g.contractors, 0)
+    const L = hc.leads
+    const lcp = share(L.count, L.contractors)
+    const leadsRow = L.count ? `<tr class="notarget"><th scope="row">Leads<div class="muted small fw4">${esc(L.names.join(', '))}</div></th><td class="n">${L.count}</td>${dash}${dash}${dash}<td class="n">${pct2(lcp == null ? null : 100 - lcp)}</td><td class="n">${pct2(lcp)}</td><td class="n">${L.count - L.contractors}<span class="muted fw4"> · —</span></td><td class="n">${L.contractors}<span class="muted fw4"> · —</span></td><td></td></tr>` : ''
+    const allN = t.actual + [...groups.values()].reduce((a, g) => a + g.count, 0) + L.count
+    const allC = t.contractors + [...groups.values()].reduce((a, g) => a + g.contractors, 0) + L.contractors
     const allCp = share(allN, allC)
-    const grand = groups.size ? `<tr class="tot"><th scope="row">Total (all teams)</th><td class="n">${allN}</td>${dash}${dash}${dash}<td class="n">${pct2(allCp == null ? null : 100 - allCp)}</td><td class="n">${pct2(allCp)}</td><td class="n">${allN - allC}</td><td class="n">${allC}</td><td></td></tr>` : ''
+    const grand = groups.size || L.count ? `<tr class="tot"><th scope="row">Total (all teams)</th><td class="n">${allN}</td>${dash}${dash}${dash}<td class="n">${pct2(allCp == null ? null : 100 - allCp)}</td><td class="n">${pct2(allCp)}</td><td class="n">${allN - allC}</td><td class="n">${allC}</td><td></td></tr>` : ''
     const extra = ''
-    return `<div class="panel"><h3 class="mb">Headcount vs target</h3><div class="tablewrap flat"><table class="tgt"><thead><tr><th>Pod</th><th class="n">Actual</th><th class="n">Target</th><th class="n">Delta</th><th class="n">% of target</th><th class="n">FTE %</th><th class="n">Contractor %</th><th class="n">FTEs / target</th><th class="n">Contractors / target</th><th></th></tr></thead><tbody>${rows}<tr class="tot"><th scope="row">Total (pods with a target)</th><td class="n">${t.actual}</td><td class="n">${t.target}</td><td class="n"><span class="delta ${deltaCls(td)}">${signed(td)}</span></td><td class="n">${pct2(t.pctOfTarget)}</td><td class="n">${pct2(t.ftePct)}</td><td class="n">${pct2(t.contractorPct)}</td><td class="n">${ofT(t.actual - t.contractors, t.fteOfTarget)}</td><td class="n">${ofT(t.contractors, t.contractorOfTarget)}</td><td></td></tr>${noTargetRows}${grand}</tbody></table></div>${extra}</div>`
+    return `<div class="panel"><h3 class="mb">Headcount vs target</h3><div class="tablewrap flat"><table class="tgt"><thead><tr><th>Pod</th><th class="n">Actual</th><th class="n">Target</th><th class="n">Delta</th><th class="n">% of target</th><th class="n">FTE %</th><th class="n">Contractor %</th><th class="n">FTEs / target</th><th class="n">Contractors / target</th><th></th></tr></thead><tbody>${rows}<tr class="tot"><th scope="row">Total (pods with a target)</th><td class="n">${t.actual}</td><td class="n">${t.target}</td><td class="n"><span class="delta ${deltaCls(td)}">${signed(td)}</span></td><td class="n">${pct2(t.pctOfTarget)}</td><td class="n">${pct2(t.ftePct)}</td><td class="n">${pct2(t.contractorPct)}</td><td class="n">${ofT(t.actual - t.contractors, t.fteOfTarget)}</td><td class="n">${ofT(t.contractors, t.contractorOfTarget)}</td><td></td></tr>${noTargetRows}${leadsRow}${grand}</tbody></table></div>${extra}</div>`
   }
   const versionSections = versionData.map(({ v, people, placed, trees, unplaced, hc }, vi) => {
     const body = trees.length === 0 ? '<p class="muted">No one is placed on this chart yet.</p>' : trees.map(t => `
@@ -481,7 +487,7 @@ footer{color:var(--muted);font-size:12px;border-top:1px solid var(--line);paddin
 ${podsSection}
 ${compare}
 ${versionSections}
-<footer><p><b>How headcount is counted:</b> <i>Overall team</i> is everyone below a lead (the lead isn't counted). A <i>sub-team</i> is led by a direct report who has a team name; its count includes the sub-lead and everyone below them. <i>Main team</i> is everyone else below the lead (including people under direct reports without a team name). Main team + sub-teams = overall team.</p><p><b>Headcount vs target:</b> a pod's actual is the sum of teams whose team name matches the pod (a combined name like "Code/Safety" counts toward the part not covered by its own sub-teams). Leads and sub-leads count toward their own team. Hover a pod name for its planning assumptions (queues / week × headcount per queue). Delta = actual − target (negative = below target). % of target = actual ÷ target. FTE % / Contractor %: share of actual headcount (GenAI Consultants count as contractors, everyone else as FTE). FTEs / target and Contractors / target: the number of actual FTEs / contractors and what % of the pod's target that is.</p><p>Confidential: contains planning data. Don't share outside the intended audience.</p></footer>
+<footer><p><b>How headcount is counted:</b> <i>Overall team</i> is everyone below a lead (the lead isn't counted). A <i>sub-team</i> is led by a direct report who has a team name; its count includes the sub-lead and everyone below them. <i>Main team</i> is everyone else below the lead (including people under direct reports without a team name). Main team + sub-teams = overall team.</p><p><b>Headcount vs target:</b> a pod's actual is the sum of teams whose team name matches the pod (a combined name like "Code/Safety" counts toward the part not covered by its own sub-teams). Targets cover the people below the leads: sub-leads count toward their team, 2nd-line leads are shown in their own Leads row. Hover a pod name for its planning assumptions (queues / week × headcount per queue). Delta = actual − target (negative = below target). % of target = actual ÷ target. FTE % / Contractor %: share of actual headcount (GenAI Consultants count as contractors, everyone else as FTE). FTEs / target and Contractors / target: the number of actual FTEs / contractors and what % of the pod's target that is.</p><p>Confidential: contains planning data. Don't share outside the intended audience.</p></footer>
 </div></body></html>`
 }
 
@@ -6896,13 +6902,31 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                                 <td colSpan={opTargetsEditing ? 2 : 1}></td>
                               </tr>
                             )}
+                            {hc.leads.count > 0 && (() => {
+                              const L = hc.leads
+                              const cp = Math.round((L.contractors / L.count) * 100)
+                              return (
+                                <tr className="border-t border-gray-800 text-gray-400">
+                                  <td className="py-2 pr-3"><span className="text-gray-200 font-medium">Leads</span><p className="text-[11px] text-gray-500 mt-0.5">{L.names.join(' · ')}</p></td>
+                                  <td className="py-2 text-right tabular-nums text-gray-100 font-semibold">{L.count}</td>
+                                  <td className="py-2 text-right text-gray-600">—</td>
+                                  <td className="py-2 text-right text-gray-600">—</td>
+                                  <td className="py-2 text-right text-gray-600">—</td>
+                                  <td className="py-2 text-right tabular-nums text-gray-300">{100 - cp}%</td>
+                                  <td className="py-2 text-right tabular-nums text-violet-300">{cp}%</td>
+                                  <td className="py-2 text-right tabular-nums text-gray-300">{L.count - L.contractors}<span className="text-gray-500"> · —</span></td>
+                                  <td className="py-2 text-right tabular-nums text-violet-300">{L.contractors}<span className="text-gray-500"> · —</span></td>
+                                  <td colSpan={opTargetsEditing ? 2 : 1}></td>
+                                </tr>
+                              )
+                            })()}
                           </tbody>
                         </table>
                       )}
                       {hc.untargeted.length > 0 && (
                         <p className="text-[11px] text-gray-500 mt-2">No target: {hc.untargeted.map(x => `${x.team} (${x.count})`).join(' · ')}</p>
                       )}
-                      <p className="text-[10px] text-gray-600 mt-2">Actual = people in teams whose team name matches the pod (leads and sub-leads count toward their own team). “Code/Safety” counts toward whichever part isn’t its own sub-team. Hover a pod name for its assumptions. Delta = actual − target. % of target = actual ÷ target. FTE % / Contractor %: share of actual headcount (GenAI Consultants = contractors). FTEs / target, Contractors / target: actual count and its % of the pod’s target.</p>
+                      <p className="text-[10px] text-gray-600 mt-2">Actual = people in teams whose team name matches the pod (people below the leads; sub-leads count toward their sub-team; leads are their own row). “Code/Safety” counts toward whichever part isn’t its own sub-team. Hover a pod name for its assumptions. Delta = actual − target. % of target = actual ÷ target. FTE % / Contractor %: share of actual headcount (GenAI Consultants = contractors). FTEs / target, Contractors / target: actual count and its % of the pod’s target.</p>
                     </div>
                   )}
                 </div>
