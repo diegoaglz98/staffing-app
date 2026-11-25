@@ -613,6 +613,7 @@ export default function StaffingApp() {
   const [opImportMsg, setOpImportMsg] = useState('')
   const [opShowConsultants, setOpShowConsultants] = useState(true)
   // Which positions count as "consultants" (null = default: any position containing "consultant"); remembered per browser
+  const [opCsvAsk, setOpCsvAsk] = useState(false)
   const [opConsultantPositions, setOpConsultantPositions] = useState<string[] | null>(() => {
     try { const v = typeof window !== 'undefined' ? localStorage.getItem('op-consultant-positions') : null; return v ? JSON.parse(v) : null } catch { return null }
   })
@@ -1886,7 +1887,11 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
     setTimeout(() => setOpImportMsg(''), 6000)
     await opLoad()
   }
-  function exportOrgPlanningCSV() {
+  const opIsConsultant = (p: PlanPerson) => {
+    const pos = p.position ?? ''
+    return opConsultantPositions ? opConsultantPositions.includes(pos) : pos.toLowerCase().includes('consultant')
+  }
+  function exportOrgPlanningCSV(includeConsultants = true) {
     const byId = new Map(opPeople.map(p => [p.id, p]))
     const placed = (p: PlanPerson) => p.in_chart
     const parentOf = (p: PlanPerson) => (p.parent_id && byId.get(p.parent_id)?.in_chart ? byId.get(p.parent_id) : undefined)
@@ -1929,9 +1934,9 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
       return ''
     }
     const rows: (string | number | boolean | null)[][] = [['Employee Name', 'Position', 'Manager', 'Team', 'Lead']]
-    for (const p of order) rows.push([p.name, p.position ?? '', placed(p) ? parentOf(p)?.name ?? '' : '', teamOf(p), leadOf(p)])
+    for (const p of order) if (includeConsultants || !opIsConsultant(p)) rows.push([p.name, p.position ?? '', placed(p) ? parentOf(p)?.name ?? '' : '', teamOf(p), leadOf(p)])
     const vName = (opVersions.find(v => v.id === opVersionId)?.name ?? '').replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '').toLowerCase()
-    downloadCSV(`org-planning-${vName ? vName + '-' : ''}${new Date().toISOString().split('T')[0]}.csv`, rows)
+    downloadCSV(`org-planning-${vName ? vName + '-' : ''}${includeConsultants ? '' : 'no-consultants-'}${new Date().toISOString().split('T')[0]}.csv`, rows)
   }
   // --- Pods definition ---
   async function opLoadPods() {
@@ -7123,7 +7128,23 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                     ⬆ Import CSV
                     <input type="file" accept=".csv" className="hidden" onChange={opImportCSV} />
                   </label>
-                  {opPeople.length > 0 && <button onClick={exportOrgPlanningCSV} className="flex-1 text-xs text-gray-300 border border-gray-700 rounded-lg px-2 py-1.5 hover:text-gray-100 hover:border-gray-500">⬇ CSV</button>}
+                  {opPeople.length > 0 && <button onClick={() => setOpCsvAsk(true)} className="flex-1 text-xs text-gray-300 border border-gray-700 rounded-lg px-2 py-1.5 hover:text-gray-100 hover:border-gray-500">⬇ CSV</button>}
+                  {opCsvAsk && (() => {
+                    const nC = opPeople.filter(opIsConsultant).length
+                    return (
+                      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setOpCsvAsk(false)} onKeyDown={e => { if (e.key === 'Escape') setOpCsvAsk(false) }}>
+                        <div role="dialog" aria-modal="true" className="w-full max-w-sm bg-gray-900 border border-gray-700 rounded-2xl p-5 shadow-xl" onClick={e => e.stopPropagation()}>
+                          <p className="text-gray-100 font-semibold mb-1">Download roster CSV</p>
+                          <p className="text-xs text-gray-500 mb-4">Include consultants? There {nC === 1 ? 'is' : 'are'} {nC} consultant{nC === 1 ? '' : 's'} out of {opPeople.length} people in this version.</p>
+                          <div className="flex flex-col gap-2">
+                            <button autoFocus onClick={() => { setOpCsvAsk(false); exportOrgPlanningCSV(true) }} className={btnPrimary + ' w-full'} style={{ backgroundColor: '#193a29' }}>Include consultants ({opPeople.length})</button>
+                            <button onClick={() => { setOpCsvAsk(false); exportOrgPlanningCSV(false) }} className="w-full text-sm text-gray-200 border border-gray-700 rounded-lg px-3 py-2 hover:text-gray-100 hover:border-gray-500">Exclude consultants ({opPeople.length - nC})</button>
+                            <button onClick={() => setOpCsvAsk(false)} className="text-xs text-gray-500 hover:text-gray-200 mt-1">Cancel</button>
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  })()}
                   {opPeople.length > 0 && <button onClick={opClearAll} className="text-xs text-red-400/80 hover:text-red-400 border border-red-500/30 rounded-lg px-2 py-1.5">Clear all</button>}
                 </div>
                 <p className="text-[10px] text-gray-600 leading-snug">CSV needs a <span className="text-gray-400">Name</span> column (optional <span className="text-gray-400">Position</span>). Existing names get their position updated.</p>
