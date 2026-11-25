@@ -6406,7 +6406,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
               ))}
               <div className="flex-1" />
               <button onClick={exportOrgPlanningViewer} className="text-xs px-3 py-1 mb-1 mr-2 rounded-lg border border-gray-700 text-gray-300 hover:text-white hover:border-gray-500" title="Download a standalone HTML page with pod definitions, links and every org version">⬇ Export viewer</button>
-              {opSub === 'definition' && <button onClick={opLock} className="text-[11px] text-gray-500 hover:text-gray-200 mb-1" title="Lock Org planning">🔒 Lock</button>}
+              {(opSub === 'definition' || opHideRoster) && <button onClick={opLock} className="text-[11px] text-gray-500 hover:text-gray-200 mb-1" title="Lock Org planning">🔒 Lock</button>}
             </div>
           )
 
