@@ -376,8 +376,22 @@ function buildOrgPlanningViewerHTML(d: { versions: PlanVersionX[]; people: PlanP
       return `<tr><th scope="row">${tip ? `<span class="tip" title="${esc(tip)}">${esc(r.name)}</span>` : esc(r.name)}<div class="muted small fw4">${from}</div></th><td class="n">${r.actual}</td><td class="n">${r.target}</td><td class="n"><span class="delta ${deltaCls(r.delta)}">${signed(r.delta)}</span></td><td class="n">${pct2(r.pctOfTarget)}</td><td class="n">${pct2(r.ftePct)}</td><td class="n">${pct2(r.contractorPct)}</td><td class="n">${ofT(r.actual - r.contractors, r.fteOfTarget)}</td><td class="n">${ofT(r.contractors, r.contractorOfTarget)}</td><td class="meter"><span class="track"><span class="fill ${deltaCls(r.delta)}" style="width:${pct}%"></span></span></td></tr>`
     }).join('')
     const t = hc.totals, td = t.actual - t.target
-    const extra = hc.untargeted.length ? `<p class="muted small">No target: ${hc.untargeted.map(x => `${esc(x.team)} (${x.count})`).join(', ')}</p>` : ''
-    return `<div class="panel"><h3 class="mb">Headcount vs target</h3><div class="tablewrap flat"><table class="tgt"><thead><tr><th>Pod</th><th class="n">Actual</th><th class="n">Target</th><th class="n">Delta</th><th class="n">% of target</th><th class="n">FTE %</th><th class="n">Contractor %</th><th class="n">FTEs / target</th><th class="n">Contractors / target</th><th></th></tr></thead><tbody>${rows}<tr class="tot"><th scope="row">Total (pods with a target)</th><td class="n">${t.actual}</td><td class="n">${t.target}</td><td class="n"><span class="delta ${deltaCls(td)}">${signed(td)}</span></td><td class="n">${pct2(t.pctOfTarget)}</td><td class="n">${pct2(t.ftePct)}</td><td class="n">${pct2(t.contractorPct)}</td><td class="n">${ofT(t.actual - t.contractors, t.fteOfTarget)}</td><td class="n">${ofT(t.contractors, t.contractorOfTarget)}</td><td></td></tr></tbody></table></div>${extra}</div>`
+    // Teams without a target (e.g. Safety, Off-platform): actuals and FTE/contractor split only
+    const groups = new Map<string, { team: string; count: number; contractors: number; sources: TeamCount[] }>()
+    hc.untargeted.forEach(x => { const k = x.team.toLowerCase(); const g = groups.get(k) ?? { team: x.team, count: 0, contractors: 0, sources: [] }; g.count += x.count; g.contractors += x.contractors; g.sources.push(x); groups.set(k, g) })
+    const share = (n: number, c: number) => (n ? Math.round((c / n) * 100) : null)
+    const dash = '<td class="n muted">—</td>'
+    const noTargetRows = [...groups.values()].map(g => {
+      const cp = share(g.count, g.contractors)
+      const from = g.sources.map(x => `${esc(x.team)} <span class="muted">(${esc(x.leader)}${x.depth === 2 ? ', sub-team' : ''}: ${x.count})</span>`).join(', ')
+      return `<tr class="notarget"><th scope="row">${esc(g.team)}<div class="muted small fw4">${from}</div></th><td class="n">${g.count}</td>${dash}${dash}${dash}<td class="n">${pct2(cp == null ? null : 100 - cp)}</td><td class="n">${pct2(cp)}</td><td class="n">${g.count - g.contractors}<span class="muted fw4"> · —</span></td><td class="n">${g.contractors}<span class="muted fw4"> · —</span></td><td></td></tr>`
+    }).join('')
+    const allN = t.actual + [...groups.values()].reduce((a, g) => a + g.count, 0)
+    const allC = t.contractors + [...groups.values()].reduce((a, g) => a + g.contractors, 0)
+    const allCp = share(allN, allC)
+    const grand = groups.size ? `<tr class="tot"><th scope="row">Total (all teams)</th><td class="n">${allN}</td>${dash}${dash}${dash}<td class="n">${pct2(allCp == null ? null : 100 - allCp)}</td><td class="n">${pct2(allCp)}</td><td class="n">${allN - allC}</td><td class="n">${allC}</td><td></td></tr>` : ''
+    const extra = ''
+    return `<div class="panel"><h3 class="mb">Headcount vs target</h3><div class="tablewrap flat"><table class="tgt"><thead><tr><th>Pod</th><th class="n">Actual</th><th class="n">Target</th><th class="n">Delta</th><th class="n">% of target</th><th class="n">FTE %</th><th class="n">Contractor %</th><th class="n">FTEs / target</th><th class="n">Contractors / target</th><th></th></tr></thead><tbody>${rows}<tr class="tot"><th scope="row">Total (pods with a target)</th><td class="n">${t.actual}</td><td class="n">${t.target}</td><td class="n"><span class="delta ${deltaCls(td)}">${signed(td)}</span></td><td class="n">${pct2(t.pctOfTarget)}</td><td class="n">${pct2(t.ftePct)}</td><td class="n">${pct2(t.contractorPct)}</td><td class="n">${ofT(t.actual - t.contractors, t.fteOfTarget)}</td><td class="n">${ofT(t.contractors, t.contractorOfTarget)}</td><td></td></tr>${noTargetRows}${grand}</tbody></table></div>${extra}</div>`
   }
   const versionSections = versionData.map(({ v, people, placed, trees, unplaced, hc }, vi) => {
     const body = trees.length === 0 ? '<p class="muted">No one is placed on this chart yet.</p>' : trees.map(t => `
@@ -442,11 +456,11 @@ table{border-collapse:collapse;width:100%}.hc td{padding:5px 0;border-top:1px so
 .tablewrap{overflow-x:auto;background:var(--panel);border:1px solid var(--line);border-radius:12px}
 .cmp th,.cmp td{padding:9px 12px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}.cmp thead th{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}.cmp td .n{text-align:left;padding:0}
 footer{color:var(--muted);font-size:12px;border-top:1px solid var(--line);padding-top:12px}
-.tip{text-decoration:underline dotted;text-underline-offset:3px;cursor:help}.mb{margin-bottom:10px}.mt{margin-top:22px}.fw4{font-weight:400;margin-top:2px}.tablewrap.flat{border:0;background:none;border-radius:0}
+.tip{text-decoration:underline dotted;text-underline-offset:3px;cursor:help}.notarget th,.notarget td{color:var(--muted)}.notarget th{color:var(--ink)}.notarget td.n:nth-child(2){color:var(--ink)}.mb{margin-bottom:10px}.mt{margin-top:22px}.fw4{font-weight:400;margin-top:2px}.tablewrap.flat{border:0;background:none;border-radius:0}
 .tgt th,.tgt td{padding:8px 10px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}.tgt thead th{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}.tgt th.n,.tgt td.n{text-align:right}
 .delta{display:inline-block;font-weight:650;font-variant-numeric:tabular-nums;padding:1px 8px;border-radius:999px;font-size:12px}
 .delta.neg{background:rgba(220,60,60,.14);color:#d64545}.delta.pos{background:rgba(214,150,30,.16);color:#b7791f}.delta.zero{background:var(--accent-soft);color:var(--accent)}
-.meter{width:28%;min-width:90px}.track{display:block;height:8px;border-radius:999px;background:var(--line);overflow:hidden;margin-top:6px}.fill{display:block;height:100%;border-radius:999px}.fill.neg{background:#d64545}.fill.pos{background:#d6961e}.fill.zero{background:var(--accent)}
+.meter{width:14%;min-width:80px}.tgt th[scope=row]{min-width:190px}.track{display:block;height:8px;border-radius:999px;background:var(--line);overflow:hidden;margin-top:6px}.fill{display:block;height:100%;border-radius:999px}.fill.neg{background:#d64545}.fill.pos{background:#d6961e}.fill.zero{background:var(--accent)}
 @media print{nav{position:static}section{break-inside:avoid-page}}
 </style></head><body><div class="wrap">
 <div class="top"><div><p class="eyebrow">Org planning</p><h1>Pods & org versions</h1></div><p class="muted small">Exported ${esc(stamp)} · ${plural(d.versions.length, 'version')} · ${plural(pods.length, 'pod')}</p></div>
