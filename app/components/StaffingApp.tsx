@@ -1914,8 +1914,22 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
     }
     kids(null).forEach(walk)
     opPeople.filter(p => !visited.has(p.id)).sort((a, b) => a.name.localeCompare(b.name)).forEach(p => order.push(p))
-    const rows: (string | number | boolean | null)[][] = [['Employee Name', 'Position', 'Manager', 'Team']]
-    for (const p of order) rows.push([p.name, p.position ?? '', placed(p) ? parentOf(p)?.name ?? '' : '', teamOf(p)])
+    // Lead: the 2nd-layer person (direct report of the top) this person rolls up to; leads are their own lead.
+    const leadOf = (p: PlanPerson) => {
+      if (!placed(p)) return ''
+      let cur: PlanPerson = p
+      const seen = new Set<string>()
+      while (!seen.has(cur.id)) {
+        seen.add(cur.id)
+        const up = parentOf(cur)
+        if (!up) return ''
+        if (!parentOf(up)) return cur.name
+        cur = up
+      }
+      return ''
+    }
+    const rows: (string | number | boolean | null)[][] = [['Employee Name', 'Position', 'Manager', 'Team', 'Lead']]
+    for (const p of order) rows.push([p.name, p.position ?? '', placed(p) ? parentOf(p)?.name ?? '' : '', teamOf(p), leadOf(p)])
     const vName = (opVersions.find(v => v.id === opVersionId)?.name ?? '').replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '').toLowerCase()
     downloadCSV(`org-planning-${vName ? vName + '-' : ''}${new Date().toISOString().split('T')[0]}.csv`, rows)
   }
