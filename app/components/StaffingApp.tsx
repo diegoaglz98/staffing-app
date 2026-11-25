@@ -7085,6 +7085,16 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                           onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
                           className="w-full bg-transparent text-xs text-gray-500 placeholder-gray-700 focus:text-gray-200 focus:outline-none mt-0.5"
                         />
+                        <textarea
+                          key={`${p.id}-note-${p.notes ?? ''}`}
+                          defaultValue={p.notes ?? ''}
+                          placeholder="+ note"
+                          rows={Math.max(1, (p.notes ?? '').split('\n').length)}
+                          onInput={e => { const el = e.currentTarget; el.style.height = 'auto'; el.style.height = `${el.scrollHeight}px` }}
+                          onBlur={e => opSaveNote(p, e.target.value)}
+                          onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) (e.target as HTMLTextAreaElement).blur(); if (e.key === 'Escape') { (e.target as HTMLTextAreaElement).value = p.notes ?? ''; (e.target as HTMLTextAreaElement).blur() } }}
+                          className={`block w-full resize-none overflow-hidden bg-transparent text-[11px] leading-snug italic placeholder-gray-700 placeholder:not-italic focus:text-gray-200 focus:outline-none mt-1 ${p.notes ? 'text-gray-400 border-l-2 border-amber-400/60 pl-1.5' : 'text-gray-500'}`}
+                        />
                       </div>
                       <button onClick={() => opDeletePerson(p.id)} title="Remove from roster" className="text-gray-600 hover:text-red-400 text-xs opacity-0 group-hover:opacity-100">✕</button>
                     </div>
