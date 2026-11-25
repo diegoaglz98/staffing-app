@@ -212,7 +212,7 @@ function targetAssumptionText(t: PlanTarget | undefined) {
   const raw = Math.round(t.queues_per_week * t.hc_per_queue * 100) / 100
   return `Assumptions\n• Queues / week: ${t.queues_per_week}\n• Headcount per queue: ${t.hc_per_queue}\n= ${raw} HC → target ${t.target}`
 }
-type TeamCount = { team: string; leader: string; depth: number; count: number; contractors: number }
+type TeamCount = { team: string; leader: string; depth: number; count: number; contractors: number; isPod: boolean }
 type TargetRow = { name: string; target: number; actual: number; delta: number; contractors: number; ftePct: number | null; contractorPct: number | null; fteOfTarget: number | null; contractorOfTarget: number | null; pctOfTarget: number | null; sources: TeamCount[] }
 // A team = someone on the top 3 levels (below the top person) with a team name. Its headcount is everyone
 // below them, minus nested named teams; sub-leads (level 3) count toward their own team, level-2 leads don't
@@ -261,7 +261,11 @@ function computeHeadcountVsTarget(people: PlanPerson[], targets: PlanTarget[], i
       const left = tokens(name).filter(k => !covered.has(k) && targetByName.has(k))
       if (left.length === 1) target = targetByName.get(left[0])
     }
-    return { tc: { team: name, leader: t.name, depth: depth(t), count, contractors } as TeamCount, target }
+    // A sub-team is its own pod only when the parent team's name calls it out (e.g. "Safety" under "Code/Safety");
+    // other sub-teams (e.g. "Generalists") are just part of their lead's team.
+    const parent = parentOf(t)
+    const isPod = depth(t) === 1 || (!!parent?.team_name && tokens(parent.team_name).includes(norm(name)))
+    return { tc: { team: name, leader: t.name, depth: depth(t), count, contractors, isPod } as TeamCount, target }
   })
 
   const rows: TargetRow[] = targets.map(t => {
@@ -378,7 +382,7 @@ function buildOrgPlanningViewerHTML(d: { versions: PlanVersionX[]; people: PlanP
     const t = hc.totals, td = t.actual - t.target
     // Teams without a target (e.g. Safety, Off-platform): actuals and FTE/contractor split only
     const groups = new Map<string, { team: string; count: number; contractors: number; sources: TeamCount[] }>()
-    hc.untargeted.forEach(x => { const k = x.team.toLowerCase(); const g = groups.get(k) ?? { team: x.team, count: 0, contractors: 0, sources: [] }; g.count += x.count; g.contractors += x.contractors; g.sources.push(x); groups.set(k, g) })
+    hc.untargeted.filter(x => x.isPod).forEach(x => { const k = x.team.toLowerCase(); const g = groups.get(k) ?? { team: x.team, count: 0, contractors: 0, sources: [] }; g.count += x.count; g.contractors += x.contractors; g.sources.push(x); groups.set(k, g) })
     const share = (n: number, c: number) => (n ? Math.round((c / n) * 100) : null)
     const dash = '<td class="n muted">—</td>'
     const noTargetRows = [...groups.values()].map(g => {
