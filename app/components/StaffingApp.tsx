@@ -293,6 +293,20 @@ function computeHeadcountVsTarget(people: PlanPerson[], targets: PlanTarget[], i
   return { rows, untargeted, totals, leads }
 }
 
+// Minimal line icons for pods (24×24, stroke = currentColor), picked by keyword in the pod name
+const POD_ICON_PATHS: [RegExp, string][] = [
+  [/safe/i, '<path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/>'],
+  [/off[\s-]?platform|external/i, '<path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>'],
+  [/multi|modal|image|video|audio/i, '<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.1-3.1a2 2 0 0 0-2.8 0L6 21"/>'],
+  [/tech|infra/i, '<rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M7 7.5h.01"/><path d="M7 16.5h.01"/>'],
+  [/code|swe|eng/i, '<path d="m16 18 6-6-6-6"/><path d="m8 6-6 6 6 6"/>'],
+  [/prof|financ|legal|business/i, '<rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/>'],
+  [/sci|stem|bio|health/i, '<path d="M10 2v7.31"/><path d="M14 9.3V2"/><path d="M8.5 2h7"/><path d="M14 9.3a6.5 6.5 0 1 1-4 0"/><path d="M5.52 16h12.96"/>'],
+  [/general/i, '<path d="M7.9 20A9 9 0 1 0 4 16.1L2 22z"/>'],
+]
+const POD_ICON_DEFAULT = '<path d="m12 2 9 5v10l-9 5-9-5V7z"/>'
+function podIconPaths(name: string) { return (POD_ICON_PATHS.find(([re]) => re.test(name)) ?? [null, POD_ICON_DEFAULT])[1] }
+
 // ---- Org planning: standalone HTML viewer export ----
 type PlanVersionX = { id: string; name: string; created_at?: string }
 type PlanPersonX = PlanPerson & { version_id?: string | null }
@@ -300,6 +314,8 @@ type PlanPodX = { id: string; name: string; description: string | null; sort_ord
 type PlanPodLinkX = { id: string; pod_a: string; pod_b: string }
 
 function buildOrgPlanningViewerHTML(d: { versions: PlanVersionX[]; people: PlanPersonX[]; pods: PlanPodX[]; links: PlanPodLinkX[]; targets?: PlanTarget[] }, consultantPositions: string[] | null, podOrder: string[]) {
+  const icon = (name: string, cls = '') => `<span class="picon ${cls}" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${podIconPaths(name)}</svg></span>`
+  const named = (name: string, cls = '') => `<span class="pname">${icon(name, cls)}${String(name).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!))}</span>`
   const esc = (v: unknown) => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!))
   const allPositions = [...new Set(d.people.map(p => p.position).filter((x): x is string => !!x))]
   const cSet = new Set(consultantPositions ?? allPositions.filter(x => x.toLowerCase().includes('consultant')))
@@ -315,7 +331,7 @@ function buildOrgPlanningViewerHTML(d: { versions: PlanVersionX[]; people: PlanP
   const linkedTo = (id: string) => links.filter(l => l.pod_a === id || l.pod_b === id).map(l => podById.get(l.pod_a === id ? l.pod_b : l.pod_a)!)
   let podNetwork = ''
   if (pods.length >= 2 && links.length) {
-    const R = Math.min(170, 60 + pods.length * 12), W = 760, H = Math.round(2 * R + 70), cx = W / 2, cy = H / 2
+    const R = Math.min(180, 70 + pods.length * 12), W = 760, H = Math.round(2 * R + 100), cx = W / 2, cy = H / 2
     const pos = new Map(pods.map((p, i) => {
       const a = -Math.PI / 2 + (i / pods.length) * Math.PI * 2
       return [p.id, { x: cx + R * Math.cos(a), y: cy + R * Math.sin(a), a }]
@@ -325,9 +341,9 @@ function buildOrgPlanningViewerHTML(d: { versions: PlanVersionX[]; people: PlanP
       const { x, y, a } = pos.get(p.id)!
       const cos = Math.cos(a), sin = Math.sin(a)
       const anchor = cos > 0.3 ? 'start' : cos < -0.3 ? 'end' : 'middle'
-      const tx = x + cos * 16, ty = y + sin * 16 + (Math.abs(cos) <= 0.3 ? (sin > 0 ? 10 : -4) : 4)
+      const tx = x + cos * 28, ty = y + sin * 28 + (Math.abs(cos) <= 0.3 ? (sin > 0 ? 12 : -4) : 4)
       const deg = linkedTo(p.id).length
-      return `<g><circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${deg ? 9 : 6}" class="${deg ? 'node' : 'node lone'}"/><text x="${tx.toFixed(1)}" y="${ty.toFixed(1)}" text-anchor="${anchor}" class="nlabel">${esc(p.name)}</text></g>`
+      return `<g class="${deg ? '' : 'lone'}"><circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="17" class="node"/><svg x="${(x - 9).toFixed(1)}" y="${(y - 9).toFixed(1)}" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" class="nicon">${podIconPaths(p.name)}</svg><text x="${tx.toFixed(1)}" y="${ty.toFixed(1)}" text-anchor="${anchor}" class="nlabel">${esc(p.name)}</text></g>`
     }).join('')
     podNetwork = `<figure class="panel net"><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Pod links network">${lines}${nodes}</svg><figcaption>Each line is a link: the two pods collaborate on workload and re-use best practices.</figcaption></figure>`
   }
@@ -353,9 +369,9 @@ function buildOrgPlanningViewerHTML(d: { versions: PlanVersionX[]; people: PlanP
   }
   const podCards = pods.map(p => {
     const lt = linkedTo(p.id)
-    return `<article class="pod"><div class="podhead"><h3>${esc(p.name)}</h3>${leadTile(p.id)}</div>${p.description ? `<p class="desc">${esc(p.description)}</p>` : '<p class="desc muted">No description</p>'}${lt.length ? `<div class="chips"><span class="chiplabel">Linked with</span>${lt.map(o => `<span class="chip">${esc(o.name)}</span>`).join('')}</div>` : ''}</article>`
+    return `<article class="pod"><div class="podhead"><h3>${named(p.name, 'lg')}</h3>${leadTile(p.id)}</div>${p.description ? `<p class="desc">${esc(p.description)}</p>` : '<p class="desc muted">No description</p>'}${lt.length ? `<div class="chips"><span class="chiplabel">Linked with</span>${lt.map(o => `<span class="chip">${named(o.name, 'sm')}</span>`).join('')}</div>` : ''}</article>`
   }).join('')
-  const linkList = links.length ? `<details class="panel"><summary>All links (${links.length})</summary><ul class="linklist">${links.map(l => `<li>${esc(podById.get(l.pod_a)!.name)} <span class="muted">↔</span> ${esc(podById.get(l.pod_b)!.name)}</li>`).join('')}</ul></details>` : ''
+  const linkList = links.length ? `<details class="panel"><summary>All links (${links.length})</summary><ul class="linklist">${links.map(l => `<li>${named(podById.get(l.pod_a)!.name, 'sm')} <span class="muted">↔</span> ${named(podById.get(l.pod_b)!.name, 'sm')}</li>`).join('')}</ul></details>` : ''
   const podsSection = `<section id="pods"><h2>Pod definitions</h2><p class="lede">${plural(pods.length, 'pod')} · ${plural(links.length, 'link')}</p>${pods.length ? podNetwork + `<div class="podgrid">${podCards}</div>` + linkList : '<p class="muted">No pods defined yet.</p>'}</section>`
 
   // ---------- Versions ----------
@@ -408,7 +424,7 @@ function buildOrgPlanningViewerHTML(d: { versions: PlanVersionX[]; people: PlanP
     const rows = hc.rows.map(r => {
       const from = r.sources.length ? r.sources.map(x => `${esc(x.team)} <span class="muted">(${esc(x.leader)}${x.depth === 2 ? ', sub-team' : ''}: ${x.count}${x.includes.length ? `, incl. ${esc(x.includes.join(', '))}` : ''})</span>`).join(', ') : '<span class="muted">No matching team on this chart</span>'
       const tip = targetAssumptionText((d.targets ?? []).find(t => t.name === r.name))
-      return `<tr><th scope="row">${tip ? `<span class="tip" title="${esc(tip)}">${esc(r.name)}</span>` : esc(r.name)}<div class="muted small fw4">${from}</div></th><td class="n">${r.actual}</td><td class="n">${r.target}</td><td class="n"><span class="delta ${deltaCls(r.delta)}">${signed(r.delta)}</span></td><td class="n">${pct2(r.pctOfTarget)}</td><td class="n">${pct2(r.ftePct)}</td><td class="n">${pct2(r.contractorPct)}</td><td class="n">${ofT(r.actual - r.contractors, r.fteOfTarget)}</td><td class="n">${ofT(r.contractors, r.contractorOfTarget)}</td></tr>`
+      return `<tr><th scope="row">${tip ? `<span class="tip" title="${esc(tip)}">${named(r.name)}</span>` : named(r.name)}<div class="muted small fw4">${from}</div></th><td class="n">${r.actual}</td><td class="n">${r.target}</td><td class="n"><span class="delta ${deltaCls(r.delta)}">${signed(r.delta)}</span></td><td class="n">${pct2(r.pctOfTarget)}</td><td class="n">${pct2(r.ftePct)}</td><td class="n">${pct2(r.contractorPct)}</td><td class="n">${ofT(r.actual - r.contractors, r.fteOfTarget)}</td><td class="n">${ofT(r.contractors, r.contractorOfTarget)}</td></tr>`
     }).join('')
     const t = hc.totals, td = t.actual - t.target
     // Teams without a target (e.g. Safety, Off-platform): actuals and FTE/contractor split only
@@ -419,7 +435,7 @@ function buildOrgPlanningViewerHTML(d: { versions: PlanVersionX[]; people: PlanP
     const noTargetRows = [...groups.values()].map(g => {
       const cp = share(g.count, g.contractors)
       const from = g.sources.map(x => `${esc(x.team)} <span class="muted">(${esc(x.leader)}${x.depth === 2 ? ', sub-team' : ''}: ${x.count})</span>`).join(', ')
-      return `<tr class="notarget"><th scope="row">${esc(g.team)}<div class="muted small fw4">${from}</div></th><td class="n">${g.count}</td>${dash}${dash}${dash}<td class="n">${pct2(cp == null ? null : 100 - cp)}</td><td class="n">${pct2(cp)}</td><td class="n">${g.count - g.contractors}<span class="muted fw4"> · —</span></td><td class="n">${g.contractors}<span class="muted fw4"> · —</span></td></tr>`
+      return `<tr class="notarget"><th scope="row">${named(g.team)}<div class="muted small fw4">${from}</div></th><td class="n">${g.count}</td>${dash}${dash}${dash}<td class="n">${pct2(cp == null ? null : 100 - cp)}</td><td class="n">${pct2(cp)}</td><td class="n">${g.count - g.contractors}<span class="muted fw4"> · —</span></td><td class="n">${g.contractors}<span class="muted fw4"> · —</span></td></tr>`
     }).join('')
     const L = hc.leads
     const lcp = share(L.count, L.contractors)
@@ -451,7 +467,7 @@ function buildOrgPlanningViewerHTML(d: { versions: PlanVersionX[]; people: PlanP
     }).join('')}</tr>`).join('')
     const totals = `<tr class="tot"><th scope="row">Total in org</th>${versionData.map(vd => `<td class="n">${vd.trees.reduce((a, t) => a + t.total, 0)}</td>`).join('')}</tr>`
     const tNames = (d.targets ?? []).map(t => t.name)
-    const tRows = tNames.map(nm => `<tr><th scope="row">${(() => { const tip = targetAssumptionText((d.targets ?? []).find(t => t.name === nm)); return tip ? `<span class="tip" title="${esc(tip)}">${esc(nm)}</span>` : esc(nm) })()}</th>${versionData.map(vd => { const r = vd.hc.rows.find(x => x.name === nm)!; return `<td><span class="n">${r.actual}</span><span class="muted"> / ${r.target}</span> <span class="delta ${deltaCls(r.delta)}">${signed(r.delta)}</span>${r.pctOfTarget == null ? '' : `<span class="muted small"> · ${r.pctOfTarget}%</span>`}</td>` }).join('')}</tr>`).join('')
+    const tRows = tNames.map(nm => `<tr><th scope="row">${(() => { const tip = targetAssumptionText((d.targets ?? []).find(t => t.name === nm)); return tip ? `<span class="tip" title="${esc(tip)}">${named(nm)}</span>` : named(nm) })()}</th>${versionData.map(vd => { const r = vd.hc.rows.find(x => x.name === nm)!; return `<td><span class="n">${r.actual}</span><span class="muted"> / ${r.target}</span> <span class="delta ${deltaCls(r.delta)}">${signed(r.delta)}</span>${r.pctOfTarget == null ? '' : `<span class="muted small"> · ${r.pctOfTarget}%</span>`}</td>` }).join('')}</tr>`).join('')
     const tTable = tNames.length ? `<h3 class="mb mt">Headcount vs target</h3><div class="tablewrap"><table class="cmp"><thead><tr><th>Pod</th>${versionData.map(vd => `<th>${esc(vd.v.name)}</th>`).join('')}</tr></thead><tbody>${tRows}</tbody></table></div>` : ''
     compare = `<section id="compare"><h2>Versions side by side</h2><p class="lede">People below each lead, per version.</p><div class="tablewrap"><table class="cmp"><thead><tr><th>Lead</th>${versionData.map(vd => `<th>${esc(vd.v.name)}</th>`).join('')}</tr></thead><tbody>${rows}${totals}</tbody></table></div>${tTable}</section>`
   }
@@ -473,7 +489,7 @@ nav{position:sticky;top:0;z-index:5;background:var(--bg);display:flex;gap:6px;fl
 nav a{color:var(--ink);text-decoration:none;font-size:13px;padding:5px 11px;border:1px solid var(--line);border-radius:999px;background:var(--panel)}nav a:hover{border-color:var(--accent);color:var(--accent)}
 section{margin-bottom:48px;scroll-margin-top:64px}
 .panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px;margin:0 0 16px}
-.net svg{width:100%;height:auto;display:block}.edge{stroke:var(--edge);stroke-width:2;stroke-opacity:.55}.node{fill:var(--accent)}.node.lone{fill:var(--muted)}.nlabel{fill:var(--ink);font-size:12px;font-weight:500}
+.net svg{width:100%;height:auto;display:block}.edge{stroke:var(--edge);stroke-width:2;stroke-opacity:.55}.node{fill:var(--accent-soft);stroke:var(--accent);stroke-width:1.5}.nicon{stroke:var(--accent)}.lone .node{fill:var(--panel);stroke:var(--muted)}.lone .nicon{stroke:var(--muted)}.nlabel{fill:var(--ink);font-size:12px;font-weight:500}
 figcaption{color:var(--muted);font-size:12px;margin-top:6px}
 .podgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px;margin-bottom:12px}
 .pod{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px}.desc{white-space:pre-wrap;margin:6px 0 0;color:var(--muted)}
@@ -496,6 +512,11 @@ table{border-collapse:collapse;width:100%}.hc td{padding:5px 0;border-top:1px so
 .cmp th,.cmp td{padding:9px 12px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}.cmp thead th{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}.cmp td .n{text-align:left;padding:0}
 footer{color:var(--muted);font-size:12px;border-top:1px solid var(--line);padding-top:12px}
 .theme{display:inline-flex;border:1px solid var(--line);border-radius:999px;padding:2px;background:var(--panel)}.theme button{border:0;background:none;color:var(--muted);font:inherit;font-size:12px;padding:4px 10px;border-radius:999px;cursor:pointer}.theme button[aria-pressed=true]{background:var(--accent-soft);color:var(--accent);font-weight:600}.topright{display:flex;flex-direction:column;align-items:flex-end;gap:8px}
+.pname{display:inline-flex;align-items:center;gap:8px;vertical-align:middle}
+.picon{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:6px;background:var(--accent-soft);color:var(--accent);flex:none}
+.picon svg{width:14px;height:14px}.picon.lg{width:28px;height:28px;border-radius:8px}.picon.lg svg{width:17px;height:17px}
+.picon.sm{width:16px;height:16px;border-radius:4px;background:none}.picon.sm svg{width:13px;height:13px}.chip .pname{gap:4px}.linklist .pname{gap:5px}
+.tip .picon{text-decoration:none}
 .podhead{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:6px 10px}.ledby{font-size:11.5px;color:var(--muted);border:1px solid var(--line);border-radius:999px;padding:2px 9px;white-space:nowrap}
 .tip{text-decoration:underline dotted;text-underline-offset:3px;cursor:help}.notarget th,.notarget td{color:var(--muted)}.notarget th{color:var(--ink)}.notarget td.n:nth-child(2){color:var(--ink)}.mb{margin-bottom:10px}.mt{margin-top:22px}.fw4{font-weight:400;margin-top:2px}.tablewrap.flat{border:0;background:none;border-radius:0}
 .tgt th,.tgt td{padding:8px 10px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}.tgt thead th{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}.tgt th.n,.tgt td.n{text-align:right}
