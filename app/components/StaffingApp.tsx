@@ -215,7 +215,7 @@ function targetAssumptionText(t: PlanTarget | undefined) {
 type TeamCount = { team: string; leader: string; depth: number; count: number; contractors: number; isPod: boolean; includes: string[] }
 type TargetRow = { name: string; target: number; actual: number; delta: number; contractors: number; ftePct: number | null; contractorPct: number | null; fteOfTarget: number | null; contractorOfTarget: number | null; pctOfTarget: number | null; sources: TeamCount[] }
 // A team = someone on the top 3 levels (below the top person) with a team name. Its headcount is everyone
-// below them, minus nested named teams; sub-leads (level 3) count toward their own team, level-2 leads don't
+// below them plus the lead themself, minus nested teams that stand on their own; leads and sub-leads count toward their team
 // (same rule as the viewer's "people below"). Teams map to a target by name; a combined name like
 // "Code/Safety" maps to whichever part isn't already covered by one of its own sub-teams.
 // Contractors = GenAI Consultants (the consultant positions); everyone else is an FTE.
@@ -250,8 +250,9 @@ function computeHeadcountVsTarget(people: PlanPerson[], targets: PlanTarget[], i
   }
   const teams = placed.filter(p => isTeam(p) && standsAlone(p)).map(t => {
     // walk the subtree, stopping at nested teams that stand on their own
-    let count = depth(t) === 2 ? 1 : 0
-    let contractors = depth(t) === 2 && isContractor(t) ? 1 : 0
+    // the team's own lead / sub-lead counts toward the team
+    let count = 1
+    let contractors = isContractor(t) ? 1 : 0
     const nested: PlanPerson[] = []
     const includes: string[] = []
     const st = [...kids(t.id)]; const seen = new Set([t.id])
@@ -480,7 +481,7 @@ footer{color:var(--muted);font-size:12px;border-top:1px solid var(--line);paddin
 ${podsSection}
 ${compare}
 ${versionSections}
-<footer><p><b>How headcount is counted:</b> <i>Overall team</i> is everyone below a lead (the lead isn't counted). A <i>sub-team</i> is led by a direct report who has a team name; its count includes the sub-lead and everyone below them. <i>Main team</i> is everyone else below the lead (including people under direct reports without a team name). Main team + sub-teams = overall team.</p><p><b>Headcount vs target:</b> a pod's actual is the sum of teams whose team name matches the pod (a combined name like "Code/Safety" counts toward the part not covered by its own sub-teams). Leads aren't counted; sub-leads count toward their sub-team. Hover a pod name for its planning assumptions (queues / week × headcount per queue). Delta = actual − target (negative = below target). % of target = actual ÷ target. FTE % / Contractor %: share of actual headcount (GenAI Consultants count as contractors, everyone else as FTE). FTEs / target and Contractors / target: the number of actual FTEs / contractors and what % of the pod's target that is.</p><p>Confidential: contains planning data. Don't share outside the intended audience.</p></footer>
+<footer><p><b>How headcount is counted:</b> <i>Overall team</i> is everyone below a lead (the lead isn't counted). A <i>sub-team</i> is led by a direct report who has a team name; its count includes the sub-lead and everyone below them. <i>Main team</i> is everyone else below the lead (including people under direct reports without a team name). Main team + sub-teams = overall team.</p><p><b>Headcount vs target:</b> a pod's actual is the sum of teams whose team name matches the pod (a combined name like "Code/Safety" counts toward the part not covered by its own sub-teams). Leads and sub-leads count toward their own team. Hover a pod name for its planning assumptions (queues / week × headcount per queue). Delta = actual − target (negative = below target). % of target = actual ÷ target. FTE % / Contractor %: share of actual headcount (GenAI Consultants count as contractors, everyone else as FTE). FTEs / target and Contractors / target: the number of actual FTEs / contractors and what % of the pod's target that is.</p><p>Confidential: contains planning data. Don't share outside the intended audience.</p></footer>
 </div></body></html>`
 }
 
@@ -6901,7 +6902,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                       {hc.untargeted.length > 0 && (
                         <p className="text-[11px] text-gray-500 mt-2">No target: {hc.untargeted.map(x => `${x.team} (${x.count})`).join(' · ')}</p>
                       )}
-                      <p className="text-[10px] text-gray-600 mt-2">Actual = people in teams whose team name matches the pod (leads not counted; sub-leads count toward their sub-team). “Code/Safety” counts toward whichever part isn’t its own sub-team. Hover a pod name for its assumptions. Delta = actual − target. % of target = actual ÷ target. FTE % / Contractor %: share of actual headcount (GenAI Consultants = contractors). FTEs / target, Contractors / target: actual count and its % of the pod’s target.</p>
+                      <p className="text-[10px] text-gray-600 mt-2">Actual = people in teams whose team name matches the pod (leads and sub-leads count toward their own team). “Code/Safety” counts toward whichever part isn’t its own sub-team. Hover a pod name for its assumptions. Delta = actual − target. % of target = actual ÷ target. FTE % / Contractor %: share of actual headcount (GenAI Consultants = contractors). FTEs / target, Contractors / target: actual count and its % of the pod’s target.</p>
                     </div>
                   )}
                 </div>
