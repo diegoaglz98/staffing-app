@@ -475,7 +475,7 @@ function buildOrgPlanningViewerHTML(d: { versions: PlanVersionX[]; people: PlanP
   const nav = [`<a href="#pods">Pods</a>`, ...(compare ? ['<a href="#compare">Compare</a>'] : []), ...versionData.map((vd, i) => `<a href="#v${i}">${esc(vd.v.name)}</a>`)].join('')
 
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Org Planning Viewer</title>
+<title>GenAI Custom Org</title>
 <style>
 :root{--bg:#f7f7f5;--panel:#fff;--ink:#16181d;--muted:#6b7079;--line:#e4e4e0;--accent:#1f6f4a;--accent-soft:#e3f1ea;--main:#1f6f4a;--s0:#2b6cb0;--s1:#b7791f;--s2:#805ad5;--s3:#c05671;--edge:#1f6f4a;color-scheme:light}
 @media (prefers-color-scheme:dark){:root:not([data-theme=light]){--bg:#0e1013;--panel:#171a1f;--ink:#e8e9ec;--muted:#959aa4;--line:#2a2e35;--accent:#4cc38a;--accent-soft:#16352a;--main:#4cc38a;--s0:#63a4f0;--s1:#e0a84a;--s2:#a98bf0;--s3:#e5809c;--edge:#4cc38a;color-scheme:dark}}
@@ -525,7 +525,7 @@ footer{color:var(--muted);font-size:12px;border-top:1px solid var(--line);paddin
 .meter{width:14%;min-width:80px}.tgt th[scope=row]{min-width:190px}.track{display:block;height:8px;border-radius:999px;background:var(--line);overflow:hidden;margin-top:6px}.fill{display:block;height:100%;border-radius:999px}.fill.neg{background:#d64545}.fill.pos{background:#d6961e}.fill.zero{background:var(--accent)}
 @media print{nav{position:static}section{break-inside:avoid-page}}
 </style></head><body><div class="wrap">
-<div class="top"><div><p class="eyebrow">Org planning</p><h1>Pods & org versions</h1></div><div class="topright"><div class="theme" role="group" aria-label="Theme"><button data-t="light">☀️ Light</button><button data-t="dark">🌙 Dark</button><button data-t="system">⚙️ System</button></div><p class="muted small" style="margin:0">Exported ${esc(stamp)} · ${plural(d.versions.length, 'version')} · ${plural(pods.length, 'pod')}</p></div></div>
+<div class="top"><div><p class="eyebrow">Org planning</p><h1>GenAI Custom Org</h1></div><div class="topright"><div class="theme" role="group" aria-label="Theme"><button data-t="light">☀️ Light</button><button data-t="dark">🌙 Dark</button><button data-t="system">⚙️ System</button></div><p class="muted small" style="margin:0">Exported ${esc(stamp)} · ${plural(d.versions.length, 'version')} · ${plural(pods.length, 'pod')}</p></div></div>
 <nav>${nav}</nav>
 ${podsSection}
 ${compare}
