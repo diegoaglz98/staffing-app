@@ -461,6 +461,8 @@ export default function StaffingApp() {
   const [opTargets, setOpTargets] = useState<PlanTarget[]>([])
   const [opTargetsSetup, setOpTargetsSetup] = useState<string | null>(null)
   const [opTargetsOpen, setOpTargetsOpen] = useState(true)
+  const [opHideRoster, setOpHideRoster] = useState<boolean>(() => { try { return localStorage.getItem('op-hide-roster') === '1' } catch { return false } })
+  useEffect(() => { try { localStorage.setItem('op-hide-roster', opHideRoster ? '1' : '0') } catch {} }, [opHideRoster])
   const [opShowTargets, setOpShowTargets] = useState<boolean>(() => { try { return localStorage.getItem('op-show-targets') !== '0' } catch { return true } })
   useEffect(() => { try { localStorage.setItem('op-show-targets', opShowTargets ? '1' : '0') } catch {} }, [opShowTargets])
   const [opTargetsEditing, setOpTargetsEditing] = useState(false)
@@ -6718,6 +6720,11 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
               <span className="text-[11px] text-gray-600 ml-1">{opVersions.length} version{opVersions.length === 1 ? '' : 's'} · each has its own roster & chart</span>
               <div className="flex-1" />
               <button
+                onClick={() => setOpHideRoster(v => !v)}
+                className={`text-xs px-2.5 py-1.5 rounded-lg border transition-colors ${!opHideRoster ? 'border-emerald-500/40 text-emerald-300 bg-emerald-500/10' : 'border-gray-700 text-gray-400 hover:text-white hover:border-gray-500'}`}
+                title={opHideRoster ? 'Show the roster sidebar' : 'Hide the roster sidebar to give the chart the full width'}
+              >◧ {opHideRoster ? 'Show roster' : 'Hide roster'}</button>
+              <button
                 onClick={() => setOpShowTargets(v => !v)}
                 className={`text-xs px-2.5 py-1.5 rounded-lg border transition-colors ${opShowTargets ? 'border-emerald-500/40 text-emerald-300 bg-emerald-500/10' : 'border-gray-700 text-gray-400 hover:text-white hover:border-gray-500'}`}
                 title={opShowTargets ? 'Hide the headcount vs target panel' : 'Show the headcount vs target panel'}
@@ -6812,7 +6819,8 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
               )
             })()}
             <div className="flex gap-6 items-start">
-              {/* Left: roster */}
+              {/* Left: roster (can be hidden) */}
+              {!opHideRoster && (
               <div className="w-64 shrink-0 sticky top-6 space-y-3">
                 <div className="flex items-center justify-between">
                   <p className="text-xs text-gray-500 uppercase tracking-wider">Roster · {opPeople.length}</p>
@@ -6873,6 +6881,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                   ))}
                 </div>
               </div>
+              )}
 
               {/* Right: chart */}
               <div className="flex-1 min-w-0 overflow-x-auto">
