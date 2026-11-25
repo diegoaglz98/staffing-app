@@ -165,6 +165,7 @@ type PlanPerson = {
   parent_id: string | null
   in_chart: boolean
   sort_order?: number | null
+  notes?: string | null
 }
 
 const PRIORITIES = ['P00', 'P0', 'P1', 'P2']
@@ -1795,6 +1796,17 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
   async function opUpdate(id: string, patch: Partial<PlanPerson>) {
     setOpPeople(prev => prev.map(p => p.id === id ? { ...p, ...patch } : p))
     try { await opApi({ action: 'update', id, patch }) } catch { opLoad() }
+  }
+  async function opSaveNote(p: PlanPerson, raw: string) {
+    const notes = raw.trim() || null
+    if (notes === (p.notes ?? null)) return
+    setOpPeople(prev => prev.map(x => x.id === p.id ? { ...x, notes } : x))
+    try { await opApi({ action: 'update', id: p.id, patch: { notes } }) }
+    catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      if (/notes/i.test(msg)) alert('Notes need a one-time database update. Run this in Supabase → SQL editor:\n\nalter table org_plan_people add column if not exists notes text;')
+      opLoad()
+    }
   }
   async function opRename(p: PlanPerson, raw: string) {
     const name = raw.trim()
@@ -6816,6 +6828,25 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                 })()}
                 {p.position && <p className="text-[11px] text-gray-500 whitespace-nowrap">{p.position}</p>}
                 {teamEditor(p, d)}
+                {opEditTeam === `note:${p.id}` ? (
+                  <textarea
+                    autoFocus
+                    rows={3}
+                    defaultValue={p.notes ?? ''}
+                    placeholder="Add a note…"
+                    onClick={e => e.stopPropagation()}
+                    onMouseDown={e => e.stopPropagation()}
+                    onBlur={e => { setOpEditTeam(null); opSaveNote(p, e.target.value) }}
+                    onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) (e.target as HTMLTextAreaElement).blur(); if (e.key === 'Escape') setOpEditTeam(null) }}
+                    className="mt-1.5 block w-full min-w-[180px] bg-gray-950/70 border border-gray-600 rounded px-1.5 py-1 text-[11px] text-gray-100 focus:outline-none focus:ring-1 focus:ring-[#193a29] resize-y"
+                  />
+                ) : p.notes ? (
+                  <button onClick={() => setOpEditTeam(`note:${p.id}`)} title="Edit note" className="mt-1.5 block max-w-[220px] text-left text-[11px] leading-snug text-gray-400 italic whitespace-pre-wrap break-words border-l-2 border-amber-400/60 pl-1.5 hover:text-gray-200">
+                    {p.notes}
+                  </button>
+                ) : (
+                  <button onClick={() => setOpEditTeam(`note:${p.id}`)} className="block mt-0.5 text-[10px] text-gray-600 hover:text-gray-200 whitespace-nowrap">+ note</button>
+                )}
                 {kids.length > 0 && (
                   <button onClick={() => setOpCollapsed(prev => ({ ...prev, [p.id]: !isOpCollapsed(p.id) }))} className="block mt-1 text-[10px] text-gray-500 hover:text-gray-200">
                     {collapsed ? `▸ ${kids.length} report${kids.length === 1 ? '' : 's'}` : '▾ collapse'}

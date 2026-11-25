@@ -66,7 +66,7 @@ export async function GET(request: Request) {
   return NextResponse.json({ people: data, versions, versionId })
 }
 
-type Person = { id?: string; version_id?: string; name?: string; position?: string | null; team_name?: string | null; parent_id?: string | null; in_chart?: boolean; sort_order?: number | null }
+type Person = { id?: string; version_id?: string; name?: string; position?: string | null; team_name?: string | null; parent_id?: string | null; in_chart?: boolean; sort_order?: number | null; notes?: string | null }
 
 export async function POST(request: Request) {
   const body = await request.json().catch(() => ({}))
@@ -99,6 +99,7 @@ export async function POST(request: Request) {
     if (p.parent_id !== undefined) out.parent_id = p.parent_id || null
     if (p.in_chart !== undefined) out.in_chart = !!p.in_chart
     if (p.sort_order !== undefined) out.sort_order = p.sort_order == null ? null : Number(p.sort_order)
+    if (p.notes !== undefined) out.notes = (p.notes ?? '').toString().trim() || null
     return out
   }
 
@@ -138,6 +139,7 @@ export async function POST(request: Request) {
       const rows = (src ?? []).map(p => ({
         id: idMap.get(p.id)!, version_id: v.id, name: p.name, position: p.position, team_name: p.team_name,
         parent_id: p.parent_id ? idMap.get(p.parent_id) ?? null : null, in_chart: p.in_chart, sort_order: p.sort_order ?? null,
+        ...(p.notes ? { notes: p.notes } : {}),
       }))
       // Insert managers before their reports so the self-reference is always satisfied.
       const byId = new Map(rows.map(r => [r.id, r]))
