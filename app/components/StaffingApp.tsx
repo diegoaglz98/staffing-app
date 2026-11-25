@@ -205,7 +205,13 @@ function parseCSVLine(line: string): string[] {
 }
 
 // ---- Org planning: headcount vs target ----
-type PlanTarget = { id: string; name: string; target: number; sort_order?: number | null }
+type PlanTarget = { id: string; name: string; target: number; sort_order?: number | null; queues_per_week?: number | null; hc_per_queue?: number | null }
+// Tooltip text for a pod's planning assumptions (queues/week × HC per queue)
+function targetAssumptionText(t: PlanTarget | undefined) {
+  if (!t || t.queues_per_week == null || t.hc_per_queue == null) return ''
+  const raw = Math.round(t.queues_per_week * t.hc_per_queue * 100) / 100
+  return `Assumptions\n• Queues / week: ${t.queues_per_week}\n• Headcount per queue: ${t.hc_per_queue}\n= ${raw} HC → target ${t.target}`
+}
 type TeamCount = { team: string; leader: string; depth: number; count: number; contractors: number }
 type TargetRow = { name: string; target: number; actual: number; delta: number; contractors: number; ftePct: number | null; contractorPct: number | null; fteOfTarget: number | null; contractorOfTarget: number | null; sources: TeamCount[] }
 // A team = someone on the top 3 levels (below the top person) with a team name. Its headcount is everyone
@@ -366,7 +372,8 @@ function buildOrgPlanningViewerHTML(d: { versions: PlanVersionX[]; people: PlanP
     const rows = hc.rows.map(r => {
       const pct = r.target ? Math.min(100, Math.round((r.actual / r.target) * 100)) : 0
       const from = r.sources.length ? r.sources.map(x => `${esc(x.team)} <span class="muted">(${esc(x.leader)}${x.depth === 2 ? ', sub-team' : ''}: ${x.count})</span>`).join(', ') : '<span class="muted">No matching team on this chart</span>'
-      return `<tr><th scope="row">${esc(r.name)}<div class="muted small fw4">${from}</div></th><td class="n">${r.actual}</td><td class="n">${r.target}</td><td class="n"><span class="delta ${deltaCls(r.delta)}">${signed(r.delta)}</span></td><td class="n">${pct2(r.ftePct)}</td><td class="n">${pct2(r.contractorPct)}</td><td class="n">${ofT(r.actual - r.contractors, r.fteOfTarget)}</td><td class="n">${ofT(r.contractors, r.contractorOfTarget)}</td><td class="meter"><span class="track"><span class="fill ${deltaCls(r.delta)}" style="width:${pct}%"></span></span></td></tr>`
+      const tip = targetAssumptionText((d.targets ?? []).find(t => t.name === r.name))
+      return `<tr><th scope="row">${tip ? `<span class="tip" title="${esc(tip)}">${esc(r.name)}</span>` : esc(r.name)}<div class="muted small fw4">${from}</div></th><td class="n">${r.actual}</td><td class="n">${r.target}</td><td class="n"><span class="delta ${deltaCls(r.delta)}">${signed(r.delta)}</span></td><td class="n">${pct2(r.ftePct)}</td><td class="n">${pct2(r.contractorPct)}</td><td class="n">${ofT(r.actual - r.contractors, r.fteOfTarget)}</td><td class="n">${ofT(r.contractors, r.contractorOfTarget)}</td><td class="meter"><span class="track"><span class="fill ${deltaCls(r.delta)}" style="width:${pct}%"></span></span></td></tr>`
     }).join('')
     const t = hc.totals, td = t.actual - t.target
     const extra = hc.untargeted.length ? `<p class="muted small">No target: ${hc.untargeted.map(x => `${esc(x.team)} (${x.count})`).join(', ')}</p>` : ''
@@ -392,7 +399,7 @@ function buildOrgPlanningViewerHTML(d: { versions: PlanVersionX[]; people: PlanP
     }).join('')}</tr>`).join('')
     const totals = `<tr class="tot"><th scope="row">Total in org</th>${versionData.map(vd => `<td class="n">${vd.trees.reduce((a, t) => a + t.total, 0)}</td>`).join('')}</tr>`
     const tNames = (d.targets ?? []).map(t => t.name)
-    const tRows = tNames.map(nm => `<tr><th scope="row">${esc(nm)}</th>${versionData.map(vd => { const r = vd.hc.rows.find(x => x.name === nm)!; return `<td><span class="n">${r.actual}</span><span class="muted"> / ${r.target}</span> <span class="delta ${deltaCls(r.delta)}">${signed(r.delta)}</span></td>` }).join('')}</tr>`).join('')
+    const tRows = tNames.map(nm => `<tr><th scope="row">${(() => { const tip = targetAssumptionText((d.targets ?? []).find(t => t.name === nm)); return tip ? `<span class="tip" title="${esc(tip)}">${esc(nm)}</span>` : esc(nm) })()}</th>${versionData.map(vd => { const r = vd.hc.rows.find(x => x.name === nm)!; return `<td><span class="n">${r.actual}</span><span class="muted"> / ${r.target}</span> <span class="delta ${deltaCls(r.delta)}">${signed(r.delta)}</span></td>` }).join('')}</tr>`).join('')
     const tTable = tNames.length ? `<h3 class="mb mt">Headcount vs target</h3><div class="tablewrap"><table class="cmp"><thead><tr><th>Pod</th>${versionData.map(vd => `<th>${esc(vd.v.name)}</th>`).join('')}</tr></thead><tbody>${tRows}</tbody></table></div>` : ''
     compare = `<section id="compare"><h2>Versions side by side</h2><p class="lede">People below each lead, per version.</p><div class="tablewrap"><table class="cmp"><thead><tr><th>Lead</th>${versionData.map(vd => `<th>${esc(vd.v.name)}</th>`).join('')}</tr></thead><tbody>${rows}${totals}</tbody></table></div>${tTable}</section>`
   }
@@ -435,7 +442,7 @@ table{border-collapse:collapse;width:100%}.hc td{padding:5px 0;border-top:1px so
 .tablewrap{overflow-x:auto;background:var(--panel);border:1px solid var(--line);border-radius:12px}
 .cmp th,.cmp td{padding:9px 12px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}.cmp thead th{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}.cmp td .n{text-align:left;padding:0}
 footer{color:var(--muted);font-size:12px;border-top:1px solid var(--line);padding-top:12px}
-.mb{margin-bottom:10px}.mt{margin-top:22px}.fw4{font-weight:400;margin-top:2px}.tablewrap.flat{border:0;background:none;border-radius:0}
+.tip{text-decoration:underline dotted;text-underline-offset:3px;cursor:help}.mb{margin-bottom:10px}.mt{margin-top:22px}.fw4{font-weight:400;margin-top:2px}.tablewrap.flat{border:0;background:none;border-radius:0}
 .tgt th,.tgt td{padding:8px 10px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}.tgt thead th{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}.tgt th.n,.tgt td.n{text-align:right}
 .delta{display:inline-block;font-weight:650;font-variant-numeric:tabular-nums;padding:1px 8px;border-radius:999px;font-size:12px}
 .delta.neg{background:rgba(220,60,60,.14);color:#d64545}.delta.pos{background:rgba(214,150,30,.16);color:#b7791f}.delta.zero{background:var(--accent-soft);color:var(--accent)}
@@ -447,7 +454,7 @@ footer{color:var(--muted);font-size:12px;border-top:1px solid var(--line);paddin
 ${podsSection}
 ${compare}
 ${versionSections}
-<footer><p><b>How headcount is counted:</b> <i>Overall team</i> is everyone below a lead (the lead isn't counted). A <i>sub-team</i> is led by a direct report who has a team name; its count includes the sub-lead and everyone below them. <i>Main team</i> is everyone else below the lead (including people under direct reports without a team name). Main team + sub-teams = overall team.</p><p><b>Headcount vs target:</b> a pod's actual is the sum of teams whose team name matches the pod (a combined name like "Code/Safety" counts toward the part not covered by its own sub-teams). Leads aren't counted; sub-leads count toward their sub-team. Delta = actual − target (negative = below target). FTE % / Contractor %: share of actual headcount (GenAI Consultants count as contractors, everyone else as FTE). FTEs / target and Contractors / target: the number of actual FTEs / contractors and what % of the pod's target that is.</p><p>Confidential: contains planning data. Don't share outside the intended audience.</p></footer>
+<footer><p><b>How headcount is counted:</b> <i>Overall team</i> is everyone below a lead (the lead isn't counted). A <i>sub-team</i> is led by a direct report who has a team name; its count includes the sub-lead and everyone below them. <i>Main team</i> is everyone else below the lead (including people under direct reports without a team name). Main team + sub-teams = overall team.</p><p><b>Headcount vs target:</b> a pod's actual is the sum of teams whose team name matches the pod (a combined name like "Code/Safety" counts toward the part not covered by its own sub-teams). Leads aren't counted; sub-leads count toward their sub-team. Hover a pod name for its planning assumptions (queues / week × headcount per queue). Delta = actual − target (negative = below target). FTE % / Contractor %: share of actual headcount (GenAI Consultants count as contractors, everyone else as FTE). FTEs / target and Contractors / target: the number of actual FTEs / contractors and what % of the pod's target that is.</p><p>Confidential: contains planning data. Don't share outside the intended audience.</p></footer>
 </div></body></html>`
 }
 
@@ -1637,10 +1644,13 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
     setOpTargetsSetup(null)
     setOpTargets(data.targets ?? [])
   }
-  async function opSaveTarget(t: { id?: string; name: string; target: number | string }) {
+  async function opSaveTarget(t: { id?: string; name: string; target: number | string; queues_per_week?: number | null; hc_per_queue?: number | null }) {
     const n = Number(t.target)
     if (!t.name.trim() || !Number.isFinite(n)) return
-    const { target } = await opApi({ action: 'targetSave', id: t.id, name: t.name, target: n, ...(t.id ? {} : { sort_order: opTargets.length }) })
+    const extra: Record<string, unknown> = {}
+    if (t.queues_per_week !== undefined) extra.queues_per_week = t.queues_per_week
+    if (t.hc_per_queue !== undefined) extra.hc_per_queue = t.hc_per_queue
+    const { target } = await opApi({ action: 'targetSave', id: t.id, name: t.name, target: n, ...extra, ...(t.id ? {} : { sort_order: opTargets.length }) })
     setOpTargets(prev => t.id ? prev.map(x => x.id === target.id ? target : x) : [...prev, target])
   }
   async function opDeleteTarget(t: PlanTarget) {
@@ -6797,7 +6807,18 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                                   <td className="py-2 pr-3">
                                     {opTargetsEditing
                                       ? <input defaultValue={t.name} onBlur={e => { const v = e.target.value.trim(); if (v && v !== t.name) opSaveTarget({ id: t.id, name: v, target: t.target }); else e.target.value = t.name }} className={inputSmClass + ' !w-40'} />
-                                      : <span className="text-gray-100 font-medium">{r.name}</span>}
+                                      : (() => { const tip = targetAssumptionText(t); return tip
+                                          ? <span title={tip} className="text-gray-100 font-medium underline decoration-dotted decoration-gray-500 underline-offset-4 cursor-help">{r.name}</span>
+                                          : <span className="text-gray-100 font-medium">{r.name}</span> })()}
+                                    {opTargetsEditing && (
+                                      <div className="flex items-center gap-1.5 mt-1 text-[11px] text-gray-500">
+                                        <input type="number" min={0} step="any" defaultValue={t.queues_per_week ?? ''} placeholder="—" title="Queues per week" onBlur={e => { const v = e.target.value === '' ? null : Number(e.target.value); if (v !== (t.queues_per_week ?? null)) opSaveTarget({ id: t.id, name: t.name, target: t.target, queues_per_week: v }) }} className={inputSmClass + ' !w-14 text-right no-spin'} />
+                                        <span>queues/wk ×</span>
+                                        <input type="number" min={0} step="any" defaultValue={t.hc_per_queue ?? ''} placeholder="—" title="Headcount per queue" onBlur={e => { const v = e.target.value === '' ? null : Number(e.target.value); if (v !== (t.hc_per_queue ?? null)) opSaveTarget({ id: t.id, name: t.name, target: t.target, hc_per_queue: v }) }} className={inputSmClass + ' !w-14 text-right no-spin'} />
+                                        <span>HC/queue</span>
+                                        {t.queues_per_week != null && t.hc_per_queue != null && <span className="text-gray-600">= {Math.round(t.queues_per_week * t.hc_per_queue * 100) / 100}</span>}
+                                      </div>
+                                    )}
                                     <p className="text-[11px] text-gray-500 mt-0.5">
                                       {r.sources.length ? r.sources.map(x => `${x.team} (${x.leader}${x.depth === 2 ? ', sub-team' : ''}: ${x.count})`).join(' · ') : <span className="italic text-gray-600">No team named “{r.name}” on this chart</span>}
                                     </p>
@@ -6845,7 +6866,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                       {hc.untargeted.length > 0 && (
                         <p className="text-[11px] text-gray-500 mt-2">No target: {hc.untargeted.map(x => `${x.team} (${x.count})`).join(' · ')}</p>
                       )}
-                      <p className="text-[10px] text-gray-600 mt-2">Actual = people in teams whose team name matches the pod (leads not counted; sub-leads count toward their sub-team). “Code/Safety” counts toward whichever part isn’t its own sub-team. Delta = actual − target. FTE % / Contractor %: share of actual headcount (GenAI Consultants = contractors). FTEs / target, Contractors / target: actual count and its % of the pod’s target.</p>
+                      <p className="text-[10px] text-gray-600 mt-2">Actual = people in teams whose team name matches the pod (leads not counted; sub-leads count toward their sub-team). “Code/Safety” counts toward whichever part isn’t its own sub-team. Hover a pod name for its assumptions. Delta = actual − target. FTE % / Contractor %: share of actual headcount (GenAI Consultants = contractors). FTEs / target, Contractors / target: actual count and its % of the pod’s target.</p>
                     </div>
                   )}
                 </div>

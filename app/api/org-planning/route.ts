@@ -15,6 +15,8 @@ const POD_LINKS = 'org_plan_pod_links'
 const TARGETS = 'org_plan_targets'
 // Seeded the first time targets are loaded (Off-platform and Safety intentionally have none).
 const TARGET_SEED = [['Science', 18], ['Professional', 18], ['Code', 14], ['Multimodal', 15], ['Technical', 16]] as const
+// Planning assumptions behind each target: queues per week × headcount per queue.
+const ASSUMPTION_SEED: Record<string, [number, number]> = { science: [10, 1.75], professional: [10, 1.75], code: [7, 2], multimodal: [10, 1.5], technical: [8, 2] }
 const token = () => createHash('sha256').update(`org-planning:${PASSWORD}`).digest('hex')
 
 async function unlocked() {
@@ -179,6 +181,17 @@ export async function POST(request: Request) {
         ;({ data, error } = await q())
         if (error) return fail(error.message)
       }
+      // Fill in the planning assumptions once (needs the queues_per_week / hc_per_queue columns).
+      const missing = (data ?? []).filter(t => t.queues_per_week === null && t.hc_per_queue === null && ASSUMPTION_SEED[String(t.name).toLowerCase()])
+      if (missing.length) {
+        let ok = true
+        for (const t of missing) {
+          const [qpw, hpq] = ASSUMPTION_SEED[String(t.name).toLowerCase()]
+          const { error: e3 } = await sb.from(TARGETS).update({ queues_per_week: qpw, hc_per_queue: hpq }).eq('id', t.id)
+          if (e3) { ok = false; break }
+        }
+        if (ok) ({ data } = await q())
+      }
       return NextResponse.json({ targets: data ?? [] })
     }
     case 'targetSave': {
@@ -187,6 +200,9 @@ export async function POST(request: Request) {
       if (!name) return fail('Pod name is required', 400)
       if (!Number.isFinite(target)) return fail('Target must be a number', 400)
       const row: Record<string, unknown> = { name, target }
+      const num = (v: unknown) => (v === '' || v == null ? null : Number.isFinite(Number(v)) ? Number(v) : null)
+      if (body.queues_per_week !== undefined) row.queues_per_week = num(body.queues_per_week)
+      if (body.hc_per_queue !== undefined) row.hc_per_queue = num(body.hc_per_queue)
       if (body.sort_order !== undefined) row.sort_order = body.sort_order
       const res = body.id
         ? await sb.from(TARGETS).update(row).eq('id', body.id).select().single()
