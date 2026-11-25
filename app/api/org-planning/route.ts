@@ -152,6 +152,18 @@ export async function POST(request: Request) {
       }
       return NextResponse.json({ version: v })
     }
+    // ---- Everything, for the HTML viewer export ----
+    case 'exportAll': {
+      const [v, ppl, pods, links] = await Promise.all([
+        sb.from(VERSIONS).select('*').order('created_at', { ascending: true }),
+        sb.from(TABLE).select('*').order('name', { ascending: true }),
+        sb.from(PODS).select('*').order('sort_order', { ascending: true, nullsFirst: false }).order('created_at', { ascending: true }),
+        sb.from(POD_LINKS).select('*'),
+      ])
+      if (v.error) return fail(v.error.message)
+      if (ppl.error) return fail(ppl.error.message)
+      return NextResponse.json({ versions: v.data ?? [], people: ppl.data ?? [], pods: pods.data ?? [], links: links.data ?? [] })
+    }
     // ---- Pods definition (separate table: org_plan_pods) ----
     case 'pods': {
       const { data, error } = await sb.from(PODS).select('*').order('sort_order', { ascending: true, nullsFirst: false }).order('created_at', { ascending: true })

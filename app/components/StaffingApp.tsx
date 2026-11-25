@@ -204,6 +204,161 @@ function parseCSVLine(line: string): string[] {
   return cols
 }
 
+// ---- Org planning: standalone HTML viewer export ----
+type PlanVersionX = { id: string; name: string; created_at?: string }
+type PlanPersonX = PlanPerson & { version_id?: string | null }
+type PlanPodX = { id: string; name: string; description: string | null; sort_order?: number | null }
+type PlanPodLinkX = { id: string; pod_a: string; pod_b: string }
+
+function buildOrgPlanningViewerHTML(d: { versions: PlanVersionX[]; people: PlanPersonX[]; pods: PlanPodX[]; links: PlanPodLinkX[] }, consultantPositions: string[] | null, podOrder: string[]) {
+  const esc = (v: unknown) => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!))
+  const allPositions = [...new Set(d.people.map(p => p.position).filter((x): x is string => !!x))]
+  const cSet = new Set(consultantPositions ?? allPositions.filter(x => x.toLowerCase().includes('consultant')))
+  const isC = (p: PlanPersonX) => !!p.position && cSet.has(p.position)
+  const today = new Date()
+  const stamp = today.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+  const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? '' : 's'}`
+
+  // ---------- Pods ----------
+  const podById = new Map(d.pods.map(p => [p.id, p]))
+  const pods = [...podOrder.map(id => podById.get(id)).filter((x): x is PlanPodX => !!x), ...d.pods.filter(p => !podOrder.includes(p.id))]
+  const links = d.links.filter(l => podById.has(l.pod_a) && podById.has(l.pod_b))
+  const linkedTo = (id: string) => links.filter(l => l.pod_a === id || l.pod_b === id).map(l => podById.get(l.pod_a === id ? l.pod_b : l.pod_a)!)
+  let podNetwork = ''
+  if (pods.length >= 2 && links.length) {
+    const R = Math.min(170, 60 + pods.length * 12), W = 760, H = Math.round(2 * R + 70), cx = W / 2, cy = H / 2
+    const pos = new Map(pods.map((p, i) => {
+      const a = -Math.PI / 2 + (i / pods.length) * Math.PI * 2
+      return [p.id, { x: cx + R * Math.cos(a), y: cy + R * Math.sin(a), a }]
+    }))
+    const lines = links.map(l => { const a = pos.get(l.pod_a)!, b = pos.get(l.pod_b)!; return `<line x1="${a.x.toFixed(1)}" y1="${a.y.toFixed(1)}" x2="${b.x.toFixed(1)}" y2="${b.y.toFixed(1)}" class="edge"/>` }).join('')
+    const nodes = pods.map(p => {
+      const { x, y, a } = pos.get(p.id)!
+      const cos = Math.cos(a), sin = Math.sin(a)
+      const anchor = cos > 0.3 ? 'start' : cos < -0.3 ? 'end' : 'middle'
+      const tx = x + cos * 16, ty = y + sin * 16 + (Math.abs(cos) <= 0.3 ? (sin > 0 ? 10 : -4) : 4)
+      const deg = linkedTo(p.id).length
+      return `<g><circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${deg ? 9 : 6}" class="${deg ? 'node' : 'node lone'}"/><text x="${tx.toFixed(1)}" y="${ty.toFixed(1)}" text-anchor="${anchor}" class="nlabel">${esc(p.name)}</text></g>`
+    }).join('')
+    podNetwork = `<figure class="panel net"><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Pod links network">${lines}${nodes}</svg><figcaption>Each line is a link: the two pods collaborate on workload and re-use best practices.</figcaption></figure>`
+  }
+  const podCards = pods.map(p => {
+    const lt = linkedTo(p.id)
+    return `<article class="pod"><h3>${esc(p.name)}</h3>${p.description ? `<p class="desc">${esc(p.description)}</p>` : '<p class="desc muted">No description</p>'}${lt.length ? `<div class="chips"><span class="chiplabel">Linked with</span>${lt.map(o => `<span class="chip">${esc(o.name)}</span>`).join('')}</div>` : ''}</article>`
+  }).join('')
+  const linkList = links.length ? `<details class="panel"><summary>All links (${links.length})</summary><ul class="linklist">${links.map(l => `<li>${esc(podById.get(l.pod_a)!.name)} <span class="muted">↔</span> ${esc(podById.get(l.pod_b)!.name)}</li>`).join('')}</ul></details>` : ''
+  const podsSection = `<section id="pods"><h2>Pod definitions</h2><p class="lede">${plural(pods.length, 'pod')} · ${plural(links.length, 'link')}</p>${pods.length ? podNetwork + `<div class="podgrid">${podCards}</div>` + linkList : '<p class="muted">No pods defined yet.</p>'}</section>`
+
+  // ---------- Versions ----------
+  type LeadRow = { lead: PlanPersonX; team: string; overall: number; consultants: number; main: number; mainPeople: PlanPersonX[]; subs: { name: string; lead: PlanPersonX; count: number }[] }
+  const versionData = d.versions.map(v => {
+    const people = d.people.filter(p => p.version_id === v.id)
+    const byId = new Map(people.map(p => [p.id, p]))
+    const placed = people.filter(p => p.in_chart)
+    const parentOf = (p: PlanPersonX) => (p.parent_id && byId.get(p.parent_id)?.in_chart ? byId.get(p.parent_id)! : null)
+    const sortKids = (a: PlanPersonX, b: PlanPersonX) => (a.sort_order ?? 1e9) - (b.sort_order ?? 1e9) || a.name.localeCompare(b.name)
+    const kids = (id: string) => placed.filter(p => p.parent_id === id && parentOf(p)).sort(sortKids)
+    const below = (id: string) => { const out: PlanPersonX[] = []; const seen = new Set([id]); const st = [...kids(id)]; while (st.length) { const c = st.pop()!; if (seen.has(c.id)) continue; seen.add(c.id); out.push(c); st.push(...kids(c.id)) } return out }
+    const roots = placed.filter(p => !parentOf(p)).sort(sortKids)
+    const trees = roots.map(root => {
+      const leads: LeadRow[] = kids(root.id).map(lead => {
+        const all = below(lead.id)
+        const directs = kids(lead.id)
+        const subLeads = directs.filter(x => kids(x.id).length > 0 || !!x.team_name)
+        const subs = subLeads.map(s => ({ name: s.team_name || `${s.name}'s team`, lead: s, count: 1 + below(s.id).length }))
+        const mainPeople = directs.filter(x => !subLeads.includes(x))
+        return { lead, team: lead.team_name ?? '', overall: all.length, consultants: all.filter(isC).length, main: mainPeople.length, mainPeople, subs }
+      })
+      return { root, leads, total: 1 + below(root.id).length }
+    })
+    return { v, people, placed, trees, unplaced: people.length - placed.length }
+  })
+
+  const leadCard = (r: LeadRow) => {
+    const seg = (n: number, cls: string, title: string) => n > 0 ? `<span class="seg ${cls}" style="flex:${n}" title="${esc(title)}: ${n}"></span>` : ''
+    return `<article class="lead">
+      <header><div><h4>${esc(r.lead.name)}</h4><p class="muted small">${esc(r.lead.position ?? '')}</p></div>${r.team ? `<span class="team">${esc(r.team)}</span>` : ''}</header>
+      <div class="big"><span class="num">${r.overall}</span><span class="muted small">people below${r.consultants ? ` · incl. ${plural(r.consultants, 'consultant')}` : ''}</span></div>
+      ${r.overall ? `<div class="bar" aria-hidden="true">${seg(r.main, 'main', 'Main team')}${r.subs.map((s, i) => seg(s.count, 'sub s' + (i % 4), s.name)).join('')}</div>` : ''}
+      <table class="hc"><tbody>
+        <tr><td><span class="dot main"></span>Main team <span class="muted small">(reports directly to ${esc(r.lead.name.split(' ')[0])})</span></td><td class="n">${r.main}</td></tr>
+        ${r.subs.map((s, i) => `<tr><td><span class="dot sub s${i % 4}"></span>${esc(s.name)} <span class="muted small">· sub-lead ${esc(s.lead.name)}</span></td><td class="n">${s.count}</td></tr>`).join('')}
+        <tr class="tot"><td>Overall team</td><td class="n">${r.overall}</td></tr>
+      </tbody></table>
+    </article>`
+  }
+
+  const versionSections = versionData.map(({ v, people, placed, trees, unplaced }, vi) => {
+    const body = trees.length === 0 ? '<p class="muted">No one is placed on this chart yet.</p>' : trees.map(t => `
+      <div class="rootcard"><div><p class="eyebrow">Top</p><h3>${esc(t.root.name)}</h3><p class="muted small">${esc(t.root.position ?? '')}${t.root.team_name ? ` · ${esc(t.root.team_name)}` : ''}</p></div>
+        <dl class="stats"><div><dt>Leads</dt><dd>${t.leads.length}</dd></div><div><dt>Total in org</dt><dd>${t.total}</dd></div><div><dt>Sub-teams</dt><dd>${t.leads.reduce((a, l) => a + l.subs.length, 0)}</dd></div></dl></div>
+      <div class="leadgrid">${t.leads.map(leadCard).join('')}</div>`).join('')
+    return `<section id="v${vi}"><h2>${esc(v.name)}</h2><p class="lede">${placed.length} ${placed.length === 1 ? 'person' : 'people'} on the chart${unplaced ? ` · ${unplaced} on the roster but not placed` : ''} · ${people.length} total on roster</p>${body}</section>`
+  }).join('')
+
+  // ---------- Comparison across versions ----------
+  let compare = ''
+  if (versionData.length > 1) {
+    const keyOf = (r: LeadRow) => r.lead.name.toLowerCase()
+    const names = new Map<string, string>()
+    versionData.forEach(vd => vd.trees.forEach(t => t.leads.forEach(r => { if (!names.has(keyOf(r))) names.set(keyOf(r), r.lead.name) })))
+    const rows = [...names.entries()].map(([k, name]) => `<tr><th scope="row">${esc(name)}</th>${versionData.map(vd => {
+      const r = vd.trees.flatMap(t => t.leads).find(x => keyOf(x) === k)
+      return r ? `<td><span class="n">${r.overall}</span>${r.team ? `<span class="muted small"> · ${esc(r.team)}</span>` : ''}${r.subs.length ? `<div class="muted small">${r.subs.map(s => `${esc(s.name)} (${s.count})`).join(', ')}</div>` : ''}</td>` : '<td class="muted">—</td>'
+    }).join('')}</tr>`).join('')
+    const totals = `<tr class="tot"><th scope="row">Total in org</th>${versionData.map(vd => `<td class="n">${vd.trees.reduce((a, t) => a + t.total, 0)}</td>`).join('')}</tr>`
+    compare = `<section id="compare"><h2>Versions side by side</h2><p class="lede">People below each lead, per version.</p><div class="tablewrap"><table class="cmp"><thead><tr><th>Lead</th>${versionData.map(vd => `<th>${esc(vd.v.name)}</th>`).join('')}</tr></thead><tbody>${rows}${totals}</tbody></table></div></section>`
+  }
+
+  const nav = [`<a href="#pods">Pods</a>`, ...(compare ? ['<a href="#compare">Compare</a>'] : []), ...versionData.map((vd, i) => `<a href="#v${i}">${esc(vd.v.name)}</a>`)].join('')
+
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Org Planning Viewer</title>
+<style>
+:root{--bg:#f7f7f5;--panel:#fff;--ink:#16181d;--muted:#6b7079;--line:#e4e4e0;--accent:#1f6f4a;--accent-soft:#e3f1ea;--main:#1f6f4a;--s0:#2b6cb0;--s1:#b7791f;--s2:#805ad5;--s3:#c05671;--edge:#1f6f4a;color-scheme:light}
+@media (prefers-color-scheme:dark){:root{--bg:#0e1013;--panel:#171a1f;--ink:#e8e9ec;--muted:#959aa4;--line:#2a2e35;--accent:#4cc38a;--accent-soft:#16352a;--main:#4cc38a;--s0:#63a4f0;--s1:#e0a84a;--s2:#a98bf0;--s3:#e5809c;--edge:#4cc38a;color-scheme:dark}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif}
+.wrap{max-width:1180px;margin:0 auto;padding:32px 16px 64px}
+.top{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:12px;margin-bottom:8px}
+h1{font-size:26px;margin:0;letter-spacing:-.01em}h2{font-size:20px;margin:0 0 2px}h3{font-size:16px;margin:0}h4{font-size:15px;margin:0}
+.muted{color:var(--muted)}.small{font-size:12px}.lede{color:var(--muted);margin:0 0 16px}.eyebrow{text-transform:uppercase;letter-spacing:.08em;font-size:11px;color:var(--muted);margin:0}
+nav{position:sticky;top:0;z-index:5;background:var(--bg);display:flex;gap:6px;flex-wrap:wrap;padding:10px 0;border-bottom:1px solid var(--line);margin-bottom:28px}
+nav a{color:var(--ink);text-decoration:none;font-size:13px;padding:5px 11px;border:1px solid var(--line);border-radius:999px;background:var(--panel)}nav a:hover{border-color:var(--accent);color:var(--accent)}
+section{margin-bottom:48px;scroll-margin-top:64px}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px;margin:0 0 16px}
+.net svg{width:100%;height:auto;display:block}.edge{stroke:var(--edge);stroke-width:2;stroke-opacity:.55}.node{fill:var(--accent)}.node.lone{fill:var(--muted)}.nlabel{fill:var(--ink);font-size:12px;font-weight:500}
+figcaption{color:var(--muted);font-size:12px;margin-top:6px}
+.podgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px;margin-bottom:12px}
+.pod{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px}.desc{white-space:pre-wrap;margin:6px 0 0;color:var(--muted)}
+.chips{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:10px;padding-top:10px;border-top:1px solid var(--line)}.chiplabel{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+.chip{font-size:12px;padding:2px 9px;border-radius:999px;background:var(--accent-soft);color:var(--accent)}
+summary{cursor:pointer;font-weight:500}.linklist{columns:2 240px;margin:10px 0 0;padding-left:18px}
+.rootcard{display:flex;flex-wrap:wrap;justify-content:space-between;gap:16px;align-items:center;background:var(--panel);border:1px solid var(--line);border-left:4px solid var(--accent);border-radius:14px;padding:16px 18px;margin-bottom:14px}
+.stats{display:flex;gap:24px;margin:0}.stats dt{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}.stats dd{margin:0;font-size:22px;font-weight:600;font-variant-numeric:tabular-nums}
+.leadgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px}
+.lead{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px;display:flex;flex-direction:column;gap:10px}
+.lead header{display:flex;justify-content:space-between;gap:8px;align-items:flex-start}.lead header p{margin:0}
+.team{font-size:12px;font-weight:500;padding:2px 9px;border-radius:999px;background:var(--accent-soft);color:var(--accent);white-space:nowrap}
+.big{display:flex;align-items:baseline;gap:8px}.num{font-size:28px;font-weight:650;font-variant-numeric:tabular-nums;line-height:1}
+.bar{display:flex;gap:2px;height:8px;border-radius:999px;overflow:hidden}.seg{display:block;min-width:4px}
+.main{background:var(--main)}.s0{background:var(--s0)}.s1{background:var(--s1)}.s2{background:var(--s2)}.s3{background:var(--s3)}
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:7px;vertical-align:middle}
+table{border-collapse:collapse;width:100%}.hc td{padding:5px 0;border-top:1px solid var(--line);vertical-align:top}.n{text-align:right;font-variant-numeric:tabular-nums;font-weight:600;white-space:nowrap;padding-left:10px}
+.tot td,.tot th{font-weight:650}
+.tablewrap{overflow-x:auto;background:var(--panel);border:1px solid var(--line);border-radius:12px}
+.cmp th,.cmp td{padding:9px 12px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}.cmp thead th{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}.cmp td .n{text-align:left;padding:0}
+footer{color:var(--muted);font-size:12px;border-top:1px solid var(--line);padding-top:12px}
+@media print{nav{position:static}section{break-inside:avoid-page}}
+</style></head><body><div class="wrap">
+<div class="top"><div><p class="eyebrow">Org planning</p><h1>Pods & org versions</h1></div><p class="muted small">Exported ${esc(stamp)} · ${plural(d.versions.length, 'version')} · ${plural(pods.length, 'pod')}</p></div>
+<nav>${nav}</nav>
+${podsSection}
+${compare}
+${versionSections}
+<footer><p><b>How headcount is counted:</b> <i>Overall team</i> is everyone below a lead (the lead isn't counted). A <i>sub-team</i> is led by a direct report who has reports of their own or a team name; its count includes the sub-lead. <i>Main team</i> is the lead's other direct reports. Main team + sub-teams = overall team.</p><p>Confidential: contains planning data. Don't share outside the intended audience.</p></footer>
+</div></body></html>`
+}
+
 export default function StaffingApp() {
   const [tab, setTab] = useState<'projects' | 'staff' | 'assignments' | 'dashboard' | 'scenarios' | 'milestones' | 'orgchart' | 'consolidated' | 'utilization' | 'orgplanning'>('dashboard')
   const [projects, setProjects] = useState<Project[]>([])
@@ -1641,6 +1796,17 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
     [list[idx], list[j]] = [list[j], list[idx]]
     setOpPods(list.map((p, n) => ({ ...p, sort_order: n })))
     await Promise.all(list.map((p, n) => opApi({ action: 'podUpdate', id: p.id, patch: { sort_order: n } })))
+  }
+  async function exportOrgPlanningViewer() {
+    const data = await opApi({ action: 'exportAll' })
+    const podOrder = opArrangedPods((data.pods ?? []) as PlanPod[], (data.links ?? []) as PlanPodLink[]).map(p => p.id)
+    const html = buildOrgPlanningViewerHTML(data, opConsultantPositions, podOrder)
+    const url = URL.createObjectURL(new Blob([html], { type: 'text/html' }))
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `org-planning-viewer-${new Date().toISOString().split('T')[0]}.html`
+    a.click()
+    setTimeout(() => URL.revokeObjectURL(url), 1000)
   }
   async function opClearAll() {
     if (!confirm(`Delete all ${opPeople.length} people from the Org planning roster and chart? This can't be undone.`)) return
@@ -6137,6 +6303,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                 >{label}</button>
               ))}
               <div className="flex-1" />
+              <button onClick={exportOrgPlanningViewer} className="text-xs px-3 py-1 mb-1 mr-2 rounded-lg border border-gray-700 text-gray-300 hover:text-white hover:border-gray-500" title="Download a standalone HTML page with pod definitions, links and every org version">⬇ Export viewer</button>
               {opSub === 'definition' && <button onClick={opLock} className="text-[11px] text-gray-500 hover:text-gray-200 mb-1" title="Lock Org planning">🔒 Lock</button>}
             </div>
           )
