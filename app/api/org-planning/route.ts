@@ -12,6 +12,9 @@ const TABLE = 'org_plan_people'
 const PODS = 'org_plan_pods'
 const VERSIONS = 'org_plan_versions'
 const POD_LINKS = 'org_plan_pod_links'
+const TARGETS = 'org_plan_targets'
+// Seeded the first time targets are loaded (Off-platform and Safety intentionally have none).
+const TARGET_SEED = [['Science', 18], ['Professional', 18], ['Code', 14], ['Multimodal', 15], ['Technical', 16]] as const
 const token = () => createHash('sha256').update(`org-planning:${PASSWORD}`).digest('hex')
 
 async function unlocked() {
@@ -154,15 +157,45 @@ export async function POST(request: Request) {
     }
     // ---- Everything, for the HTML viewer export ----
     case 'exportAll': {
-      const [v, ppl, pods, links] = await Promise.all([
+      const [v, ppl, pods, links, targets] = await Promise.all([
         sb.from(VERSIONS).select('*').order('created_at', { ascending: true }),
         sb.from(TABLE).select('*').order('name', { ascending: true }),
         sb.from(PODS).select('*').order('sort_order', { ascending: true, nullsFirst: false }).order('created_at', { ascending: true }),
         sb.from(POD_LINKS).select('*'),
+        sb.from(TARGETS).select('*').order('sort_order', { ascending: true, nullsFirst: false }).order('name', { ascending: true }),
       ])
       if (v.error) return fail(v.error.message)
       if (ppl.error) return fail(ppl.error.message)
-      return NextResponse.json({ versions: v.data ?? [], people: ppl.data ?? [], pods: pods.data ?? [], links: links.data ?? [] })
+      return NextResponse.json({ versions: v.data ?? [], people: ppl.data ?? [], pods: pods.data ?? [], links: links.data ?? [], targets: targets.data ?? [] })
+    }
+    // ---- Headcount targets (shared by all versions) ----
+    case 'targets': {
+      const q = () => sb.from(TARGETS).select('*').order('sort_order', { ascending: true, nullsFirst: false }).order('name', { ascending: true })
+      let { data, error } = await q()
+      if (error) return fail(`targets-setup: ${error.message}`)
+      if (!data?.length && !body.noSeed) {
+        const { error: e2 } = await sb.from(TARGETS).insert(TARGET_SEED.map(([name, target], i) => ({ name, target, sort_order: i })))
+        if (e2) return fail(e2.message)
+        ;({ data, error } = await q())
+        if (error) return fail(error.message)
+      }
+      return NextResponse.json({ targets: data ?? [] })
+    }
+    case 'targetSave': {
+      const name = String(body.name ?? '').trim()
+      const target = Math.max(0, Math.round(Number(body.target)))
+      if (!name) return fail('Pod name is required', 400)
+      if (!Number.isFinite(target)) return fail('Target must be a number', 400)
+      const row: Record<string, unknown> = { name, target }
+      if (body.sort_order !== undefined) row.sort_order = body.sort_order
+      const res = body.id
+        ? await sb.from(TARGETS).update(row).eq('id', body.id).select().single()
+        : await sb.from(TARGETS).insert([row]).select().single()
+      return res.error ? fail(res.error.message.includes('duplicate') ? `There's already a target for "${name}"` : res.error.message) : NextResponse.json({ target: res.data })
+    }
+    case 'targetDelete': {
+      const { error } = await sb.from(TARGETS).delete().eq('id', body.id)
+      return error ? fail(error.message) : NextResponse.json({ ok: true })
     }
     // ---- Pods definition (separate table: org_plan_pods) ----
     case 'pods': {

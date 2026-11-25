@@ -204,13 +204,64 @@ function parseCSVLine(line: string): string[] {
   return cols
 }
 
+// ---- Org planning: headcount vs target ----
+type PlanTarget = { id: string; name: string; target: number; sort_order?: number | null }
+type TeamCount = { team: string; leader: string; depth: number; count: number }
+type TargetRow = { name: string; target: number; actual: number; delta: number; sources: TeamCount[] }
+// A team = someone on the top 3 levels (below the top person) with a team name. Its headcount is everyone
+// below them, minus nested named teams; sub-leads (level 3) count toward their own team, level-2 leads don't
+// (same rule as the viewer's "people below"). Teams map to a target by name; a combined name like
+// "Code/Safety" maps to whichever part isn't already covered by one of its own sub-teams.
+function computeHeadcountVsTarget(people: PlanPerson[], targets: PlanTarget[]) {
+  const byId = new Map(people.map(p => [p.id, p]))
+  const placed = people.filter(p => p.in_chart)
+  const parentOf = (p: PlanPerson) => (p.parent_id && byId.get(p.parent_id)?.in_chart ? byId.get(p.parent_id)! : null)
+  const depth = (p: PlanPerson) => { let d = 0, cur = parentOf(p); const seen = new Set<string>(); while (cur && !seen.has(cur.id)) { seen.add(cur.id); d++; cur = parentOf(cur) } return d }
+  const kids = (id: string) => placed.filter(p => p.parent_id === id && parentOf(p))
+  const isTeam = (p: PlanPerson) => !!p.team_name?.trim() && depth(p) >= 1 && depth(p) <= 2
+  const norm = (x: string) => x.trim().toLowerCase()
+  const tokens = (x: string) => x.split(/\s*[\/&+,]\s*|\s+and\s+/i).map(norm).filter(Boolean)
+  const targetByName = new Map(targets.map(t => [norm(t.name), t]))
+
+  const teams = placed.filter(isTeam).map(t => {
+    // walk the subtree, stopping at nested named teams
+    let count = depth(t) === 2 ? 1 : 0
+    const nested: PlanPerson[] = []
+    const st = [...kids(t.id)]; const seen = new Set([t.id])
+    while (st.length) {
+      const c = st.pop()!
+      if (seen.has(c.id)) continue
+      seen.add(c.id)
+      if (isTeam(c)) { nested.push(c); continue }
+      count++; st.push(...kids(c.id))
+    }
+    const name = t.team_name!.trim()
+    let target: PlanTarget | undefined = targetByName.get(norm(name))
+    if (!target) {
+      const covered = new Set(nested.flatMap(n => tokens(n.team_name!)))
+      const left = tokens(name).filter(k => !covered.has(k) && targetByName.has(k))
+      if (left.length === 1) target = targetByName.get(left[0])
+    }
+    return { tc: { team: name, leader: t.name, depth: depth(t), count } as TeamCount, target }
+  })
+
+  const rows: TargetRow[] = targets.map(t => {
+    const sources = teams.filter(x => x.target?.id === t.id).map(x => x.tc)
+    const actual = sources.reduce((a, x) => a + x.count, 0)
+    return { name: t.name, target: t.target, actual, delta: actual - t.target, sources }
+  })
+  const untargeted = teams.filter(x => !x.target).map(x => x.tc)
+  const totals = { target: rows.reduce((a, r) => a + r.target, 0), actual: rows.reduce((a, r) => a + r.actual, 0) }
+  return { rows, untargeted, totals }
+}
+
 // ---- Org planning: standalone HTML viewer export ----
 type PlanVersionX = { id: string; name: string; created_at?: string }
 type PlanPersonX = PlanPerson & { version_id?: string | null }
 type PlanPodX = { id: string; name: string; description: string | null; sort_order?: number | null }
 type PlanPodLinkX = { id: string; pod_a: string; pod_b: string }
 
-function buildOrgPlanningViewerHTML(d: { versions: PlanVersionX[]; people: PlanPersonX[]; pods: PlanPodX[]; links: PlanPodLinkX[] }, consultantPositions: string[] | null, podOrder: string[]) {
+function buildOrgPlanningViewerHTML(d: { versions: PlanVersionX[]; people: PlanPersonX[]; pods: PlanPodX[]; links: PlanPodLinkX[]; targets?: PlanTarget[] }, consultantPositions: string[] | null, podOrder: string[]) {
   const esc = (v: unknown) => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!))
   const allPositions = [...new Set(d.people.map(p => p.position).filter((x): x is string => !!x))]
   const cSet = new Set(consultantPositions ?? allPositions.filter(x => x.toLowerCase().includes('consultant')))
@@ -273,7 +324,7 @@ function buildOrgPlanningViewerHTML(d: { versions: PlanVersionX[]; people: PlanP
       })
       return { root, leads, total: 1 + below(root.id).length }
     })
-    return { v, people, placed, trees, unplaced: people.length - placed.length }
+    return { v, people, placed, trees, unplaced: people.length - placed.length, hc: computeHeadcountVsTarget(people, d.targets ?? []) }
   })
 
   const leadCard = (r: LeadRow) => {
@@ -290,12 +341,25 @@ function buildOrgPlanningViewerHTML(d: { versions: PlanVersionX[]; people: PlanP
     </article>`
   }
 
-  const versionSections = versionData.map(({ v, people, placed, trees, unplaced }, vi) => {
+  const signed = (n: number) => (n > 0 ? `+${n}` : `${n}`)
+  const deltaCls = (n: number) => (n < 0 ? 'neg' : n > 0 ? 'pos' : 'zero')
+  const targetTable = (hc: ReturnType<typeof computeHeadcountVsTarget>) => {
+    if (!hc.rows.length) return ''
+    const rows = hc.rows.map(r => {
+      const pct = r.target ? Math.min(100, Math.round((r.actual / r.target) * 100)) : 0
+      const from = r.sources.length ? r.sources.map(x => `${esc(x.team)} <span class="muted">(${esc(x.leader)}${x.depth === 2 ? ', sub-team' : ''}: ${x.count})</span>`).join(', ') : '<span class="muted">No matching team on this chart</span>'
+      return `<tr><th scope="row">${esc(r.name)}<div class="muted small fw4">${from}</div></th><td class="n">${r.actual}</td><td class="n">${r.target}</td><td class="n"><span class="delta ${deltaCls(r.delta)}">${signed(r.delta)}</span></td><td class="meter"><span class="track"><span class="fill ${deltaCls(r.delta)}" style="width:${pct}%"></span></span></td></tr>`
+    }).join('')
+    const t = hc.totals, td = t.actual - t.target
+    const extra = hc.untargeted.length ? `<p class="muted small">No target: ${hc.untargeted.map(x => `${esc(x.team)} (${x.count})`).join(', ')}</p>` : ''
+    return `<div class="panel"><h3 class="mb">Headcount vs target</h3><div class="tablewrap flat"><table class="tgt"><thead><tr><th>Pod</th><th class="n">Actual</th><th class="n">Target</th><th class="n">Delta</th><th></th></tr></thead><tbody>${rows}<tr class="tot"><th scope="row">Total (pods with a target)</th><td class="n">${t.actual}</td><td class="n">${t.target}</td><td class="n"><span class="delta ${deltaCls(td)}">${signed(td)}</span></td><td></td></tr></tbody></table></div>${extra}</div>`
+  }
+  const versionSections = versionData.map(({ v, people, placed, trees, unplaced, hc }, vi) => {
     const body = trees.length === 0 ? '<p class="muted">No one is placed on this chart yet.</p>' : trees.map(t => `
       <div class="rootcard"><div><p class="eyebrow">Top</p><h3>${esc(t.root.name)}</h3><p class="muted small">${esc(t.root.position ?? '')}${t.root.team_name ? ` · ${esc(t.root.team_name)}` : ''}</p></div>
         <dl class="stats"><div><dt>Leads</dt><dd>${t.leads.length}</dd></div><div><dt>Total in org</dt><dd>${t.total}</dd></div><div><dt>Sub-teams</dt><dd>${t.leads.reduce((a, l) => a + l.subs.length, 0)}</dd></div></dl></div>
       <div class="leadgrid">${t.leads.map(leadCard).join('')}</div>`).join('')
-    return `<section id="v${vi}"><h2>${esc(v.name)}</h2><p class="lede">${placed.length} ${placed.length === 1 ? 'person' : 'people'} on the chart${unplaced ? ` · ${unplaced} on the roster but not placed` : ''} · ${people.length} total on roster</p>${body}</section>`
+    return `<section id="v${vi}"><h2>${esc(v.name)}</h2><p class="lede">${placed.length} ${placed.length === 1 ? 'person' : 'people'} on the chart${unplaced ? ` · ${unplaced} on the roster but not placed` : ''} · ${people.length} total on roster</p>${targetTable(hc)}${body}</section>`
   }).join('')
 
   // ---------- Comparison across versions ----------
@@ -309,7 +373,10 @@ function buildOrgPlanningViewerHTML(d: { versions: PlanVersionX[]; people: PlanP
       return r ? `<td><span class="n">${r.overall}</span>${r.team ? `<span class="muted small"> · ${esc(r.team)}</span>` : ''}${r.subs.length ? `<div class="muted small">${r.subs.map(s => `${esc(s.name)} (${s.count})`).join(', ')}</div>` : ''}</td>` : '<td class="muted">—</td>'
     }).join('')}</tr>`).join('')
     const totals = `<tr class="tot"><th scope="row">Total in org</th>${versionData.map(vd => `<td class="n">${vd.trees.reduce((a, t) => a + t.total, 0)}</td>`).join('')}</tr>`
-    compare = `<section id="compare"><h2>Versions side by side</h2><p class="lede">People below each lead, per version.</p><div class="tablewrap"><table class="cmp"><thead><tr><th>Lead</th>${versionData.map(vd => `<th>${esc(vd.v.name)}</th>`).join('')}</tr></thead><tbody>${rows}${totals}</tbody></table></div></section>`
+    const tNames = (d.targets ?? []).map(t => t.name)
+    const tRows = tNames.map(nm => `<tr><th scope="row">${esc(nm)}</th>${versionData.map(vd => { const r = vd.hc.rows.find(x => x.name === nm)!; return `<td><span class="n">${r.actual}</span><span class="muted"> / ${r.target}</span> <span class="delta ${deltaCls(r.delta)}">${signed(r.delta)}</span></td>` }).join('')}</tr>`).join('')
+    const tTable = tNames.length ? `<h3 class="mb mt">Headcount vs target</h3><div class="tablewrap"><table class="cmp"><thead><tr><th>Pod</th>${versionData.map(vd => `<th>${esc(vd.v.name)}</th>`).join('')}</tr></thead><tbody>${tRows}</tbody></table></div>` : ''
+    compare = `<section id="compare"><h2>Versions side by side</h2><p class="lede">People below each lead, per version.</p><div class="tablewrap"><table class="cmp"><thead><tr><th>Lead</th>${versionData.map(vd => `<th>${esc(vd.v.name)}</th>`).join('')}</tr></thead><tbody>${rows}${totals}</tbody></table></div>${tTable}</section>`
   }
 
   const nav = [`<a href="#pods">Pods</a>`, ...(compare ? ['<a href="#compare">Compare</a>'] : []), ...versionData.map((vd, i) => `<a href="#v${i}">${esc(vd.v.name)}</a>`)].join('')
@@ -350,6 +417,11 @@ table{border-collapse:collapse;width:100%}.hc td{padding:5px 0;border-top:1px so
 .tablewrap{overflow-x:auto;background:var(--panel);border:1px solid var(--line);border-radius:12px}
 .cmp th,.cmp td{padding:9px 12px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}.cmp thead th{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}.cmp td .n{text-align:left;padding:0}
 footer{color:var(--muted);font-size:12px;border-top:1px solid var(--line);padding-top:12px}
+.mb{margin-bottom:10px}.mt{margin-top:22px}.fw4{font-weight:400;margin-top:2px}.tablewrap.flat{border:0;background:none;border-radius:0}
+.tgt th,.tgt td{padding:8px 10px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}.tgt thead th{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}.tgt th.n,.tgt td.n{text-align:right}
+.delta{display:inline-block;font-weight:650;font-variant-numeric:tabular-nums;padding:1px 8px;border-radius:999px;font-size:12px}
+.delta.neg{background:rgba(220,60,60,.14);color:#d64545}.delta.pos{background:rgba(214,150,30,.16);color:#b7791f}.delta.zero{background:var(--accent-soft);color:var(--accent)}
+.meter{width:28%;min-width:90px}.track{display:block;height:8px;border-radius:999px;background:var(--line);overflow:hidden;margin-top:6px}.fill{display:block;height:100%;border-radius:999px}.fill.neg{background:#d64545}.fill.pos{background:#d6961e}.fill.zero{background:var(--accent)}
 @media print{nav{position:static}section{break-inside:avoid-page}}
 </style></head><body><div class="wrap">
 <div class="top"><div><p class="eyebrow">Org planning</p><h1>Pods & org versions</h1></div><p class="muted small">Exported ${esc(stamp)} · ${plural(d.versions.length, 'version')} · ${plural(pods.length, 'pod')}</p></div>
@@ -357,7 +429,7 @@ footer{color:var(--muted);font-size:12px;border-top:1px solid var(--line);paddin
 ${podsSection}
 ${compare}
 ${versionSections}
-<footer><p><b>How headcount is counted:</b> <i>Overall team</i> is everyone below a lead (the lead isn't counted). A <i>sub-team</i> is led by a direct report who has a team name; its count includes the sub-lead and everyone below them. <i>Main team</i> is everyone else below the lead (including people under direct reports without a team name). Main team + sub-teams = overall team.</p><p>Confidential: contains planning data. Don't share outside the intended audience.</p></footer>
+<footer><p><b>How headcount is counted:</b> <i>Overall team</i> is everyone below a lead (the lead isn't counted). A <i>sub-team</i> is led by a direct report who has a team name; its count includes the sub-lead and everyone below them. <i>Main team</i> is everyone else below the lead (including people under direct reports without a team name). Main team + sub-teams = overall team.</p><p><b>Headcount vs target:</b> a pod's actual is the sum of teams whose team name matches the pod (a combined name like "Code/Safety" counts toward the part not covered by its own sub-teams). Leads aren't counted; sub-leads count toward their sub-team. Delta = actual − target (negative = below target).</p><p>Confidential: contains planning data. Don't share outside the intended audience.</p></footer>
 </div></body></html>`
 }
 
@@ -386,6 +458,11 @@ export default function StaffingApp() {
   const [opPeople, setOpPeople] = useState<PlanPerson[]>([])
   const [opSub, setOpSub] = useState<'planning' | 'definition'>('planning')
   const [opVersions, setOpVersions] = useState<PlanVersion[]>([])
+  const [opTargets, setOpTargets] = useState<PlanTarget[]>([])
+  const [opTargetsSetup, setOpTargetsSetup] = useState<string | null>(null)
+  const [opTargetsOpen, setOpTargetsOpen] = useState(true)
+  const [opTargetsEditing, setOpTargetsEditing] = useState(false)
+  const [opNewTarget, setOpNewTarget] = useState({ name: '', target: '' })
   const [opVersionId, setOpVersionId] = useState<string>('')
   const opVersionRef = useRef('')
   const [opPods, setOpPods] = useState<PlanPod[]>([])
@@ -1529,6 +1606,25 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
     setOpVersions(data.versions ?? [])
     setOpPeople(data.people ?? [])
     setOpState('ready')
+    opLoadTargets()
+  }
+  async function opLoadTargets() {
+    const res = await fetch('/api/org-planning', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'targets' }) })
+    const data = await res.json().catch(() => ({}))
+    if (!res.ok) { setOpTargetsSetup(String(data.error ?? 'Could not load targets').replace(/^(targets-)?setup:\s*/, '')); return }
+    setOpTargetsSetup(null)
+    setOpTargets(data.targets ?? [])
+  }
+  async function opSaveTarget(t: { id?: string; name: string; target: number | string }) {
+    const n = Number(t.target)
+    if (!t.name.trim() || !Number.isFinite(n)) return
+    const { target } = await opApi({ action: 'targetSave', id: t.id, name: t.name, target: n, ...(t.id ? {} : { sort_order: opTargets.length }) })
+    setOpTargets(prev => t.id ? prev.map(x => x.id === target.id ? target : x) : [...prev, target])
+  }
+  async function opDeleteTarget(t: PlanTarget) {
+    if (!confirm(`Remove the headcount target for "${t.name}"?`)) return
+    await opApi({ action: 'targetDelete', id: t.id })
+    setOpTargets(prev => prev.filter(x => x.id !== t.id))
   }
   async function opSwitchVersion(id: string) {
     if (!id || id === opVersionRef.current) return
@@ -6619,6 +6715,94 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
               <button onClick={opDeleteVersion} disabled={opVersions.length <= 1} className="text-xs px-2.5 py-1.5 rounded-lg border border-red-500/30 text-red-400/80 hover:text-red-400 disabled:opacity-30 disabled:cursor-not-allowed" title={opVersions.length <= 1 ? "Can't delete the only version" : 'Delete this version'}>Delete</button>
               <span className="text-[11px] text-gray-600 ml-1">{opVersions.length} version{opVersions.length === 1 ? '' : 's'} · each has its own roster & chart</span>
             </div>
+            {(() => {
+              if (opTargetsSetup) return (
+                <p className="text-[11px] text-amber-400 mb-4">Headcount targets need the <code>org_plan_targets</code> table in Supabase ({opTargetsSetup}). <button onClick={opLoadTargets} className="underline">Retry</button></p>
+              )
+              const hc = computeHeadcountVsTarget(opPeople, opTargets)
+              const signed = (n: number) => (n > 0 ? `+${n}` : `${n}`)
+              const tone = (n: number) => (n < 0 ? 'text-red-400 bg-red-500/10' : n > 0 ? 'text-amber-400 bg-amber-500/10' : 'text-emerald-400 bg-emerald-500/10')
+              const bar = (n: number) => (n < 0 ? 'bg-red-500/70' : n > 0 ? 'bg-amber-500/70' : 'bg-emerald-500/70')
+              const td = hc.totals.actual - hc.totals.target
+              return (
+                <div className="mb-5 bg-gray-900 border border-gray-800 rounded-xl">
+                  <div className="flex items-center gap-3 px-4 py-2.5">
+                    <button onClick={() => setOpTargetsOpen(o => !o)} className="text-sm font-medium text-gray-100 hover:text-white">{opTargetsOpen ? '▾' : '▸'} Headcount vs target</button>
+                    {hc.rows.length > 0 && <span className="text-xs text-gray-500">{hc.totals.actual} / {hc.totals.target} <span className={`ml-1 px-1.5 py-0.5 rounded-full font-semibold ${tone(td)}`}>{signed(td)}</span></span>}
+                    <div className="flex-1" />
+                    {opTargetsOpen && <button onClick={() => setOpTargetsEditing(e => !e)} className="text-[11px] text-gray-500 hover:text-gray-200">{opTargetsEditing ? 'Done' : '✎ Edit targets'}</button>}
+                  </div>
+                  {opTargetsOpen && (
+                    <div className="px-4 pb-4">
+                      {hc.rows.length === 0 && !opTargetsEditing ? (
+                        <p className="text-xs text-gray-500">No targets yet.</p>
+                      ) : (
+                        <table className="w-full text-sm">
+                          <thead>
+                            <tr className="text-[10px] uppercase tracking-wider text-gray-500 text-left">
+                              <th className="py-1.5 font-medium">Pod</th>
+                              <th className="py-1.5 font-medium text-right w-20">Actual</th>
+                              <th className="py-1.5 font-medium text-right w-24">Target</th>
+                              <th className="py-1.5 font-medium text-right w-20">Delta</th>
+                              <th className="py-1.5 w-[28%]"></th>
+                              {opTargetsEditing && <th className="w-8"></th>}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {hc.rows.map((r, i) => {
+                              const t = opTargets[i]
+                              const pct = r.target ? Math.min(100, Math.round((r.actual / r.target) * 100)) : 0
+                              return (
+                                <tr key={t.id} className="border-t border-gray-800 align-top">
+                                  <td className="py-2 pr-3">
+                                    {opTargetsEditing
+                                      ? <input defaultValue={t.name} onBlur={e => { const v = e.target.value.trim(); if (v && v !== t.name) opSaveTarget({ id: t.id, name: v, target: t.target }); else e.target.value = t.name }} className={inputSmClass + ' !w-40'} />
+                                      : <span className="text-gray-100 font-medium">{r.name}</span>}
+                                    <p className="text-[11px] text-gray-500 mt-0.5">
+                                      {r.sources.length ? r.sources.map(x => `${x.team} (${x.leader}${x.depth === 2 ? ', sub-team' : ''}: ${x.count})`).join(' · ') : <span className="italic text-gray-600">No team named “{r.name}” on this chart</span>}
+                                    </p>
+                                  </td>
+                                  <td className="py-2 text-right tabular-nums text-gray-100 font-semibold">{r.actual}</td>
+                                  <td className="py-2 text-right tabular-nums text-gray-400">
+                                    {opTargetsEditing
+                                      ? <input type="number" min={0} defaultValue={t.target} onBlur={e => { const v = Number(e.target.value); if (Number.isFinite(v) && v !== t.target) opSaveTarget({ id: t.id, name: t.name, target: v }) }} className={inputSmClass + ' !w-16 text-right no-spin'} />
+                                      : r.target}
+                                  </td>
+                                  <td className="py-2 text-right"><span className={`text-xs px-2 py-0.5 rounded-full font-semibold tabular-nums ${tone(r.delta)}`}>{signed(r.delta)}</span></td>
+                                  <td className="py-2 pl-4"><div className="h-2 mt-1.5 rounded-full bg-gray-800 overflow-hidden"><div className={`h-full rounded-full ${bar(r.delta)}`} style={{ width: `${pct}%` }} /></div></td>
+                                  {opTargetsEditing && <td className="py-2 text-right"><button onClick={() => opDeleteTarget(t)} className="text-xs text-gray-500 hover:text-red-400" title="Remove target">✕</button></td>}
+                                </tr>
+                              )
+                            })}
+                            {opTargetsEditing && (
+                              <tr className="border-t border-gray-800">
+                                <td className="py-2 pr-3"><input placeholder="Pod / team name" value={opNewTarget.name} onChange={e => setOpNewTarget({ ...opNewTarget, name: e.target.value })} className={inputSmClass + ' !w-40'} /></td>
+                                <td></td>
+                                <td className="py-2 text-right"><input type="number" min={0} placeholder="0" value={opNewTarget.target} onChange={e => setOpNewTarget({ ...opNewTarget, target: e.target.value })} className={inputSmClass + ' !w-16 text-right no-spin'} /></td>
+                                <td colSpan={3} className="py-2 pl-3"><button onClick={async () => { if (!opNewTarget.name.trim() || opNewTarget.target === '') return; await opSaveTarget({ name: opNewTarget.name, target: opNewTarget.target }); setOpNewTarget({ name: '', target: '' }) }} className="text-xs px-2.5 py-1 rounded-lg text-white hover:brightness-125" style={{ backgroundColor: '#193a29' }}>+ Add target</button></td>
+                              </tr>
+                            )}
+                            {hc.rows.length > 0 && (
+                              <tr className="border-t border-gray-700 font-semibold">
+                                <td className="py-2 text-gray-300">Total</td>
+                                <td className="py-2 text-right tabular-nums text-gray-100">{hc.totals.actual}</td>
+                                <td className="py-2 text-right tabular-nums text-gray-400">{hc.totals.target}</td>
+                                <td className="py-2 text-right"><span className={`text-xs px-2 py-0.5 rounded-full tabular-nums ${tone(td)}`}>{signed(td)}</span></td>
+                                <td colSpan={opTargetsEditing ? 2 : 1}></td>
+                              </tr>
+                            )}
+                          </tbody>
+                        </table>
+                      )}
+                      {hc.untargeted.length > 0 && (
+                        <p className="text-[11px] text-gray-500 mt-2">No target: {hc.untargeted.map(x => `${x.team} (${x.count})`).join(' · ')}</p>
+                      )}
+                      <p className="text-[10px] text-gray-600 mt-2">Actual = people in teams whose team name matches the pod (leads not counted; sub-leads count toward their sub-team). “Code/Safety” counts toward whichever part isn’t its own sub-team. Delta = actual − target.</p>
+                    </div>
+                  )}
+                </div>
+              )
+            })()}
             <div className="flex gap-6 items-start">
               {/* Left: roster */}
               <div className="w-64 shrink-0 sticky top-6 space-y-3">
