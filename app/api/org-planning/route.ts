@@ -16,7 +16,7 @@ const TARGETS = 'org_plan_targets'
 // Seeded the first time targets are loaded (Off-platform and Safety intentionally have none).
 const TARGET_SEED = [['Science', 18], ['Professional', 18], ['Code', 14], ['Multimodal', 15], ['Technical', 16]] as const
 // Planning assumptions behind each target: queues per week × headcount per queue.
-const ASSUMPTION_SEED: Record<string, [number, number]> = { science: [10, 1.75], professional: [10, 1.75], code: [7, 2], multimodal: [10, 1.5], technical: [8, 2] }
+const ASSUMPTION_SEED: Record<string, [number, number]> = { science: [10, 1.5], professional: [10, 1.5], code: [7, 2], multimodal: [10, 1.5], technical: [8, 2] }
 const token = () => createHash('sha256').update(`org-planning:${PASSWORD}`).digest('hex')
 
 async function unlocked() {
