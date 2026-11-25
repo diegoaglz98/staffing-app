@@ -1340,6 +1340,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
     const data = await res.json().catch(() => ({}))
     if (res.status === 401) { setOpState('locked'); return }
     if (!res.ok) { setOpSetupMsg(String(data.error ?? '').replace(/^setup:\s*/, '')); setOpState('setup'); return }
+    if (data.versionId !== opVersionRef.current) setOpCollapsed({})
     opVersionRef.current = data.versionId ?? ''
     setOpVersionId(data.versionId ?? '')
     try { localStorage.setItem('op-version', data.versionId ?? '') } catch {}
@@ -5769,6 +5770,9 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
           const root = orgChart.find(n => !n.parent_staff_id)
           const childrenOf = (sid: string) => orgChart.filter(n => n.parent_staff_id === sid).map(n => n.staff_id)
           const parentOf = (sid: string) => orgChart.find(n => n.staff_id === sid)?.parent_staff_id ?? null
+          // Default view: only the top person and their direct reports are expanded.
+          const orgDepth = (sid: string) => { let d = 0, cur = parentOf(sid); const seen = new Set<string>(); while (cur && !seen.has(cur)) { seen.add(cur); d++; cur = parentOf(cur) } return d }
+          const isOrgCollapsed = (sid: string) => collapsedOrg[sid] ?? orgDepth(sid) >= 1
           const isConsultant = (sid: string) => staff.find(s => s.id === sid)?.position === 'GenAI Consultant'
           const descendantCount = (sid: string): number => {
             let count = 0
@@ -5821,7 +5825,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
             const allKids = childrenOf(staffId)
             const kids = visibleKids(staffId)
             const over = dragOverOrgId === staffId
-            const collapsed = !!collapsedOrg[staffId]
+            const collapsed = isOrgCollapsed(staffId)
             return (
               <div
                 draggable
@@ -5855,7 +5859,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                 })()}
                 {kids.length > 0 && (
                   <button
-                    onClick={() => setCollapsedOrg(prev => ({ ...prev, [staffId]: !prev[staffId] }))}
+                    onClick={() => setCollapsedOrg(prev => ({ ...prev, [staffId]: !isOrgCollapsed(staffId) }))}
                     title={collapsed ? 'Expand' : 'Collapse'}
                     className="mt-1 text-[10px] text-gray-500 hover:text-gray-200 transition-colors"
                   >
@@ -5867,7 +5871,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
           }
           const renderNode = (staffId: string) => {
             const kids = visibleKids(staffId)
-            const collapsed = !!collapsedOrg[staffId]
+            const collapsed = isOrgCollapsed(staffId)
             return (
               <li key={staffId}>
                 {cardInner(staffId)}
@@ -5877,7 +5881,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
           }
           const renderNodeV = (staffId: string) => {
             const kids = visibleKids(staffId)
-            const collapsed = !!collapsedOrg[staffId]
+            const collapsed = isOrgCollapsed(staffId)
             return (
               <div key={staffId} className="org-vrow">
                 {cardInner(staffId)}
@@ -5940,7 +5944,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                         className="text-xs px-3 py-1.5 rounded-lg border border-gray-700 text-gray-400 hover:text-gray-200 transition-colors"
                       >Collapse all</button>
                       <button
-                        onClick={() => setCollapsedOrg({})}
+                        onClick={() => setCollapsedOrg(Object.fromEntries(orgChart.map(n => [n.staff_id, false])))}
                         className="text-xs px-3 py-1.5 rounded-lg border border-gray-700 text-gray-400 hover:text-gray-200 transition-colors"
                       >Expand all</button>
                       <div className="flex items-center border border-gray-700 rounded-lg overflow-hidden">
@@ -6179,10 +6183,12 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
             )
           }
 
+          // Default view: only the top person and their direct reports are expanded.
+          const isOpCollapsed = (id: string) => opCollapsed[id] ?? depthOf(id) >= 1
           const card = (p: PlanPerson) => {
             const d = depthOf(p.id)
             const kids = shownKids(p.id)
-            const collapsed = !!opCollapsed[p.id]
+            const collapsed = isOpCollapsed(p.id)
             const over = opDragOver === p.id
             return (
               <div
@@ -6224,7 +6230,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                 {p.position && <p className="text-[11px] text-gray-500 whitespace-nowrap">{p.position}</p>}
                 {teamEditor(p, d)}
                 {kids.length > 0 && (
-                  <button onClick={() => setOpCollapsed(prev => ({ ...prev, [p.id]: !prev[p.id] }))} className="block mt-1 text-[10px] text-gray-500 hover:text-gray-200">
+                  <button onClick={() => setOpCollapsed(prev => ({ ...prev, [p.id]: !isOpCollapsed(p.id) }))} className="block mt-1 text-[10px] text-gray-500 hover:text-gray-200">
                     {collapsed ? `▸ ${kids.length} report${kids.length === 1 ? '' : 's'}` : '▾ collapse'}
                   </button>
                 )}
@@ -6233,11 +6239,11 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
           }
           const renderH = (p: PlanPerson) => {
             const kids = shownKids(p.id)
-            return <li key={p.id}>{card(p)}{kids.length > 0 && !opCollapsed[p.id] && <ul>{kids.map(renderH)}</ul>}</li>
+            return <li key={p.id}>{card(p)}{kids.length > 0 && !isOpCollapsed(p.id) && <ul>{kids.map(renderH)}</ul>}</li>
           }
           const renderV = (p: PlanPerson) => {
             const kids = shownKids(p.id)
-            return <div key={p.id} className="org-vrow">{card(p)}{kids.length > 0 && !opCollapsed[p.id] && <div className="org-vchildren">{kids.map(renderV)}</div>}</div>
+            return <div key={p.id} className="org-vrow">{card(p)}{kids.length > 0 && !isOpCollapsed(p.id) && <div className="org-vchildren">{kids.map(renderV)}</div>}</div>
           }
 
           const q = opRosterSearch.trim().toLowerCase()
@@ -6369,7 +6375,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                     {toggleSwitch(opColorsOn, () => setOpColorsOn(v => !v), 'Colors')}
                     {toggleSwitch(opLayout === 'vertical', () => setOpLayout(m => m === 'vertical' ? 'horizontal' : 'vertical'), 'Vertical')}
                     <button onClick={() => { const c: Record<string, boolean> = {}; placed.forEach(p => { if (childrenOf(p.id).length) c[p.id] = true }); setOpCollapsed(c) }} className="text-xs px-3 py-1.5 rounded-lg border border-gray-700 text-gray-400 hover:text-gray-200">Collapse all</button>
-                    <button onClick={() => setOpCollapsed({})} className="text-xs px-3 py-1.5 rounded-lg border border-gray-700 text-gray-400 hover:text-gray-200">Expand all</button>
+                    <button onClick={() => setOpCollapsed(Object.fromEntries(placed.map(p => [p.id, false])))} className="text-xs px-3 py-1.5 rounded-lg border border-gray-700 text-gray-400 hover:text-gray-200">Expand all</button>
                     <div className="flex items-center border border-gray-700 rounded-lg overflow-hidden">
                       <button onClick={() => setOpZoom(z => Math.max(0.4, Math.round((z - 0.1) * 10) / 10))} className="px-2.5 py-1 text-gray-400 hover:text-white hover:bg-gray-800 leading-none">−</button>
                       <button onClick={() => setOpZoom(1)} className="px-2 py-1 text-xs text-gray-400 hover:text-white tabular-nums leading-none">{Math.round(opZoom * 100)}%</button>
