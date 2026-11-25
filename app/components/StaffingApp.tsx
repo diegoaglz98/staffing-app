@@ -331,9 +331,29 @@ function buildOrgPlanningViewerHTML(d: { versions: PlanVersionX[]; people: PlanP
     }).join('')
     podNetwork = `<figure class="panel net"><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Pod links network">${lines}${nodes}</svg><figcaption>Each line is a link: the two pods collaborate on workload and re-use best practices.</figcaption></figure>`
   }
+  // Who leads each pod, per version: teams are matched to pods by name (same rules as the targets table)
+  const firstName = (n: string) => n.trim().split(/\s+/)[0]
+  const podLeads = new Map<string, { version: string; leaders: string[] }[]>()
+  d.versions.forEach(v => {
+    const hc = computeHeadcountVsTarget(d.people.filter(x => x.version_id === v.id), pods.map(p => ({ id: p.id, name: p.name, target: 0 })))
+    hc.rows.forEach((r, i) => {
+      const leaders = [...new Set(r.sources.map(x => firstName(x.leader)))]
+      const list = podLeads.get(pods[i].id) ?? []
+      list.push({ version: v.name, leaders })
+      podLeads.set(pods[i].id, list)
+    })
+  })
+  const leadTile = (podId: string) => {
+    const per = (podLeads.get(podId) ?? []).filter(x => x.leaders.length)
+    if (!per.length) return ''
+    const join = (xs: string[]) => xs.join(' & ')
+    const same = per.every(x => join(x.leaders) === join(per[0].leaders)) && per.length === d.versions.length
+    const text = same ? `Led by ${join(per[0].leaders)}` : per.map(x => `${x.version}: ${join(x.leaders)}`).join(' · ')
+    return `<span class="ledby" title="${same ? '' : 'Lead differs by version'}">${esc(text)}</span>`
+  }
   const podCards = pods.map(p => {
     const lt = linkedTo(p.id)
-    return `<article class="pod"><h3>${esc(p.name)}</h3>${p.description ? `<p class="desc">${esc(p.description)}</p>` : '<p class="desc muted">No description</p>'}${lt.length ? `<div class="chips"><span class="chiplabel">Linked with</span>${lt.map(o => `<span class="chip">${esc(o.name)}</span>`).join('')}</div>` : ''}</article>`
+    return `<article class="pod"><div class="podhead"><h3>${esc(p.name)}</h3>${leadTile(p.id)}</div>${p.description ? `<p class="desc">${esc(p.description)}</p>` : '<p class="desc muted">No description</p>'}${lt.length ? `<div class="chips"><span class="chiplabel">Linked with</span>${lt.map(o => `<span class="chip">${esc(o.name)}</span>`).join('')}</div>` : ''}</article>`
   }).join('')
   const linkList = links.length ? `<details class="panel"><summary>All links (${links.length})</summary><ul class="linklist">${links.map(l => `<li>${esc(podById.get(l.pod_a)!.name)} <span class="muted">↔</span> ${esc(podById.get(l.pod_b)!.name)}</li>`).join('')}</ul></details>` : ''
   const podsSection = `<section id="pods"><h2>Pod definitions</h2><p class="lede">${plural(pods.length, 'pod')} · ${plural(links.length, 'link')}</p>${pods.length ? podNetwork + `<div class="podgrid">${podCards}</div>` + linkList : '<p class="muted">No pods defined yet.</p>'}</section>`
@@ -476,6 +496,7 @@ table{border-collapse:collapse;width:100%}.hc td{padding:5px 0;border-top:1px so
 .cmp th,.cmp td{padding:9px 12px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}.cmp thead th{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}.cmp td .n{text-align:left;padding:0}
 footer{color:var(--muted);font-size:12px;border-top:1px solid var(--line);padding-top:12px}
 .theme{display:inline-flex;border:1px solid var(--line);border-radius:999px;padding:2px;background:var(--panel)}.theme button{border:0;background:none;color:var(--muted);font:inherit;font-size:12px;padding:4px 10px;border-radius:999px;cursor:pointer}.theme button[aria-pressed=true]{background:var(--accent-soft);color:var(--accent);font-weight:600}.topright{display:flex;flex-direction:column;align-items:flex-end;gap:8px}
+.podhead{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:6px 10px}.ledby{font-size:11.5px;color:var(--muted);border:1px solid var(--line);border-radius:999px;padding:2px 9px;white-space:nowrap}
 .tip{text-decoration:underline dotted;text-underline-offset:3px;cursor:help}.notarget th,.notarget td{color:var(--muted)}.notarget th{color:var(--ink)}.notarget td.n:nth-child(2){color:var(--ink)}.mb{margin-bottom:10px}.mt{margin-top:22px}.fw4{font-weight:400;margin-top:2px}.tablewrap.flat{border:0;background:none;border-radius:0}
 .tgt th,.tgt td{padding:8px 10px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}.tgt thead th{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}.tgt th.n,.tgt td.n{text-align:right}
 .delta{display:inline-block;font-weight:650;font-variant-numeric:tabular-nums;padding:1px 8px;border-radius:999px;font-size:12px}
