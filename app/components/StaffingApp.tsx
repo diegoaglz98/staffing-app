@@ -461,6 +461,8 @@ export default function StaffingApp() {
   const [opTargets, setOpTargets] = useState<PlanTarget[]>([])
   const [opTargetsSetup, setOpTargetsSetup] = useState<string | null>(null)
   const [opTargetsOpen, setOpTargetsOpen] = useState(true)
+  const [opShowTargets, setOpShowTargets] = useState<boolean>(() => { try { return localStorage.getItem('op-show-targets') !== '0' } catch { return true } })
+  useEffect(() => { try { localStorage.setItem('op-show-targets', opShowTargets ? '1' : '0') } catch {} }, [opShowTargets])
   const [opTargetsEditing, setOpTargetsEditing] = useState(false)
   const [opNewTarget, setOpNewTarget] = useState({ name: '', target: '' })
   const [opVersionId, setOpVersionId] = useState<string>('')
@@ -6714,8 +6716,14 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
               <button onClick={opRenameVersion} className="text-xs px-2.5 py-1.5 rounded-lg border border-gray-700 text-gray-300 hover:text-white hover:border-gray-500">✎ Rename</button>
               <button onClick={opDeleteVersion} disabled={opVersions.length <= 1} className="text-xs px-2.5 py-1.5 rounded-lg border border-red-500/30 text-red-400/80 hover:text-red-400 disabled:opacity-30 disabled:cursor-not-allowed" title={opVersions.length <= 1 ? "Can't delete the only version" : 'Delete this version'}>Delete</button>
               <span className="text-[11px] text-gray-600 ml-1">{opVersions.length} version{opVersions.length === 1 ? '' : 's'} · each has its own roster & chart</span>
+              <div className="flex-1" />
+              <button
+                onClick={() => setOpShowTargets(v => !v)}
+                className={`text-xs px-2.5 py-1.5 rounded-lg border transition-colors ${opShowTargets ? 'border-emerald-500/40 text-emerald-300 bg-emerald-500/10' : 'border-gray-700 text-gray-400 hover:text-white hover:border-gray-500'}`}
+                title={opShowTargets ? 'Hide the headcount vs target panel' : 'Show the headcount vs target panel'}
+              >🎯 {opShowTargets ? 'Hide targets' : 'Show targets'}</button>
             </div>
-            {(() => {
+            {opShowTargets && (() => {
               if (opTargetsSetup) return (
                 <p className="text-[11px] text-amber-400 mb-4">Headcount targets need the <code>org_plan_targets</code> table in Supabase ({opTargetsSetup}). <button onClick={opLoadTargets} className="underline">Retry</button></p>
               )
