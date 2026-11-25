@@ -6766,7 +6766,8 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
             try { await opApi({ action: 'updateMany', updates: list.map((x, n) => ({ id: x.id, patch: { sort_order: n } })) }) } catch { opLoad() }
           }
           const depthOf = (id: string) => { let d = 0, cur = parentOf(id); while (cur && d < 50) { d++; cur = parentOf(cur) } return d }
-          const descendantCount = (id: string): number => childrenOf(id).reduce((n, c) => n + 1 + descendantCount(c.id), 0)
+          // Counts follow what's shown: hiding consultants removes them (and anything only reachable through them) from the totals
+          const descendantCount = (id: string): number => shownKids(id).reduce((n, c) => n + 1 + descendantCount(c.id), 0)
           const isAncestorOrSelf = (anc: string, node: string) => { let cur: string | null = node; while (cur) { if (cur === anc) return true; cur = parentOf(cur) } return false }
           const teamOf = (id: string) => { let cur: string | null = id; while (cur) { const t = byId.get(cur)?.team_name; if (t && depthOf(cur) < 3) return t; cur = parentOf(cur) } return null }
           const LEVEL = [
