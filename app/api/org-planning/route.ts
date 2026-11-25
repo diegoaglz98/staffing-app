@@ -205,6 +205,8 @@ export async function POST(request: Request) {
       const num = (v: unknown) => (v === '' || v == null ? null : Number.isFinite(Number(v)) ? Number(v) : null)
       if (body.queues_per_week !== undefined) row.queues_per_week = num(body.queues_per_week)
       if (body.hc_per_queue !== undefined) row.hc_per_queue = num(body.hc_per_queue)
+      if (body.attrition_pct !== undefined) row.attrition_pct = num(body.attrition_pct)
+      if (body.performance_pct !== undefined) row.performance_pct = num(body.performance_pct)
       if (body.sort_order !== undefined) row.sort_order = body.sort_order
       const res = body.id
         ? await sb.from(TARGETS).update(row).eq('id', body.id).select().single()

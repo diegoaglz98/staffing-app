@@ -206,12 +206,17 @@ function parseCSVLine(line: string): string[] {
 }
 
 // ---- Org planning: headcount vs target ----
-type PlanTarget = { id: string; name: string; target: number; sort_order?: number | null; queues_per_week?: number | null; hc_per_queue?: number | null }
-// Tooltip text for a pod's planning assumptions (queues/week × HC per queue)
+type PlanTarget = { id: string; name: string; target: number; sort_order?: number | null; queues_per_week?: number | null; hc_per_queue?: number | null; attrition_pct?: number | null; performance_pct?: number | null }
+// Target formula: queues/week × HC/queue × (1 + attrition buffer) × (1 + performance buffer); buffers are stored as percents (10 = 10%)
+function targetFormulaRaw(t: Partial<PlanTarget> | undefined) {
+  if (!t || t.queues_per_week == null || t.hc_per_queue == null) return null
+  return t.queues_per_week * t.hc_per_queue * (1 + (t.attrition_pct ?? 0) / 100) * (1 + (t.performance_pct ?? 0) / 100)
+}
+// Tooltip text for a pod's planning assumptions
 function targetAssumptionText(t: PlanTarget | undefined) {
-  if (!t || t.queues_per_week == null || t.hc_per_queue == null) return ''
-  const raw = Math.round(t.queues_per_week * t.hc_per_queue * 100) / 100
-  return `Assumptions\n• Queues / week: ${t.queues_per_week}\n• Headcount per queue: ${t.hc_per_queue}\n= ${raw} HC → target ${t.target}`
+  const raw = targetFormulaRaw(t)
+  if (!t || raw == null) return ''
+  return `Assumptions\n• Queues / week: ${t.queues_per_week}\n• Headcount per queue: ${t.hc_per_queue}\n• Attrition buffer: ${t.attrition_pct ?? 0}%\n• Performance buffer: ${t.performance_pct ?? 0}%\n= ${Math.round(raw * 100) / 100} HC → target ${t.target}`
 }
 type TeamCount = { team: string; leader: string; depth: number; count: number; contractors: number; isPod: boolean; includes: string[] }
 type TargetRow = { name: string; target: number; actual: number; delta: number; contractors: number; ftePct: number | null; contractorPct: number | null; fteOfTarget: number | null; contractorOfTarget: number | null; pctOfTarget: number | null; sources: TeamCount[] }
@@ -1732,13 +1737,23 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
     setOpTargetsSetup(null)
     setOpTargets(data.targets ?? [])
   }
-  async function opSaveTarget(t: { id?: string; name: string; target: number | string; queues_per_week?: number | null; hc_per_queue?: number | null }) {
-    const n = Number(t.target)
+  async function opSaveTarget(t: { id?: string; name: string; target: number | string; queues_per_week?: number | null; hc_per_queue?: number | null; attrition_pct?: number | null; performance_pct?: number | null }) {
+    let n = Number(t.target)
     if (!t.name.trim() || !Number.isFinite(n)) return
     const extra: Record<string, unknown> = {}
-    if (t.queues_per_week !== undefined) extra.queues_per_week = t.queues_per_week
-    if (t.hc_per_queue !== undefined) extra.hc_per_queue = t.hc_per_queue
-    const { target } = await opApi({ action: 'targetSave', id: t.id, name: t.name, target: n, ...extra, ...(t.id ? {} : { sort_order: opTargets.length }) })
+    const keys = ['queues_per_week', 'hc_per_queue', 'attrition_pct', 'performance_pct'] as const
+    for (const k of keys) if (t[k] !== undefined) extra[k] = t[k]
+    // Changing an assumption recomputes the target from the formula (rounded to whole people)
+    if (keys.some(k => t[k] !== undefined)) {
+      const raw = targetFormulaRaw({ ...opTargets.find(x => x.id === t.id), ...extra } as Partial<PlanTarget>)
+      if (raw != null) n = Math.round(raw)
+    }
+    let target: PlanTarget
+    try { ({ target } = await opApi({ action: 'targetSave', id: t.id, name: t.name, target: n, ...extra, ...(t.id ? {} : { sort_order: opTargets.length }) })) }
+    catch (e) {
+      if (/attrition_pct|performance_pct/.test(String(e instanceof Error ? e.message : e))) alert('The buffers need a one-time database update. Run this in Supabase → SQL editor:\n\nalter table org_plan_targets add column if not exists attrition_pct numeric, add column if not exists performance_pct numeric;')
+      return
+    }
     setOpTargets(prev => t.id ? prev.map(x => x.id === target.id ? target : x) : [...prev, target])
   }
   async function opDeleteTarget(t: PlanTarget) {
@@ -6979,12 +6994,20 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                                           ? <span title={tip} className="text-gray-100 font-medium underline decoration-dotted decoration-gray-500 underline-offset-4 cursor-help">{r.name}</span>
                                           : <span className="text-gray-100 font-medium">{r.name}</span> })()}
                                     {opTargetsEditing && (
-                                      <div className="flex items-center gap-1.5 mt-1 text-[11px] text-gray-500">
+                                      <div className="flex flex-wrap items-center gap-1.5 mt-1 text-[11px] text-gray-500">
                                         <input type="number" min={0} step="any" defaultValue={t.queues_per_week ?? ''} placeholder="—" title="Queues per week" onBlur={e => { const v = e.target.value === '' ? null : Number(e.target.value); if (v !== (t.queues_per_week ?? null)) opSaveTarget({ id: t.id, name: t.name, target: t.target, queues_per_week: v }) }} className={inputSmClass + ' !w-14 text-right no-spin'} />
                                         <span>queues/wk ×</span>
                                         <input type="number" min={0} step="any" defaultValue={t.hc_per_queue ?? ''} placeholder="—" title="Headcount per queue" onBlur={e => { const v = e.target.value === '' ? null : Number(e.target.value); if (v !== (t.hc_per_queue ?? null)) opSaveTarget({ id: t.id, name: t.name, target: t.target, hc_per_queue: v }) }} className={inputSmClass + ' !w-14 text-right no-spin'} />
-                                        <span>HC/queue</span>
-                                        {t.queues_per_week != null && t.hc_per_queue != null && <span className="text-gray-600">= {Math.round(t.queues_per_week * t.hc_per_queue * 100) / 100}</span>}
+                                        <span>HC/queue ×</span>
+                                        {(['attrition_pct', 'performance_pct'] as const).map((k, ki) => (
+                                          <span key={k} className="flex items-center gap-1">
+                                            {ki > 0 && <span>×</span>}
+                                            <span>(1 +</span>
+                                            <input type="number" min={0} step="any" defaultValue={t[k] ?? ''} placeholder="0" title={k === 'attrition_pct' ? 'Attrition buffer (%)' : 'Performance buffer (%)'} onBlur={e => { const v = e.target.value === '' ? null : Number(e.target.value); if (v !== (t[k] ?? null)) opSaveTarget({ id: t.id, name: t.name, target: t.target, [k]: v }) }} className={inputSmClass + ' !w-12 text-right no-spin'} />
+                                            <span>% {k === 'attrition_pct' ? 'attrition' : 'performance'})</span>
+                                          </span>
+                                        ))}
+                                        {(() => { const raw = targetFormulaRaw(t); return raw == null ? null : <span className="text-gray-600">= {Math.round(raw * 100) / 100} → {Math.round(raw)}</span> })()}
                                       </div>
                                     )}
                                     <p className="text-[11px] text-gray-500 mt-0.5">
