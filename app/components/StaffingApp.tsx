@@ -6988,7 +6988,16 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                                       </div>
                                     )}
                                     <p className="text-[11px] text-gray-500 mt-0.5">
-                                      {r.sources.length ? r.sources.map(x => `${x.team} (${x.leader}${x.depth === 2 ? ', sub-team' : ''}: ${x.count}${x.includes.length ? `, incl. ${x.includes.join(', ')}` : ''})`).join(' · ') : <span className="italic text-gray-600">No team named “{r.name}” on this chart</span>}
+                                      {r.sources.length ? r.sources.map(x => `${x.team} (${x.leader}${x.depth === 2 ? ', sub-team' : ''}: ${x.count}${x.includes.length ? `, incl. ${x.includes.join(', ')}` : ''})`).join(' · ') : <span className="italic text-gray-600">No team named “{r.name}” on this chart
+                                        {(() => {
+                                          const opts = [...new Set(hc.untargeted.filter(x => x.depth === 1).map(x => x.team))]
+                                          return opts.length ? <span className="not-italic text-gray-500"> · renamed? Link to:{' '}
+                                            {opts.map(name => (
+                                              <button key={name} onClick={() => { if (confirm(`Rename the "${t.name}" target to "${name}"? Its target and assumptions stay the same.`)) opSaveTarget({ id: t.id, name, target: t.target }) }} className="ml-1 px-1.5 py-0.5 rounded border border-gray-700 text-gray-300 hover:text-gray-100 hover:border-gray-500">{name}</button>
+                                            ))}
+                                          </span> : null
+                                        })()}
+                                      </span>}
                                     </p>
                                   </td>
                                   <td className="py-2 text-right tabular-nums text-gray-100 font-semibold">{r.actual}</td>
