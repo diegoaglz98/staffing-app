@@ -213,7 +213,7 @@ function targetAssumptionText(t: PlanTarget | undefined) {
   return `Assumptions\n• Queues / week: ${t.queues_per_week}\n• Headcount per queue: ${t.hc_per_queue}\n= ${raw} HC → target ${t.target}`
 }
 type TeamCount = { team: string; leader: string; depth: number; count: number; contractors: number }
-type TargetRow = { name: string; target: number; actual: number; delta: number; contractors: number; ftePct: number | null; contractorPct: number | null; fteOfTarget: number | null; contractorOfTarget: number | null; sources: TeamCount[] }
+type TargetRow = { name: string; target: number; actual: number; delta: number; contractors: number; ftePct: number | null; contractorPct: number | null; fteOfTarget: number | null; contractorOfTarget: number | null; pctOfTarget: number | null; sources: TeamCount[] }
 // A team = someone on the top 3 levels (below the top person) with a team name. Its headcount is everyone
 // below them, minus nested named teams; sub-leads (level 3) count toward their own team, level-2 leads don't
 // (same rule as the viewer's "people below"). Teams map to a target by name; a combined name like
@@ -231,8 +231,8 @@ function computeHeadcountVsTarget(people: PlanPerson[], targets: PlanTarget[], i
   const targetByName = new Map(targets.map(t => [norm(t.name), t]))
   // Actual FTEs / contractors as a share of the pod's target headcount
   const ofTarget = (total: number, contr: number, target: number) => target > 0
-    ? { fteOfTarget: Math.round(((total - contr) / target) * 100), contractorOfTarget: Math.round((contr / target) * 100) }
-    : { fteOfTarget: null, contractorOfTarget: null }
+    ? { fteOfTarget: Math.round(((total - contr) / target) * 100), contractorOfTarget: Math.round((contr / target) * 100), pctOfTarget: Math.round((total / target) * 100) }
+    : { fteOfTarget: null, contractorOfTarget: null, pctOfTarget: null }
   // FTE % and Contractor % always add up to 100
   const pcts = (total: number, contr: number) => {
     if (!total) return { ftePct: null, contractorPct: null }
@@ -373,11 +373,11 @@ function buildOrgPlanningViewerHTML(d: { versions: PlanVersionX[]; people: PlanP
       const pct = r.target ? Math.min(100, Math.round((r.actual / r.target) * 100)) : 0
       const from = r.sources.length ? r.sources.map(x => `${esc(x.team)} <span class="muted">(${esc(x.leader)}${x.depth === 2 ? ', sub-team' : ''}: ${x.count})</span>`).join(', ') : '<span class="muted">No matching team on this chart</span>'
       const tip = targetAssumptionText((d.targets ?? []).find(t => t.name === r.name))
-      return `<tr><th scope="row">${tip ? `<span class="tip" title="${esc(tip)}">${esc(r.name)}</span>` : esc(r.name)}<div class="muted small fw4">${from}</div></th><td class="n">${r.actual}</td><td class="n">${r.target}</td><td class="n"><span class="delta ${deltaCls(r.delta)}">${signed(r.delta)}</span></td><td class="n">${pct2(r.ftePct)}</td><td class="n">${pct2(r.contractorPct)}</td><td class="n">${ofT(r.actual - r.contractors, r.fteOfTarget)}</td><td class="n">${ofT(r.contractors, r.contractorOfTarget)}</td><td class="meter"><span class="track"><span class="fill ${deltaCls(r.delta)}" style="width:${pct}%"></span></span></td></tr>`
+      return `<tr><th scope="row">${tip ? `<span class="tip" title="${esc(tip)}">${esc(r.name)}</span>` : esc(r.name)}<div class="muted small fw4">${from}</div></th><td class="n">${r.actual}</td><td class="n">${r.target}</td><td class="n"><span class="delta ${deltaCls(r.delta)}">${signed(r.delta)}</span></td><td class="n">${pct2(r.pctOfTarget)}</td><td class="n">${pct2(r.ftePct)}</td><td class="n">${pct2(r.contractorPct)}</td><td class="n">${ofT(r.actual - r.contractors, r.fteOfTarget)}</td><td class="n">${ofT(r.contractors, r.contractorOfTarget)}</td><td class="meter"><span class="track"><span class="fill ${deltaCls(r.delta)}" style="width:${pct}%"></span></span></td></tr>`
     }).join('')
     const t = hc.totals, td = t.actual - t.target
     const extra = hc.untargeted.length ? `<p class="muted small">No target: ${hc.untargeted.map(x => `${esc(x.team)} (${x.count})`).join(', ')}</p>` : ''
-    return `<div class="panel"><h3 class="mb">Headcount vs target</h3><div class="tablewrap flat"><table class="tgt"><thead><tr><th>Pod</th><th class="n">Actual</th><th class="n">Target</th><th class="n">Delta</th><th class="n">FTE %</th><th class="n">Contractor %</th><th class="n">FTEs / target</th><th class="n">Contractors / target</th><th></th></tr></thead><tbody>${rows}<tr class="tot"><th scope="row">Total (pods with a target)</th><td class="n">${t.actual}</td><td class="n">${t.target}</td><td class="n"><span class="delta ${deltaCls(td)}">${signed(td)}</span></td><td class="n">${pct2(t.ftePct)}</td><td class="n">${pct2(t.contractorPct)}</td><td class="n">${ofT(t.actual - t.contractors, t.fteOfTarget)}</td><td class="n">${ofT(t.contractors, t.contractorOfTarget)}</td><td></td></tr></tbody></table></div>${extra}</div>`
+    return `<div class="panel"><h3 class="mb">Headcount vs target</h3><div class="tablewrap flat"><table class="tgt"><thead><tr><th>Pod</th><th class="n">Actual</th><th class="n">Target</th><th class="n">Delta</th><th class="n">% of target</th><th class="n">FTE %</th><th class="n">Contractor %</th><th class="n">FTEs / target</th><th class="n">Contractors / target</th><th></th></tr></thead><tbody>${rows}<tr class="tot"><th scope="row">Total (pods with a target)</th><td class="n">${t.actual}</td><td class="n">${t.target}</td><td class="n"><span class="delta ${deltaCls(td)}">${signed(td)}</span></td><td class="n">${pct2(t.pctOfTarget)}</td><td class="n">${pct2(t.ftePct)}</td><td class="n">${pct2(t.contractorPct)}</td><td class="n">${ofT(t.actual - t.contractors, t.fteOfTarget)}</td><td class="n">${ofT(t.contractors, t.contractorOfTarget)}</td><td></td></tr></tbody></table></div>${extra}</div>`
   }
   const versionSections = versionData.map(({ v, people, placed, trees, unplaced, hc }, vi) => {
     const body = trees.length === 0 ? '<p class="muted">No one is placed on this chart yet.</p>' : trees.map(t => `
@@ -399,7 +399,7 @@ function buildOrgPlanningViewerHTML(d: { versions: PlanVersionX[]; people: PlanP
     }).join('')}</tr>`).join('')
     const totals = `<tr class="tot"><th scope="row">Total in org</th>${versionData.map(vd => `<td class="n">${vd.trees.reduce((a, t) => a + t.total, 0)}</td>`).join('')}</tr>`
     const tNames = (d.targets ?? []).map(t => t.name)
-    const tRows = tNames.map(nm => `<tr><th scope="row">${(() => { const tip = targetAssumptionText((d.targets ?? []).find(t => t.name === nm)); return tip ? `<span class="tip" title="${esc(tip)}">${esc(nm)}</span>` : esc(nm) })()}</th>${versionData.map(vd => { const r = vd.hc.rows.find(x => x.name === nm)!; return `<td><span class="n">${r.actual}</span><span class="muted"> / ${r.target}</span> <span class="delta ${deltaCls(r.delta)}">${signed(r.delta)}</span></td>` }).join('')}</tr>`).join('')
+    const tRows = tNames.map(nm => `<tr><th scope="row">${(() => { const tip = targetAssumptionText((d.targets ?? []).find(t => t.name === nm)); return tip ? `<span class="tip" title="${esc(tip)}">${esc(nm)}</span>` : esc(nm) })()}</th>${versionData.map(vd => { const r = vd.hc.rows.find(x => x.name === nm)!; return `<td><span class="n">${r.actual}</span><span class="muted"> / ${r.target}</span> <span class="delta ${deltaCls(r.delta)}">${signed(r.delta)}</span>${r.pctOfTarget == null ? '' : `<span class="muted small"> · ${r.pctOfTarget}%</span>`}</td>` }).join('')}</tr>`).join('')
     const tTable = tNames.length ? `<h3 class="mb mt">Headcount vs target</h3><div class="tablewrap"><table class="cmp"><thead><tr><th>Pod</th>${versionData.map(vd => `<th>${esc(vd.v.name)}</th>`).join('')}</tr></thead><tbody>${tRows}</tbody></table></div>` : ''
     compare = `<section id="compare"><h2>Versions side by side</h2><p class="lede">People below each lead, per version.</p><div class="tablewrap"><table class="cmp"><thead><tr><th>Lead</th>${versionData.map(vd => `<th>${esc(vd.v.name)}</th>`).join('')}</tr></thead><tbody>${rows}${totals}</tbody></table></div>${tTable}</section>`
   }
@@ -454,7 +454,7 @@ footer{color:var(--muted);font-size:12px;border-top:1px solid var(--line);paddin
 ${podsSection}
 ${compare}
 ${versionSections}
-<footer><p><b>How headcount is counted:</b> <i>Overall team</i> is everyone below a lead (the lead isn't counted). A <i>sub-team</i> is led by a direct report who has a team name; its count includes the sub-lead and everyone below them. <i>Main team</i> is everyone else below the lead (including people under direct reports without a team name). Main team + sub-teams = overall team.</p><p><b>Headcount vs target:</b> a pod's actual is the sum of teams whose team name matches the pod (a combined name like "Code/Safety" counts toward the part not covered by its own sub-teams). Leads aren't counted; sub-leads count toward their sub-team. Hover a pod name for its planning assumptions (queues / week × headcount per queue). Delta = actual − target (negative = below target). FTE % / Contractor %: share of actual headcount (GenAI Consultants count as contractors, everyone else as FTE). FTEs / target and Contractors / target: the number of actual FTEs / contractors and what % of the pod's target that is.</p><p>Confidential: contains planning data. Don't share outside the intended audience.</p></footer>
+<footer><p><b>How headcount is counted:</b> <i>Overall team</i> is everyone below a lead (the lead isn't counted). A <i>sub-team</i> is led by a direct report who has a team name; its count includes the sub-lead and everyone below them. <i>Main team</i> is everyone else below the lead (including people under direct reports without a team name). Main team + sub-teams = overall team.</p><p><b>Headcount vs target:</b> a pod's actual is the sum of teams whose team name matches the pod (a combined name like "Code/Safety" counts toward the part not covered by its own sub-teams). Leads aren't counted; sub-leads count toward their sub-team. Hover a pod name for its planning assumptions (queues / week × headcount per queue). Delta = actual − target (negative = below target). % of target = actual ÷ target. FTE % / Contractor %: share of actual headcount (GenAI Consultants count as contractors, everyone else as FTE). FTEs / target and Contractors / target: the number of actual FTEs / contractors and what % of the pod's target that is.</p><p>Confidential: contains planning data. Don't share outside the intended audience.</p></footer>
 </div></body></html>`
 }
 
@@ -6774,7 +6774,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                 <div className="mb-5 bg-gray-900 border border-gray-800 rounded-xl">
                   <div className="flex items-center gap-3 px-4 py-2.5">
                     <button onClick={() => setOpTargetsOpen(o => !o)} className="text-sm font-medium text-gray-100 hover:text-gray-100">{opTargetsOpen ? '▾' : '▸'} Headcount vs target</button>
-                    {hc.rows.length > 0 && <span className="text-xs text-gray-500">{hc.totals.actual} / {hc.totals.target} <span className={`ml-1 px-1.5 py-0.5 rounded-full font-semibold ${tone(td)}`}>{signed(td)}</span></span>}
+                    {hc.rows.length > 0 && <span className="text-xs text-gray-500">{hc.totals.actual} / {hc.totals.target}{hc.totals.pctOfTarget != null && ` (${hc.totals.pctOfTarget}%)`} <span className={`ml-1 px-1.5 py-0.5 rounded-full font-semibold ${tone(td)}`}>{signed(td)}</span></span>}
                     <div className="flex-1" />
                     {opTargetsOpen && <button onClick={() => setOpTargetsEditing(e => !e)} className="text-[11px] text-gray-500 hover:text-gray-200">{opTargetsEditing ? 'Done' : '✎ Edit targets'}</button>}
                   </div>
@@ -6790,6 +6790,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                               <th className="py-1.5 font-medium text-right w-20">Actual</th>
                               <th className="py-1.5 font-medium text-right w-24">Target</th>
                               <th className="py-1.5 font-medium text-right w-20">Delta</th>
+                              <th className="py-1.5 font-medium text-right w-24">% of target</th>
                               <th className="py-1.5 font-medium text-right w-16">FTE %</th>
                               <th className="py-1.5 font-medium text-right w-24">Contractor %</th>
                               <th className="py-1.5 font-medium text-right w-28">FTEs / target</th>
@@ -6830,6 +6831,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                                       : r.target}
                                   </td>
                                   <td className="py-2 text-right"><span className={`text-xs px-2 py-0.5 rounded-full font-semibold tabular-nums ${tone(r.delta)}`}>{signed(r.delta)}</span></td>
+                                  <td className="py-2 text-right tabular-nums text-gray-100 font-semibold" title={`${r.actual} of ${r.target}`}>{pctCell(r.pctOfTarget)}</td>
                                   <td className="py-2 text-right tabular-nums text-gray-300" title={`${r.actual - r.contractors} FTE`}>{pctCell(r.ftePct)}</td>
                                   <td className="py-2 text-right tabular-nums text-violet-300" title={`${r.contractors} contractor${r.contractors === 1 ? '' : 's'}`}>{pctCell(r.contractorPct)}</td>
                                   <td className="py-2 text-right tabular-nums text-gray-300" title={`${r.actual - r.contractors} FTE of a ${r.target} target`}>{ofTargetCell(r.actual - r.contractors, r.fteOfTarget)}</td>
@@ -6844,7 +6846,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                                 <td className="py-2 pr-3"><input placeholder="Pod / team name" value={opNewTarget.name} onChange={e => setOpNewTarget({ ...opNewTarget, name: e.target.value })} className={inputSmClass + ' !w-40'} /></td>
                                 <td></td>
                                 <td className="py-2 text-right"><input type="number" min={0} placeholder="0" value={opNewTarget.target} onChange={e => setOpNewTarget({ ...opNewTarget, target: e.target.value })} className={inputSmClass + ' !w-16 text-right no-spin'} /></td>
-                                <td colSpan={7} className="py-2 pl-3"><button onClick={async () => { if (!opNewTarget.name.trim() || opNewTarget.target === '') return; await opSaveTarget({ name: opNewTarget.name, target: opNewTarget.target }); setOpNewTarget({ name: '', target: '' }) }} className="text-xs px-2.5 py-1 rounded-lg text-white hover:brightness-125" style={{ backgroundColor: '#193a29' }}>+ Add target</button></td>
+                                <td colSpan={8} className="py-2 pl-3"><button onClick={async () => { if (!opNewTarget.name.trim() || opNewTarget.target === '') return; await opSaveTarget({ name: opNewTarget.name, target: opNewTarget.target }); setOpNewTarget({ name: '', target: '' }) }} className="text-xs px-2.5 py-1 rounded-lg text-white hover:brightness-125" style={{ backgroundColor: '#193a29' }}>+ Add target</button></td>
                               </tr>
                             )}
                             {hc.rows.length > 0 && (
@@ -6853,6 +6855,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                                 <td className="py-2 text-right tabular-nums text-gray-100">{hc.totals.actual}</td>
                                 <td className="py-2 text-right tabular-nums text-gray-400">{hc.totals.target}</td>
                                 <td className="py-2 text-right"><span className={`text-xs px-2 py-0.5 rounded-full tabular-nums ${tone(td)}`}>{signed(td)}</span></td>
+                                <td className="py-2 text-right tabular-nums text-gray-100">{pctCell(hc.totals.pctOfTarget)}</td>
                                 <td className="py-2 text-right tabular-nums text-gray-300" title={`${hc.totals.actual - hc.totals.contractors} FTE`}>{pctCell(hc.totals.ftePct)}</td>
                                 <td className="py-2 text-right tabular-nums text-violet-300" title={`${hc.totals.contractors} contractors`}>{pctCell(hc.totals.contractorPct)}</td>
                                 <td className="py-2 text-right tabular-nums text-gray-300">{ofTargetCell(hc.totals.actual - hc.totals.contractors, hc.totals.fteOfTarget)}</td>
@@ -6866,7 +6869,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                       {hc.untargeted.length > 0 && (
                         <p className="text-[11px] text-gray-500 mt-2">No target: {hc.untargeted.map(x => `${x.team} (${x.count})`).join(' · ')}</p>
                       )}
-                      <p className="text-[10px] text-gray-600 mt-2">Actual = people in teams whose team name matches the pod (leads not counted; sub-leads count toward their sub-team). “Code/Safety” counts toward whichever part isn’t its own sub-team. Hover a pod name for its assumptions. Delta = actual − target. FTE % / Contractor %: share of actual headcount (GenAI Consultants = contractors). FTEs / target, Contractors / target: actual count and its % of the pod’s target.</p>
+                      <p className="text-[10px] text-gray-600 mt-2">Actual = people in teams whose team name matches the pod (leads not counted; sub-leads count toward their sub-team). “Code/Safety” counts toward whichever part isn’t its own sub-team. Hover a pod name for its assumptions. Delta = actual − target. % of target = actual ÷ target. FTE % / Contractor %: share of actual headcount (GenAI Consultants = contractors). FTEs / target, Contractors / target: actual count and its % of the pod’s target.</p>
                     </div>
                   )}
                 </div>
