@@ -11,6 +11,7 @@ const COOKIE = 'org_planning'
 const TABLE = 'org_plan_people'
 const PODS = 'org_plan_pods'
 const VERSIONS = 'org_plan_versions'
+const POD_LINKS = 'org_plan_pod_links'
 const token = () => createHash('sha256').update(`org-planning:${PASSWORD}`).digest('hex')
 
 async function unlocked() {
@@ -154,7 +155,9 @@ export async function POST(request: Request) {
     // ---- Pods definition (separate table: org_plan_pods) ----
     case 'pods': {
       const { data, error } = await sb.from(PODS).select('*').order('sort_order', { ascending: true, nullsFirst: false }).order('created_at', { ascending: true })
-      return error ? fail(`pods-setup: ${error.message}`) : NextResponse.json({ pods: data })
+      if (error) return fail(`pods-setup: ${error.message}`)
+      const { data: links, error: lErr } = await sb.from(POD_LINKS).select('*')
+      return NextResponse.json({ pods: data, links: links ?? [], linksSetup: lErr ? lErr.message : null })
     }
     case 'podAdd': {
       const name = String(body.pod?.name ?? '').trim()
@@ -169,6 +172,19 @@ export async function POST(request: Request) {
       if (body.patch?.sort_order !== undefined) patch.sort_order = body.patch.sort_order == null ? null : Number(body.patch.sort_order)
       const { data, error } = await sb.from(PODS).update(patch).eq('id', body.id).select().single()
       return error ? fail(error.message) : NextResponse.json({ pod: data })
+    }
+    case 'podLink': {
+      // Links are undirected: store them with the smaller id first so A↔B is only saved once.
+      const [a, b] = [String(body.a ?? ''), String(body.b ?? '')].sort()
+      if (!a || !b || a === b) return fail('Pick two different pods', 400)
+      const { data: existing } = await sb.from(POD_LINKS).select('*').eq('pod_a', a).eq('pod_b', b).maybeSingle()
+      if (existing) return NextResponse.json({ link: existing })
+      const { data, error } = await sb.from(POD_LINKS).insert([{ pod_a: a, pod_b: b }]).select().single()
+      return error ? fail(error.message) : NextResponse.json({ link: data })
+    }
+    case 'podUnlink': {
+      const { error } = await sb.from(POD_LINKS).delete().eq('id', body.id)
+      return error ? fail(error.message) : NextResponse.json({ ok: true })
     }
     case 'podDelete': {
       const { error } = await sb.from(PODS).delete().eq('id', body.id)

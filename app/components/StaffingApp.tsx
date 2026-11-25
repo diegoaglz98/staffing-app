@@ -155,6 +155,7 @@ type OrgNode = {
 
 // Org planning (password-protected): its own roster, independent of Staff
 type PlanVersion = { id: string; name: string; created_at?: string }
+type PlanPodLink = { id: string; pod_a: string; pod_b: string }
 type PlanPod = { id: string; name: string; description: string | null; sort_order?: number | null; created_at?: string }
 type PlanPerson = {
   id: string
@@ -235,6 +236,13 @@ export default function StaffingApp() {
   const [opPodsSetupMsg, setOpPodsSetupMsg] = useState('')
   const [opNewPod, setOpNewPod] = useState({ name: '', description: '' })
   const [opPodEdit, setOpPodEdit] = useState<{ id: string; name: string; description: string } | null>(null)
+  const [opPodLinks, setOpPodLinks] = useState<PlanPodLink[]>([])
+  const [opLinksSetup, setOpLinksSetup] = useState<string | null>(null)
+  const [opLinkMode, setOpLinkMode] = useState(false)
+  const [opLinkFrom, setOpLinkFrom] = useState<string | null>(null)
+  const [opHoverPod, setOpHoverPod] = useState<string | null>(null)
+  const [opPodRects, setOpPodRects] = useState<Record<string, { x: number; y: number; w: number; h: number }>>({})
+  const opPodGridRef = useRef<HTMLDivElement>(null)
   const [opPassword, setOpPassword] = useState('')
   const [opPwError, setOpPwError] = useState('')
   const [opNew, setOpNew] = useState({ name: '', position: '' })
@@ -427,6 +435,23 @@ export default function StaffingApp() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { if (tab === 'orgplanning' && opState === 'unknown') opLoad() }, [tab])
   useEffect(() => { if (tab === 'orgplanning' && opState === 'ready' && opSub === 'definition' && opPodsState === 'idle') opLoadPods() }, [tab, opState, opSub, opPodsState])
+  // Keep the pod-link lines attached to the cards as the grid reflows.
+  useEffect(() => {
+    if (tab !== 'orgplanning' || opSub !== 'definition' || opPodsState !== 'ready') return
+    const box = opPodGridRef.current
+    if (!box) return
+    opMeasurePods()
+    const ro = new ResizeObserver(() => opMeasurePods())
+    ro.observe(box)
+    box.querySelectorAll('[data-pod-id]').forEach(el => ro.observe(el))
+    return () => ro.disconnect()
+  }, [tab, opSub, opPodsState, opPods, opPodLinks, opPodEdit, opLinkMode])
+  useEffect(() => {
+    if (!opLinkMode) return
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') { setOpLinkMode(false); setOpLinkFrom(null) } }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [opLinkMode])
 
   async function loadAll() {
     setLoading(true)
@@ -1503,7 +1528,41 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
     if (res.status === 401) { setOpState('locked'); setOpPodsState('idle'); return }
     if (!res.ok) { setOpPodsSetupMsg(String(data.error ?? '').replace(/^(pods-)?setup:\s*/, '')); setOpPodsState('setup'); return }
     setOpPods(data.pods ?? [])
+    setOpPodLinks(data.links ?? [])
+    setOpLinksSetup(data.linksSetup ?? null)
     setOpPodsState('ready')
+  }
+  const opLinkBetween = (a: string, b: string) => opPodLinks.find(l => (l.pod_a === a && l.pod_b === b) || (l.pod_a === b && l.pod_b === a))
+  async function opToggleLink(a: string, b: string) {
+    const existing = opLinkBetween(a, b)
+    if (existing) {
+      await opApi({ action: 'podUnlink', id: existing.id })
+      setOpPodLinks(prev => prev.filter(l => l.id !== existing.id))
+    } else {
+      const { link } = await opApi({ action: 'podLink', a, b })
+      setOpPodLinks(prev => prev.some(l => l.id === link.id) ? prev : [...prev, link])
+    }
+  }
+  async function opUnlink(id: string) {
+    await opApi({ action: 'podUnlink', id })
+    setOpPodLinks(prev => prev.filter(l => l.id !== id))
+  }
+  function opPodCardClick(id: string) {
+    if (!opLinkMode) return
+    if (!opLinkFrom) { setOpLinkFrom(id); return }
+    if (opLinkFrom === id) { setOpLinkFrom(null); return }
+    opToggleLink(opLinkFrom, id)
+  }
+  function opMeasurePods() {
+    const box = opPodGridRef.current
+    if (!box) return
+    const base = box.getBoundingClientRect()
+    const next: Record<string, { x: number; y: number; w: number; h: number }> = {}
+    box.querySelectorAll<HTMLElement>('[data-pod-id]').forEach(el => {
+      const r = el.getBoundingClientRect()
+      next[el.dataset.podId!] = { x: r.left - base.left, y: r.top - base.top, w: r.width, h: r.height }
+    })
+    setOpPodRects(next)
   }
   async function opAddPod() {
     const name = opNewPod.name.trim()
@@ -1525,6 +1584,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
     if (!confirm(`Delete the pod "${p.name}"?`)) return
     await opApi({ action: 'podDelete', id: p.id })
     setOpPods(prev => prev.filter(x => x.id !== p.id))
+    setOpPodLinks(prev => prev.filter(l => l.pod_a !== p.id && l.pod_b !== p.id))
   }
   async function opMovePod(idx: number, dir: -1 | 1) {
     const j = idx + dir
@@ -6054,14 +6114,69 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                     <button onClick={opAddPod} disabled={!opNewPod.name.trim()} className="text-xs px-3 py-1.5 rounded-lg text-white hover:brightness-125 disabled:opacity-40" style={{ backgroundColor: '#193a29' }}>+ Add pod</button>
                   </div>
 
+                  {opPods.length >= 2 && (
+                    <div className="flex flex-wrap items-center gap-3">
+                      <button
+                        onClick={() => { setOpLinkMode(m => !m); setOpLinkFrom(null); setOpPodEdit(null) }}
+                        className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${opLinkMode ? 'border-sky-500 bg-sky-500/15 text-sky-300' : 'border-gray-700 text-gray-300 hover:text-white hover:border-gray-500'}`}
+                      >🔗 {opLinkMode ? 'Done linking' : 'Link pods'}</button>
+                      <span className="text-[11px] text-gray-500">
+                        {opLinkMode
+                          ? (opLinkFrom ? <>Now click the pod to connect with <span className="text-sky-300">{opPods.find(x => x.id === opLinkFrom)?.name}</span> (click a linked pod again to unlink · Esc to finish)</> : 'Click a pod to start a link')
+                          : `${opPodLinks.length} link${opPodLinks.length === 1 ? '' : 's'} · linked pods collaborate on workload and re-use best practices · hover a pod to highlight its links`}
+                      </span>
+                    </div>
+                  )}
+                  {opLinksSetup && (
+                    <p className="text-[11px] text-amber-400">Links need the <code>org_plan_pod_links</code> table in Supabase ({opLinksSetup}).</p>
+                  )}
+
                   {opPods.length === 0 ? (
                     <p className="text-sm text-gray-500">No pods yet — add the first one above.</p>
                   ) : (
-                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                    <div ref={opPodGridRef} className="relative">
+                    {/* Link lines sit behind the cards; the highlighted pod's links are drawn on top */}
+                    {(['under', 'over'] as const).map(layer => (
+                      <svg key={layer} className={`absolute inset-0 w-full h-full pointer-events-none ${layer === 'over' ? 'z-20' : 'z-0'}`}>
+                        {opPodLinks.map(l => {
+                          const a = opPodRects[l.pod_a], b = opPodRects[l.pod_b]
+                          if (!a || !b) return null
+                          const focus = opHoverPod ?? opLinkFrom
+                          const hot = !!focus && (l.pod_a === focus || l.pod_b === focus)
+                          if ((layer === 'over') !== hot) return null
+                          const ax = a.x + a.w / 2, ay = a.y + a.h / 2, bx = b.x + b.w / 2, by = b.y + b.h / 2
+                          // Gentle curve so links between cards in the same row/column don't overlap exactly
+                          const mx = (ax + bx) / 2, my = (ay + by) / 2
+                          const dx = bx - ax, dy = by - ay, len = Math.hypot(dx, dy) || 1
+                          const bend = Math.min(40, len * 0.12)
+                          const cx = mx - (dy / len) * bend, cy = my + (dx / len) * bend
+                          return (
+                            <g key={l.id}>
+                              <path d={`M ${ax} ${ay} Q ${cx} ${cy} ${bx} ${by}`} fill="none" stroke={hot ? '#38bdf8' : '#10b981'} strokeOpacity={hot ? 0.9 : (focus ? 0.15 : 0.55)} strokeWidth={hot ? 3 : 2.5} strokeLinecap="round" />
+                            </g>
+                          )
+                        })}
+                      </svg>
+                    ))}
+                    <div className="relative z-10 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-x-12 gap-y-10">
                       {opPods.map((p, i) => {
                         const editing = opPodEdit?.id === p.id
+                        const myLinks = opPodLinks.filter(l => l.pod_a === p.id || l.pod_b === p.id)
+                        const focus = opHoverPod ?? opLinkFrom
+                        const isSource = opLinkFrom === p.id
+                        const linkedToFocus = !!focus && focus !== p.id && !!opLinkBetween(focus, p.id)
+                        const dimmed = !!focus && focus !== p.id && !linkedToFocus
                         return (
-                          <div key={p.id} className="group bg-gray-900 border border-gray-800 rounded-xl p-4 flex flex-col">
+                          <div
+                            key={p.id}
+                            data-pod-id={p.id}
+                            onClick={() => opPodCardClick(p.id)}
+                            onMouseEnter={() => setOpHoverPod(p.id)}
+                            onMouseLeave={() => setOpHoverPod(null)}
+                            className={`group relative bg-gray-900 border rounded-xl p-4 flex flex-col transition-all ${
+                              isSource ? 'border-sky-400 ring-2 ring-sky-400/40' : linkedToFocus ? 'border-sky-500/60' : 'border-gray-800'
+                            } ${opLinkMode ? 'cursor-pointer hover:border-sky-500/70' : ''} ${dimmed ? 'opacity-60' : ''}`}
+                          >
                             {editing ? (
                               <div className="space-y-2">
                                 <input autoFocus className={inputClass + ' w-full'} value={opPodEdit.name} onChange={e => setOpPodEdit({ ...opPodEdit, name: e.target.value })} onKeyDown={e => { if (e.key === 'Escape') setOpPodEdit(null) }} />
@@ -6075,7 +6190,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                               <>
                                 <div className="flex items-start gap-2">
                                   <h3 className="flex-1 text-gray-100 font-semibold leading-snug">{p.name}</h3>
-                                  <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                  <div className={`flex items-center gap-1 opacity-0 transition-opacity ${opLinkMode ? 'hidden' : 'group-hover:opacity-100'}`}>
                                     <button onClick={() => opMovePod(i, -1)} disabled={i === 0} className="text-xs text-gray-500 hover:text-white disabled:opacity-30 px-1" title="Move earlier">◀</button>
                                     <button onClick={() => opMovePod(i, 1)} disabled={i === opPods.length - 1} className="text-xs text-gray-500 hover:text-white disabled:opacity-30 px-1" title="Move later">▶</button>
                                     <button onClick={() => setOpPodEdit({ id: p.id, name: p.name, description: p.description ?? '' })} className="text-xs text-gray-500 hover:text-white px-1" title="Edit">✎</button>
@@ -6085,11 +6200,27 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                                 {p.description
                                   ? <p className="mt-2 text-sm text-gray-400 whitespace-pre-wrap leading-relaxed">{p.description}</p>
                                   : <p className="mt-2 text-sm text-gray-600 italic">No description</p>}
+                                {myLinks.length > 0 && (
+                                  <div className="mt-3 pt-3 border-t border-gray-800 flex flex-wrap items-center gap-1.5">
+                                    <span className="text-[10px] uppercase tracking-wider text-gray-500 mr-0.5">🔗 Linked</span>
+                                    {myLinks.map(l => {
+                                      const other = opPods.find(x => x.id === (l.pod_a === p.id ? l.pod_b : l.pod_a))
+                                      if (!other) return null
+                                      return (
+                                        <span key={l.id} className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-300">
+                                          {other.name}
+                                          {!opLinkMode && <button onClick={e => { e.stopPropagation(); opUnlink(l.id) }} className="text-emerald-400/60 hover:text-red-400 leading-none" title={`Unlink from ${other.name}`}>✕</button>}
+                                        </span>
+                                      )
+                                    })}
+                                  </div>
+                                )}
                               </>
                             )}
                           </div>
                         )
                       })}
+                    </div>
                     </div>
                   )}
                 </div>
