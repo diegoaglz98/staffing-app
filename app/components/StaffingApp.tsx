@@ -448,10 +448,10 @@ export default function StaffingApp() {
   }, [tab, opSub, opPodsState, opPods, opPodLinks, opPodEdit, opLinkMode])
   useEffect(() => {
     if (!opLinkMode) return
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') { setOpLinkMode(false); setOpLinkFrom(null) } }
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') opFinishLinking() }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [opLinkMode])
+  }, [opLinkMode, opPods, opPodLinks])
 
   async function loadAll() {
     setLoading(true)
@@ -1546,6 +1546,54 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
   async function opUnlink(id: string) {
     await opApi({ action: 'podUnlink', id })
     setOpPodLinks(prev => prev.filter(l => l.id !== id))
+  }
+  // Reorder pods so linked pods sit next to each other: clusters of linked pods first
+  // (biggest first), each laid out greedily so every next pod is linked to the ones just placed.
+  function opArrangedPods(pods: PlanPod[], links: PlanPodLink[]) {
+    const adj = new Map(pods.map(p => [p.id, new Set<string>()]))
+    links.forEach(l => { adj.get(l.pod_a)?.add(l.pod_b); adj.get(l.pod_b)?.add(l.pod_a) })
+    const idx = new Map(pods.map((p, i) => [p.id, i]))
+    const seen = new Set<string>()
+    const clusters: string[][] = []
+    for (const p of pods) {
+      if (seen.has(p.id)) continue
+      const comp: string[] = []
+      const stack = [p.id]; seen.add(p.id)
+      while (stack.length) { const c = stack.pop()!; comp.push(c); adj.get(c)!.forEach(n => { if (!seen.has(n)) { seen.add(n); stack.push(n) } }) }
+      clusters.push(comp)
+    }
+    clusters.sort((a, b) => (b.length - a.length) || (Math.min(...a.map(x => idx.get(x)!)) - Math.min(...b.map(x => idx.get(x)!))))
+    const out: string[] = []
+    for (const comp of clusters) {
+      const left = new Set(comp)
+      const placed: string[] = []
+      const deg = (id: string) => adj.get(id)!.size
+      let cur = [...left].sort((a, b) => deg(b) - deg(a) || idx.get(a)! - idx.get(b)!)[0]
+      while (cur) {
+        placed.push(cur); left.delete(cur)
+        const recent = placed.slice(-3)
+        const score = (id: string) => {
+          const nb = adj.get(id)!
+          return (nb.has(placed[placed.length - 1]) ? 100 : 0) + recent.filter(r => nb.has(r)).length * 10 + placed.filter(r => nb.has(r)).length
+        }
+        cur = [...left].sort((a, b) => score(b) - score(a) || deg(b) - deg(a) || idx.get(a)! - idx.get(b)!)[0]
+      }
+      out.push(...placed)
+    }
+    const byId = new Map(pods.map(p => [p.id, p]))
+    return out.map((id, n) => ({ ...byId.get(id)!, sort_order: n }))
+  }
+  async function opArrangePods() {
+    const next = opArrangedPods(opPods, opPodLinks)
+    const changed = next.filter((p, n) => opPods[n]?.id !== p.id)
+    if (!changed.length) return
+    setOpPods(next)
+    await Promise.all(next.filter(p => opPods.find(x => x.id === p.id)?.sort_order !== p.sort_order)
+      .map(p => opApi({ action: 'podUpdate', id: p.id, patch: { sort_order: p.sort_order } })))
+  }
+  function opFinishLinking() {
+    setOpLinkMode(false); setOpLinkFrom(null)
+    opArrangePods()
   }
   function opPodCardClick(id: string) {
     if (!opLinkMode) return
@@ -6117,12 +6165,15 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                   {opPods.length >= 2 && (
                     <div className="flex flex-wrap items-center gap-3">
                       <button
-                        onClick={() => { setOpLinkMode(m => !m); setOpLinkFrom(null); setOpPodEdit(null) }}
+                        onClick={() => { if (opLinkMode) opFinishLinking(); else { setOpLinkMode(true); setOpLinkFrom(null); setOpPodEdit(null) } }}
                         className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${opLinkMode ? 'border-sky-500 bg-sky-500/15 text-sky-300' : 'border-gray-700 text-gray-300 hover:text-white hover:border-gray-500'}`}
                       >🔗 {opLinkMode ? 'Done linking' : 'Link pods'}</button>
+                      {!opLinkMode && opPodLinks.length > 0 && (
+                        <button onClick={opArrangePods} className="text-xs px-3 py-1.5 rounded-lg border border-gray-700 text-gray-300 hover:text-white hover:border-gray-500" title="Reorder the cards so linked pods sit next to each other">✨ Arrange by links</button>
+                      )}
                       <span className="text-[11px] text-gray-500">
                         {opLinkMode
-                          ? (opLinkFrom ? <>Now click the pod to connect with <span className="text-sky-300">{opPods.find(x => x.id === opLinkFrom)?.name}</span> (click a linked pod again to unlink · Esc to finish)</> : 'Click a pod to start a link')
+                          ? (opLinkFrom ? <>Now click the pod to connect with <span className="text-sky-300">{opPods.find(x => x.id === opLinkFrom)?.name}</span> (click a linked pod again to unlink · Done / Esc rearranges the cards)</> : 'Click a pod to start a link')
                           : `${opPodLinks.length} link${opPodLinks.length === 1 ? '' : 's'} · linked pods collaborate on workload and re-use best practices · hover a pod to highlight its links`}
                       </span>
                     </div>
