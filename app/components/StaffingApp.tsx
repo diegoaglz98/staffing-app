@@ -6671,6 +6671,12 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
               <button onClick={() => setOpEditTeam(p.id)} title="Edit team name" className="mt-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-gray-950/50 text-gray-100 border border-gray-600/60 hover:border-gray-400 whitespace-nowrap">
                 🏷 {p.team_name}
               </button>
+            ) : d === 2 && teamOf(p.id) ? (
+              // 3rd layer, not a sub-lead: show the team they belong to; giving them their own name makes them a sub-lead
+              <div className="mt-0.5 flex items-center gap-1.5 whitespace-nowrap">
+                <span className="text-[10px] text-gray-500" title="Inherited from their lead">{teamOf(p.id)}</span>
+                <button onClick={() => setOpEditTeam(p.id)} className="text-[10px] text-gray-600 hover:text-gray-200" title="Give this person their own team (makes them a sub-lead)">+ sub-team</button>
+              </div>
             ) : (
               <button onClick={() => setOpEditTeam(p.id)} className="mt-1 text-[10px] text-gray-500 hover:text-gray-200 whitespace-nowrap">+ team name</button>
             )
