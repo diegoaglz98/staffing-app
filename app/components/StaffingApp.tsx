@@ -6389,8 +6389,8 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
               <p className="text-sm text-gray-400 mb-3">{opSetupMsg}</p>
               <p className="text-xs text-gray-500">Create the <code className="text-gray-300">org_plan_people</code> table and add <code className="text-gray-300">SUPABASE_SERVICE_ROLE_KEY</code> to the Vercel environment variables, redeploy, then refresh.</p>
               <div className="flex gap-2 mt-4">
-                <button onClick={() => opLoad()} className="text-xs px-3 py-1.5 rounded-lg border border-gray-700 text-gray-300 hover:text-white">Retry</button>
-                <button onClick={opLock} className="text-xs px-3 py-1.5 rounded-lg border border-gray-700 text-gray-400 hover:text-white">🔒 Lock</button>
+                <button onClick={() => opLoad()} className="text-xs px-3 py-1.5 rounded-lg border border-gray-700 text-gray-300 hover:text-gray-100">Retry</button>
+                <button onClick={opLock} className="text-xs px-3 py-1.5 rounded-lg border border-gray-700 text-gray-400 hover:text-gray-100">🔒 Lock</button>
               </div>
             </div>
           )
@@ -6405,7 +6405,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                 >{label}</button>
               ))}
               <div className="flex-1" />
-              <button onClick={exportOrgPlanningViewer} className="text-xs px-3 py-1 mb-1 mr-2 rounded-lg border border-gray-700 text-gray-300 hover:text-white hover:border-gray-500" title="Download a standalone HTML page with pod definitions, links and every org version">⬇ Export viewer</button>
+              <button onClick={exportOrgPlanningViewer} className="text-xs px-3 py-1 mb-1 mr-2 rounded-lg border border-gray-700 text-gray-300 hover:text-gray-100 hover:border-gray-500" title="Download a standalone HTML page with pod definitions, links and every org version">⬇ Export viewer</button>
               {(opSub === 'definition' || opHideRoster) && <button onClick={opLock} className="text-[11px] text-gray-500 hover:text-gray-200 mb-1" title="Lock Org planning">🔒 Lock</button>}
             </div>
           )
@@ -6418,7 +6418,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                   <p className="text-amber-300 font-semibold mb-1">Pods Definition needs a one-time setup</p>
                   <p className="text-sm text-gray-400 mb-3">{opPodsSetupMsg}</p>
                   <p className="text-xs text-gray-500">Create the <code className="text-gray-300">org_plan_pods</code> table in Supabase, then retry.</p>
-                  <button onClick={opLoadPods} className="mt-4 text-xs px-3 py-1.5 rounded-lg border border-gray-700 text-gray-300 hover:text-white">Retry</button>
+                  <button onClick={opLoadPods} className="mt-4 text-xs px-3 py-1.5 rounded-lg border border-gray-700 text-gray-300 hover:text-gray-100">Retry</button>
                 </div>
               ) : opPodsState !== 'ready' ? (
                 <p className="text-sm text-gray-500">Loading…</p>
@@ -6435,10 +6435,10 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                     <div className="flex flex-wrap items-center gap-3">
                       <button
                         onClick={() => { if (opLinkMode) opFinishLinking(); else { setOpLinkMode(true); setOpLinkFrom(null); setOpPodEdit(null) } }}
-                        className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${opLinkMode ? 'border-sky-500 bg-sky-500/15 text-sky-300' : 'border-gray-700 text-gray-300 hover:text-white hover:border-gray-500'}`}
+                        className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${opLinkMode ? 'border-sky-500 bg-sky-500/15 text-sky-300' : 'border-gray-700 text-gray-300 hover:text-gray-100 hover:border-gray-500'}`}
                       >🔗 {opLinkMode ? 'Done linking' : 'Link pods'}</button>
                       {!opLinkMode && opPodLinks.length > 0 && (
-                        <button onClick={opArrangePods} className="text-xs px-3 py-1.5 rounded-lg border border-gray-700 text-gray-300 hover:text-white hover:border-gray-500" title="Reorder the cards so linked pods sit next to each other">✨ Arrange by links</button>
+                        <button onClick={opArrangePods} className="text-xs px-3 py-1.5 rounded-lg border border-gray-700 text-gray-300 hover:text-gray-100 hover:border-gray-500" title="Reorder the cards so linked pods sit next to each other">✨ Arrange by links</button>
                       )}
                       <span className="text-[11px] text-gray-500">
                         {opLinkMode
@@ -6503,7 +6503,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                                 <textarea className={inputClass + ' w-full min-h-[120px]'} value={opPodEdit.description} onChange={e => setOpPodEdit({ ...opPodEdit, description: e.target.value })} onKeyDown={e => { if (e.key === 'Escape') setOpPodEdit(null) }} />
                                 <div className="flex gap-2">
                                   <button onClick={opSavePodEdit} className="text-xs px-3 py-1 rounded-lg text-white hover:brightness-125" style={{ backgroundColor: '#193a29' }}>Save</button>
-                                  <button onClick={() => setOpPodEdit(null)} className="text-xs px-3 py-1 rounded-lg border border-gray-700 text-gray-400 hover:text-white">Cancel</button>
+                                  <button onClick={() => setOpPodEdit(null)} className="text-xs px-3 py-1 rounded-lg border border-gray-700 text-gray-400 hover:text-gray-100">Cancel</button>
                                 </div>
                               </div>
                             ) : (
@@ -6511,9 +6511,9 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                                 <div className="flex items-start gap-2">
                                   <h3 className="flex-1 text-gray-100 font-semibold leading-snug">{p.name}</h3>
                                   <div className={`flex items-center gap-1 opacity-0 transition-opacity ${opLinkMode ? 'hidden' : 'group-hover:opacity-100'}`}>
-                                    <button onClick={() => opMovePod(i, -1)} disabled={i === 0} className="text-xs text-gray-500 hover:text-white disabled:opacity-30 px-1" title="Move earlier">◀</button>
-                                    <button onClick={() => opMovePod(i, 1)} disabled={i === opPods.length - 1} className="text-xs text-gray-500 hover:text-white disabled:opacity-30 px-1" title="Move later">▶</button>
-                                    <button onClick={() => setOpPodEdit({ id: p.id, name: p.name, description: p.description ?? '' })} className="text-xs text-gray-500 hover:text-white px-1" title="Edit">✎</button>
+                                    <button onClick={() => opMovePod(i, -1)} disabled={i === 0} className="text-xs text-gray-500 hover:text-gray-100 disabled:opacity-30 px-1" title="Move earlier">◀</button>
+                                    <button onClick={() => opMovePod(i, 1)} disabled={i === opPods.length - 1} className="text-xs text-gray-500 hover:text-gray-100 disabled:opacity-30 px-1" title="Move later">▶</button>
+                                    <button onClick={() => setOpPodEdit({ id: p.id, name: p.name, description: p.description ?? '' })} className="text-xs text-gray-500 hover:text-gray-100 px-1" title="Edit">✎</button>
                                     <button onClick={() => opDeletePod(p)} className="text-xs text-gray-500 hover:text-red-400 px-1" title="Delete">✕</button>
                                   </div>
                                 </div>
@@ -6670,7 +6670,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                   const sibs = shownKids(parentOf(p.id)!)
                   const i = sibs.findIndex(x => x.id === p.id)
                   const vertical = opLayout === 'vertical'
-                  const btn = 'w-5 h-5 flex items-center justify-center rounded text-[10px] text-gray-400 hover:text-white hover:bg-gray-800 disabled:opacity-25 disabled:hover:bg-transparent'
+                  const btn = 'w-5 h-5 flex items-center justify-center rounded text-[10px] text-gray-400 hover:text-gray-100 hover:bg-gray-800 disabled:opacity-25 disabled:hover:bg-transparent'
                   return sibs.length > 1 ? (
                     <div className="flex items-center gap-0.5 mt-1" title="Reorder">
                       <button className={btn} disabled={i <= 0} onClick={() => moveSibling(p, -1)}>{vertical ? '▲' : '◀'}</button>
@@ -6714,19 +6714,19 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                 {opVersions.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
               </select>
               <button onClick={opCloneVersion} className="text-xs px-2.5 py-1.5 rounded-lg text-white hover:brightness-125" style={{ backgroundColor: '#193a29' }} title="Copy this version (roster, chart, teams, order) into a new one">⧉ Clone</button>
-              <button onClick={opNewVersion} className="text-xs px-2.5 py-1.5 rounded-lg border border-gray-700 text-gray-300 hover:text-white hover:border-gray-500">+ New empty</button>
-              <button onClick={opRenameVersion} className="text-xs px-2.5 py-1.5 rounded-lg border border-gray-700 text-gray-300 hover:text-white hover:border-gray-500">✎ Rename</button>
+              <button onClick={opNewVersion} className="text-xs px-2.5 py-1.5 rounded-lg border border-gray-700 text-gray-300 hover:text-gray-100 hover:border-gray-500">+ New empty</button>
+              <button onClick={opRenameVersion} className="text-xs px-2.5 py-1.5 rounded-lg border border-gray-700 text-gray-300 hover:text-gray-100 hover:border-gray-500">✎ Rename</button>
               <button onClick={opDeleteVersion} disabled={opVersions.length <= 1} className="text-xs px-2.5 py-1.5 rounded-lg border border-red-500/30 text-red-400/80 hover:text-red-400 disabled:opacity-30 disabled:cursor-not-allowed" title={opVersions.length <= 1 ? "Can't delete the only version" : 'Delete this version'}>Delete</button>
               <span className="text-[11px] text-gray-600 ml-1">{opVersions.length} version{opVersions.length === 1 ? '' : 's'} · each has its own roster & chart</span>
               <div className="flex-1" />
               <button
                 onClick={() => setOpHideRoster(v => !v)}
-                className={`text-xs px-2.5 py-1.5 rounded-lg border transition-colors ${!opHideRoster ? 'border-emerald-500/40 text-emerald-300 bg-emerald-500/10' : 'border-gray-700 text-gray-400 hover:text-white hover:border-gray-500'}`}
+                className={`text-xs px-2.5 py-1.5 rounded-lg border transition-colors ${!opHideRoster ? 'border-emerald-500/40 text-emerald-300 bg-emerald-500/10' : 'border-gray-700 text-gray-400 hover:text-gray-100 hover:border-gray-500'}`}
                 title={opHideRoster ? 'Show the roster sidebar' : 'Hide the roster sidebar to give the chart the full width'}
               >◧ {opHideRoster ? 'Show roster' : 'Hide roster'}</button>
               <button
                 onClick={() => setOpShowTargets(v => !v)}
-                className={`text-xs px-2.5 py-1.5 rounded-lg border transition-colors ${opShowTargets ? 'border-emerald-500/40 text-emerald-300 bg-emerald-500/10' : 'border-gray-700 text-gray-400 hover:text-white hover:border-gray-500'}`}
+                className={`text-xs px-2.5 py-1.5 rounded-lg border transition-colors ${opShowTargets ? 'border-emerald-500/40 text-emerald-300 bg-emerald-500/10' : 'border-gray-700 text-gray-400 hover:text-gray-100 hover:border-gray-500'}`}
                 title={opShowTargets ? 'Hide the headcount vs target panel' : 'Show the headcount vs target panel'}
               >🎯 {opShowTargets ? 'Hide targets' : 'Show targets'}</button>
             </div>
@@ -6742,7 +6742,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
               return (
                 <div className="mb-5 bg-gray-900 border border-gray-800 rounded-xl">
                   <div className="flex items-center gap-3 px-4 py-2.5">
-                    <button onClick={() => setOpTargetsOpen(o => !o)} className="text-sm font-medium text-gray-100 hover:text-white">{opTargetsOpen ? '▾' : '▸'} Headcount vs target</button>
+                    <button onClick={() => setOpTargetsOpen(o => !o)} className="text-sm font-medium text-gray-100 hover:text-gray-100">{opTargetsOpen ? '▾' : '▸'} Headcount vs target</button>
                     {hc.rows.length > 0 && <span className="text-xs text-gray-500">{hc.totals.actual} / {hc.totals.target} <span className={`ml-1 px-1.5 py-0.5 rounded-full font-semibold ${tone(td)}`}>{signed(td)}</span></span>}
                     <div className="flex-1" />
                     {opTargetsOpen && <button onClick={() => setOpTargetsEditing(e => !e)} className="text-[11px] text-gray-500 hover:text-gray-200">{opTargetsEditing ? 'Done' : '✎ Edit targets'}</button>}
@@ -6832,11 +6832,11 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                   <button onClick={opAddPerson} className="w-full text-xs py-1 rounded text-white hover:brightness-125" style={{ backgroundColor: '#193a29' }}>+ Add person</button>
                 </div>
                 <div className="flex items-center gap-2">
-                  <label className="flex-1 text-center cursor-pointer text-xs text-gray-300 border border-gray-700 rounded-lg px-2 py-1.5 hover:text-white hover:border-gray-500">
+                  <label className="flex-1 text-center cursor-pointer text-xs text-gray-300 border border-gray-700 rounded-lg px-2 py-1.5 hover:text-gray-100 hover:border-gray-500">
                     ⬆ Import CSV
                     <input type="file" accept=".csv" className="hidden" onChange={opImportCSV} />
                   </label>
-                  {opPeople.length > 0 && <button onClick={exportOrgPlanningCSV} className="flex-1 text-xs text-gray-300 border border-gray-700 rounded-lg px-2 py-1.5 hover:text-white hover:border-gray-500">⬇ CSV</button>}
+                  {opPeople.length > 0 && <button onClick={exportOrgPlanningCSV} className="flex-1 text-xs text-gray-300 border border-gray-700 rounded-lg px-2 py-1.5 hover:text-gray-100 hover:border-gray-500">⬇ CSV</button>}
                   {opPeople.length > 0 && <button onClick={opClearAll} className="text-xs text-red-400/80 hover:text-red-400 border border-red-500/30 rounded-lg px-2 py-1.5">Clear all</button>}
                 </div>
                 <p className="text-[10px] text-gray-600 leading-snug">CSV needs a <span className="text-gray-400">Name</span> column (optional <span className="text-gray-400">Position</span>). Existing names get their position updated.</p>
@@ -6906,7 +6906,7 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                                 {allPositions.map(pos => {
                                   const n = opPeople.filter(p => p.position === pos).length
                                   return (
-                                    <label key={pos} className="flex items-center gap-2 text-xs text-gray-300 cursor-pointer hover:text-white">
+                                    <label key={pos} className="flex items-center gap-2 text-xs text-gray-300 cursor-pointer hover:text-gray-100">
                                       <input
                                         type="checkbox"
                                         className="accent-[#193a29]"
@@ -6929,9 +6929,9 @@ ${sections || '<p><em>No milestones yet.</em></p>'}
                     <button onClick={() => { const c: Record<string, boolean> = {}; placed.forEach(p => { if (childrenOf(p.id).length) c[p.id] = true }); setOpCollapsed(c) }} className="text-xs px-3 py-1.5 rounded-lg border border-gray-700 text-gray-400 hover:text-gray-200">Collapse all</button>
                     <button onClick={() => setOpCollapsed(Object.fromEntries(placed.map(p => [p.id, false])))} className="text-xs px-3 py-1.5 rounded-lg border border-gray-700 text-gray-400 hover:text-gray-200">Expand all</button>
                     <div className="flex items-center border border-gray-700 rounded-lg overflow-hidden">
-                      <button onClick={() => setOpZoom(z => Math.max(0.4, Math.round((z - 0.1) * 10) / 10))} className="px-2.5 py-1 text-gray-400 hover:text-white hover:bg-gray-800 leading-none">−</button>
-                      <button onClick={() => setOpZoom(1)} className="px-2 py-1 text-xs text-gray-400 hover:text-white tabular-nums leading-none">{Math.round(opZoom * 100)}%</button>
-                      <button onClick={() => setOpZoom(z => Math.min(2, Math.round((z + 0.1) * 10) / 10))} className="px-2.5 py-1 text-gray-400 hover:text-white hover:bg-gray-800 leading-none">+</button>
+                      <button onClick={() => setOpZoom(z => Math.max(0.4, Math.round((z - 0.1) * 10) / 10))} className="px-2.5 py-1 text-gray-400 hover:text-gray-100 hover:bg-gray-800 leading-none">−</button>
+                      <button onClick={() => setOpZoom(1)} className="px-2 py-1 text-xs text-gray-400 hover:text-gray-100 tabular-nums leading-none">{Math.round(opZoom * 100)}%</button>
+                      <button onClick={() => setOpZoom(z => Math.min(2, Math.round((z + 0.1) * 10) / 10))} className="px-2.5 py-1 text-gray-400 hover:text-gray-100 hover:bg-gray-800 leading-none">+</button>
                     </div>
                     {roots.length > 0 && <>
                       <button onClick={() => exportOrgChart('download', 'org-plan-capture', 'org-plan')} className="text-xs px-3 py-1.5 rounded-lg border border-gray-700 text-gray-400 hover:text-gray-200">Download PNG</button>
